@@ -39,12 +39,17 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
-        setError("Invalid credentials");
-      } else {
-        router.push("/admin");
+        setError(result.error === "CredentialsSignin" ? "Invalid email or password" : result.error);
+      } else if (result?.ok) {
+        // Successful login - redirect to admin dashboard
+        const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl") || "/admin";
+        router.push(callbackUrl);
         router.refresh();
+      } else {
+        setError("Login failed. Please try again.");
       }
     } catch (error) {
+      console.error("Login error:", error);
       setError("An error occurred. Please try again.");
     } finally {
       setIsLoading(false);
@@ -52,10 +57,12 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/10 to-accent/10">
-      <div className="w-full max-w-md space-y-8 rounded-lg bg-background p-8 shadow-lg">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50">
+      <div className="w-full max-w-md space-y-8 rounded-2xl bg-white/90 backdrop-blur-sm p-8 shadow-2xl border border-purple-100/50">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-primary">Admin Dashboard</h1>
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-500 to-blue-500 bg-clip-text text-transparent">
+            Admin Dashboard
+          </h1>
           <p className="mt-2 text-muted-foreground">
             Sign in to access the admin panel
           </p>
@@ -65,7 +72,7 @@ export default function LoginPage() {
           <div>
             <label
               htmlFor="email"
-              className="block text-sm font-medium text-foreground"
+              className="block text-sm font-semibold text-foreground mb-2"
             >
               Email
             </label>
@@ -73,7 +80,7 @@ export default function LoginPage() {
               {...register("email")}
               type="email"
               id="email"
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="mt-1 w-full rounded-lg border border-border/50 bg-white px-4 py-3 text-foreground transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20"
               placeholder="admin@example.com"
             />
             {errors.email && (
@@ -84,7 +91,7 @@ export default function LoginPage() {
           <div>
             <label
               htmlFor="password"
-              className="block text-sm font-medium text-foreground"
+              className="block text-sm font-semibold text-foreground mb-2"
             >
               Password
             </label>
@@ -92,7 +99,7 @@ export default function LoginPage() {
               {...register("password")}
               type="password"
               id="password"
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="mt-1 w-full rounded-lg border border-border/50 bg-white px-4 py-3 text-foreground transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20"
               placeholder="••••••••"
             />
             {errors.password && (
@@ -103,7 +110,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-600">
               {error}
             </div>
           )}
@@ -111,14 +118,14 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded-md bg-primary px-4 py-2 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="w-full rounded-lg bg-gradient-to-r from-purple-600 to-pink-500 px-4 py-3 font-semibold text-white shadow-lg shadow-purple-500/30 transition-all hover:shadow-xl hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
           >
             {isLoading ? "Signing in..." : "Sign In"}
           </button>
         </form>
 
         <div className="mt-4 text-center text-sm text-muted-foreground">
-          <p>Demo credentials: any email + password (6+ chars)</p>
+          <p>Use your admin credentials to sign in</p>
         </div>
       </div>
     </div>

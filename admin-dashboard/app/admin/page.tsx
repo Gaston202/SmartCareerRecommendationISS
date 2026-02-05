@@ -1,26 +1,36 @@
 "use client";
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from "recharts";
-
-// Sample data for demonstration
-const userGrowthData = [
-  { month: "Jan", users: 400 },
-  { month: "Feb", users: 600 },
-  { month: "Mar", users: 800 },
-  { month: "Apr", users: 1200 },
-  { month: "May", users: 1600 },
-  { month: "Jun", users: 2000 },
-];
-
-const careerRecommendationsData = [
-  { category: "Technology", count: 450 },
-  { category: "Healthcare", count: 320 },
-  { category: "Business", count: 280 },
-  { category: "Education", count: 210 },
-  { category: "Engineering", count: 390 },
-];
+import { useDashboardStats } from "@/hooks/use-api";
 
 export default function DashboardPage() {
+  const { data: stats, isLoading, error } = useDashboardStats();
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+          <p className="text-muted-foreground">Loading dashboard data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+          <p className="text-red-500">Error loading dashboard data. Please try again.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const userGrowthData = stats?.userGrowth || [];
+  const careerRecommendationsData = stats?.careerRecommendationsByCategory || [];
+
   return (
     <div className="space-y-6">
       <div>
@@ -37,18 +47,18 @@ export default function DashboardPage() {
             <p className="text-sm font-medium text-muted-foreground">Total Users</p>
           </div>
           <div className="mt-2">
-            <p className="text-3xl font-bold text-primary">2,547</p>
-            <p className="text-xs text-green-600 mt-1">+12% from last month</p>
+            <p className="text-3xl font-bold text-primary">{stats?.totalUsers || 0}</p>
+            <p className="text-xs text-muted-foreground mt-1">Registered users</p>
           </div>
         </div>
 
         <div className="rounded-lg border border-border bg-white p-6">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Active Sessions</p>
+            <p className="text-sm font-medium text-muted-foreground">Active Users</p>
           </div>
           <div className="mt-2">
-            <p className="text-3xl font-bold text-primary">1,234</p>
-            <p className="text-xs text-green-600 mt-1">+8% from last month</p>
+            <p className="text-3xl font-bold text-primary">{stats?.activeUsers || 0}</p>
+            <p className="text-xs text-muted-foreground mt-1">Currently active</p>
           </div>
         </div>
 
@@ -57,57 +67,61 @@ export default function DashboardPage() {
             <p className="text-sm font-medium text-muted-foreground">Recommendations</p>
           </div>
           <div className="mt-2">
-            <p className="text-3xl font-bold text-primary">1,650</p>
-            <p className="text-xs text-green-600 mt-1">+18% from last month</p>
+            <p className="text-3xl font-bold text-primary">{stats?.totalRecommendations || 0}</p>
+            <p className="text-xs text-muted-foreground mt-1">Total generated</p>
           </div>
         </div>
 
         <div className="rounded-lg border border-border bg-white p-6">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Success Rate</p>
+            <p className="text-sm font-medium text-muted-foreground">Conversion Rate</p>
           </div>
           <div className="mt-2">
-            <p className="text-3xl font-bold text-primary">89%</p>
-            <p className="text-xs text-green-600 mt-1">+3% from last month</p>
+            <p className="text-3xl font-bold text-primary">{stats?.conversionRate || 0}%</p>
+            <p className="text-xs text-muted-foreground mt-1">Viewed recommendations</p>
           </div>
         </div>
       </div>
 
       {/* Charts */}
       <div className="grid gap-6 md:grid-cols-2">
-        <div className="rounded-lg border border-border bg-white p-6">
-          <h3 className="text-lg font-semibold mb-4">User Growth</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={userGrowthData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line 
-                type="monotone" 
-                dataKey="users" 
-                stroke="#7D10B9" 
-                strokeWidth={2}
-                activeDot={{ r: 8 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        {userGrowthData.length > 0 && (
+          <div className="rounded-lg border border-border bg-white p-6">
+            <h3 className="text-lg font-semibold mb-4">User Growth</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={userGrowthData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="users" 
+                  stroke="#7D10B9" 
+                  strokeWidth={2}
+                  activeDot={{ r: 8 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
 
-        <div className="rounded-lg border border-border bg-white p-6">
-          <h3 className="text-lg font-semibold mb-4">Career Recommendations by Category</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={careerRecommendationsData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="category" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="count" fill="#7D10B9" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {careerRecommendationsData.length > 0 && (
+          <div className="rounded-lg border border-border bg-white p-6">
+            <h3 className="text-lg font-semibold mb-4">Career Recommendations by Category</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={careerRecommendationsData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="category" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="count" fill="#7D10B9" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       {/* Recent Activity */}

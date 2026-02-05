@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mockSkills } from "@/lib/mockData";
+import { skillsService } from "@/services/supabase";
 
 // GET /api/skills - Get all skills
 export async function GET(request: NextRequest) {
   try {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    return NextResponse.json(mockSkills);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch skills" }, { status: 500 });
+    const skills = await skillsService.getAll();
+    return NextResponse.json(skills);
+  } catch (error: any) {
+    console.error("Error fetching skills:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to fetch skills" },
+      { status: 500 }
+    );
   }
 }
 
@@ -23,17 +27,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const newSkill = {
-      id: `skill-${Date.now()}`,
+    const newSkill = await skillsService.create({
       name: body.name,
       category: body.category,
       description: body.description || "",
       relatedCareers: body.relatedCareers || [],
-      createdAt: new Date().toISOString(),
-    };
+    });
 
     return NextResponse.json(newSkill, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to create skill" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Error creating skill:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to create skill" },
+      { status: 500 }
+    );
   }
 }

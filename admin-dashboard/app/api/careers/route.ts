@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mockCareers } from "@/lib/mockData";
+import { careersService } from "@/services/supabase";
 
 // GET /api/careers - Get all careers
 export async function GET(request: NextRequest) {
   try {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    return NextResponse.json(mockCareers);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch careers" }, { status: 500 });
+    const careers = await careersService.getAll();
+    return NextResponse.json(careers);
+  } catch (error: any) {
+    console.error("Error fetching careers:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to fetch careers" },
+      { status: 500 }
+    );
   }
 }
 
@@ -23,8 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const newCareer = {
-      id: `career-${Date.now()}`,
+    const newCareer = await careersService.create({
       title: body.title,
       description: body.description,
       category: body.category,
@@ -32,12 +35,14 @@ export async function POST(request: NextRequest) {
       averageSalary: body.averageSalary || 0,
       growthRate: body.growthRate || 0,
       demandLevel: body.demandLevel || "medium",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    });
 
     return NextResponse.json(newCareer, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to create career" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Error creating career:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to create career" },
+      { status: 500 }
+    );
   }
 }

@@ -1,14 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mockRecommendations } from "@/lib/mockData";
+import { recommendationsService } from "@/services/supabase";
 
 // GET /api/recommendations - Get all recommendations
 export async function GET(request: NextRequest) {
   try {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    return NextResponse.json(mockRecommendations);
-  } catch (error) {
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
+
+    const recommendations = userId
+      ? await recommendationsService.getByUserId(userId)
+      : await recommendationsService.getAll();
+
+    return NextResponse.json(recommendations);
+  } catch (error: any) {
+    console.error("Error fetching recommendations:", error);
     return NextResponse.json(
-      { error: "Failed to fetch recommendations" },
+      { error: error.message || "Failed to fetch recommendations" },
       { status: 500 }
     );
   }

@@ -8,6 +8,7 @@ export interface User {
   updatedAt: string;
   avatar?: string;
   phone?: string;
+  password?: string; // Never return this in API responses, only for internal use
 }
 
 export interface CreateUserDto {

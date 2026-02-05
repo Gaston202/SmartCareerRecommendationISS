@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mockCourses } from "@/lib/mockData";
+import { coursesService } from "@/services/supabase";
 
 // GET /api/courses - Get all courses
 export async function GET(request: NextRequest) {
   try {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    return NextResponse.json(mockCourses);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch courses" }, { status: 500 });
+    const courses = await coursesService.getAll();
+    return NextResponse.json(courses);
+  } catch (error: any) {
+    console.error("Error fetching courses:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to fetch courses" },
+      { status: 500 }
+    );
   }
 }
 
@@ -23,8 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const newCourse = {
-      id: `course-${Date.now()}`,
+    const newCourse = await coursesService.create({
       title: body.title,
       provider: body.provider,
       description: body.description || "",
@@ -34,10 +37,14 @@ export async function POST(request: NextRequest) {
       url: body.url || "",
       price: body.price,
       rating: body.rating,
-    };
+    });
 
     return NextResponse.json(newCourse, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to create course" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Error creating course:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to create course" },
+      { status: 500 }
+    );
   }
 }

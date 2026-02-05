@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mockUsers } from "@/lib/mockData";
+import { usersService } from "@/services/supabase";
 
 // GET /api/users/[id] - Get single user
 export async function GET(
@@ -8,15 +8,17 @@ export async function GET(
 ) {
   try {
     const { id } = params;
-    const user = mockUsers.find((u) => u.id === id);
-
-    if (!user) {
+    const user = await usersService.getById(id);
+    return NextResponse.json(user);
+  } catch (error: any) {
+    console.error("Error fetching user:", error);
+    if (error.code === "PGRST116") {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
-
-    return NextResponse.json(user);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch user" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Failed to fetch user" },
+      { status: 500 }
+    );
   }
 }
 
@@ -28,23 +30,18 @@ export async function PUT(
   try {
     const { id } = params;
     const body = await request.json();
-    const userIndex = mockUsers.findIndex((u) => u.id === id);
 
-    if (userIndex === -1) {
+    const updatedUser = await usersService.update(id, body);
+    return NextResponse.json(updatedUser);
+  } catch (error: any) {
+    console.error("Error updating user:", error);
+    if (error.code === "PGRST116") {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
-
-    // Update user
-    const updatedUser = {
-      ...mockUsers[userIndex],
-      ...body,
-      id, // Prevent ID from being changed
-      updatedAt: new Date().toISOString(),
-    };
-
-    return NextResponse.json(updatedUser);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to update user" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Failed to update user" },
+      { status: 500 }
+    );
   }
 }
 
@@ -55,14 +52,13 @@ export async function DELETE(
 ) {
   try {
     const { id } = params;
-    const userIndex = mockUsers.findIndex((u) => u.id === id);
-
-    if (userIndex === -1) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
+    await usersService.delete(id);
     return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to delete user" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Error deleting user:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to delete user" },
+      { status: 500 }
+    );
   }
 }

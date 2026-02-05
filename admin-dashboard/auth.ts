@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import type { NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
+import { authService } from "@/services/auth-supabase";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -24,22 +25,22 @@ export const authConfig: NextAuthConfig = {
 
         const { email, password } = validatedFields.data;
 
-        // TODO: Replace with actual API call to your backend
-        // This is a placeholder for demonstration
         try {
-          // Example: const response = await axios.post('YOUR_API/auth/login', { email, password });
-          // const user = response.data;
-          
-          // For now, return a mock user
-          // Replace this with your actual authentication logic
-          const user = {
-            id: "1",
-            email: email,
-            name: "Admin User",
-            role: "admin", // Can be "admin", "manager", etc.
-          };
+          // Authenticate using Supabase
+          const user = await authService.authenticate(email, password);
 
-          return user;
+          if (!user) {
+            console.error("Authentication failed: Invalid credentials");
+            return null;
+          }
+
+          // Return user object for NextAuth
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          };
         } catch (error) {
           console.error("Authentication error:", error);
           return null;

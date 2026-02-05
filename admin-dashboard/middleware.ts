@@ -7,8 +7,15 @@ const protectedRoutes = ["/admin"];
 const authRoutes = ["/login"];
 
 export default async function middleware(request: NextRequest) {
-  const session = await auth();
   const { pathname } = request.nextUrl;
+
+  // Skip middleware for API routes - let them handle their own auth
+  if (pathname.startsWith("/api")) {
+    return NextResponse.next();
+  }
+
+  // Get NextAuth session
+  const session = await auth();
 
   // Check if the route is protected
   const isProtectedRoute = protectedRoutes.some((route) =>
