@@ -1,107 +1,172 @@
 "use client";
 
 import { useUsers } from "@/hooks/useUsers";
+import { PageHeader } from "@/components/ui/page-header";
+import { DataTable } from "@/components/ui/data-table";
+import { LoadingState } from "@/components/ui/loading-state";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { UserPlus, Users, MoreVertical, Mail, Shield } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function UsersPage() {
   const { data: users, isLoading, error } = useUsers();
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-muted-foreground">Loading users...</p>
+      <div className="space-y-6">
+        <PageHeader title="Users" description="Manage user accounts and permissions" />
+        <LoadingState message="Loading users..." />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="space-y-4">
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <p className="text-red-700 font-semibold">Error loading users</p>
-          <p className="text-red-600 text-sm mt-1">
-            {error instanceof Error ? error.message : "Unable to connect to the server. Please check your internet connection and try again."}
-          </p>
-        </div>
-        <button 
-          onClick={() => window.location.reload()}
-          className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-        >
-          Retry
-        </button>
+      <div className="space-y-6">
+        <PageHeader title="Users" description="Manage user accounts and permissions" />
+        <Card className="border-destructive">
+          <div className="p-6 space-y-4">
+            <div className="space-y-2">
+              <p className="font-semibold text-destructive">Error loading users</p>
+              <p className="text-sm text-muted-foreground">
+                {error instanceof Error
+                  ? error.message
+                  : "Unable to connect to the server. Please check your internet connection and try again."}
+              </p>
+            </div>
+            <Button
+              variant="destructive"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </Button>
+          </div>
+        </Card>
       </div>
     );
   }
 
+  const columns = [
+    {
+      header: "Name",
+      accessorKey: "name",
+      cell: (user: { name?: string; email?: string }) => (
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-semibold ring-2 ring-primary/10 transition-all hover:ring-primary/30">
+            {user.name?.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <p className="font-medium">{user.name}</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              <Mail className="h-3 w-3" />
+              {user.email}
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      header: "Role",
+      accessorKey: "role",
+      cell: (user: { role?: string }) => (
+        <Badge
+          variant="secondary"
+          className={cn(
+            "gap-1",
+            user.role === "admin"
+              ? "bg-purple-100 text-purple-700 border-purple-200"
+              : user.role === "manager"
+              ? "bg-blue-100 text-blue-700 border-blue-200"
+              : "bg-emerald-100 text-emerald-700 border-emerald-200"
+          )}
+        >
+          <Shield className="h-3 w-3" />
+          {user.role}
+        </Badge>
+      ),
+    },
+    {
+      header: "Status",
+      accessorKey: "status",
+      cell: (user: { status?: string }) => {
+        const status = user.status || "active";
+        return (
+          <Badge
+            variant={status === "active" ? "default" : "secondary"}
+            className={cn(
+              "transition-all",
+              status === "active"
+                ? "bg-green-100 text-green-700 hover:bg-green-100 border-green-200"
+                : "border-gray-200"
+            )}
+          >
+            <span className={cn("h-1.5 w-1.5 rounded-full mr-1.5", status === "active" ? "bg-green-500" : "bg-gray-400")} />
+            {status}
+          </Badge>
+        );
+      },
+    },
+    {
+      header: "Actions",
+      accessorKey: "id",
+      cell: () => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="hover:bg-accent">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem>View Details</DropdownMenuItem>
+            <DropdownMenuItem>Edit User</DropdownMenuItem>
+            <DropdownMenuItem>Reset Password</DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive">
+              Delete User
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Users</h2>
-          <p className="text-muted-foreground">
-            Manage user accounts and permissions
-          </p>
-        </div>
-        <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-          Add User
-        </button>
-      </div>
+      <PageHeader
+        title="Users"
+        description="Manage user accounts and permissions"
+        action={{
+          label: "Add User",
+          icon: UserPlus,
+          onClick: () => console.log("Add user"),
+        }}
+      />
 
-      <div className="rounded-lg border border-border bg-white">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="border-b border-border bg-muted/50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Email
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Role
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {users && users.length > 0 ? (
-                users.map((user: any) => (
-                  <tr key={user.id} className="hover:bg-muted/50">
-                    <td className="px-6 py-4 text-sm font-medium">{user.name}</td>
-                    <td className="px-6 py-4 text-sm text-muted-foreground">
-                      {user.email}
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
-                        {user.role}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">
-                        {user.status || "active"}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <button className="text-primary hover:underline">Edit</button>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-muted-foreground">
-                    No users found. Add your first user to get started.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {users && users.length > 0 ? (
+        <div className="rounded-xl border bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-1">
+          <div className="rounded-lg bg-background">
+            <DataTable columns={columns} data={users} />
+          </div>
         </div>
-      </div>
+      ) : (
+        <EmptyState
+          icon={Users}
+          title="No users found"
+          description="Add your first user to get started with the platform."
+          action={{
+            label: "Add User",
+            onClick: () => console.log("Add user"),
+          }}
+        />
+      )}
     </div>
   );
 }

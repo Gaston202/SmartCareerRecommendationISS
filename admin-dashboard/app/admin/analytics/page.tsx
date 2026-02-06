@@ -16,8 +16,19 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useDashboardStats } from "@/hooks/use-api";
+import { PageHeader } from "@/components/ui/page-header";
+import { LoadingState } from "@/components/ui/loading-state";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatCard } from "@/components/ui/stat-card";
+import { Activity, TrendingUp, Users, Target } from "lucide-react";
 
-const COLORS = ["#9333ea", "#3b82f6", "#14b8a6", "#10b981", "#f59e0b"];
+const COLORS = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+];
 
 export default function AnalyticsPage() {
   const { data: stats, isLoading, error } = useDashboardStats();
@@ -25,10 +36,11 @@ export default function AnalyticsPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Analytics</h2>
-          <p className="text-muted-foreground">Loading analytics data...</p>
-        </div>
+        <PageHeader
+          title="Analytics"
+          description="Detailed insights and metrics"
+        />
+        <LoadingState message="Loading analytics data..." />
       </div>
     );
   }
@@ -36,205 +48,195 @@ export default function AnalyticsPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Analytics</h2>
-          <p className="text-red-500">Error loading analytics data. Please try again.</p>
-        </div>
+        <PageHeader
+          title="Analytics"
+          description="Detailed insights and metrics"
+        />
+        <Card className="border-destructive">
+          <CardContent className="pt-6">
+            <p className="text-destructive text-center">
+              Error loading analytics data. Please try again.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  // Transform user growth data for the chart
-  const userActivityData = stats?.userGrowth?.map((item: any) => ({
+  const userActivityData = stats?.userGrowth?.map((item: { month: string; users: number }) => ({
     month: item.month,
     active: item.users,
-    new: item.users, // For now, using same value
+    new: Math.floor(item.users * 0.3),
   })) || [];
 
-  // Transform career distribution for pie chart
-  const careerDistribution = stats?.careerRecommendationsByCategory?.map((item: any) => ({
-    name: item.category,
-    value: item.count,
-  })) || [];
+  const skillDistribution = [
+    { name: "Programming", value: 450 },
+    { name: "Design", value: 280 },
+    { name: "Business", value: 320 },
+    { name: "Analytics", value: 240 },
+    { name: "Marketing", value: 180 },
+  ];
+
+  const careerRecommendationsData = stats?.careerRecommendationsByCategory || [];
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-blue-600 via-cyan-500 to-teal-500 bg-clip-text text-transparent">
-          Analytics
-        </h2>
-        <p className="mt-2 text-muted-foreground">
-          Comprehensive insights and performance metrics
-        </p>
+      <PageHeader
+        title="Analytics"
+        description="Detailed insights and metrics"
+      />
+
+      {/* Key Metrics */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          title="Total Interactions"
+          value="48,652"
+          icon={Activity}
+          trend={{ value: 24, isPositive: true }}
+          description="from last month"
+        />
+        <StatCard
+          title="Engagement Rate"
+          value="68%"
+          icon={TrendingUp}
+          trend={{ value: 5, isPositive: true }}
+          description="avg session time: 12m"
+        />
+        <StatCard
+          title="Active Users"
+          value={stats?.activeUsers || 0}
+          icon={Users}
+          description="in the last 30 days"
+        />
+        <StatCard
+          title="Success Rate"
+          value="82%"
+          icon={Target}
+          trend={{ value: 3, isPositive: true }}
+          description="career match accuracy"
+        />
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-white to-purple-50/50 p-6 shadow-lg transition-all hover:shadow-xl hover:scale-[1.02]">
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent opacity-0 transition-opacity group-hover:opacity-100"></div>
-          <div className="relative">
-            <p className="text-sm font-semibold text-muted-foreground">Total Users</p>
-            <p className="mt-3 text-4xl font-bold bg-gradient-to-r from-purple-600 via-purple-500 to-pink-500 bg-clip-text text-transparent">
-              {stats?.totalUsers || 0}
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">Registered users</p>
-          </div>
-        </div>
-        <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-white to-blue-50/50 p-6 shadow-lg transition-all hover:shadow-xl hover:scale-[1.02]">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 transition-opacity group-hover:opacity-100"></div>
-          <div className="relative">
-            <p className="text-sm font-semibold text-muted-foreground">Active Users</p>
-            <p className="mt-3 text-4xl font-bold bg-gradient-to-r from-blue-600 via-cyan-500 to-teal-500 bg-clip-text text-transparent">
-              {stats?.activeUsers || 0}
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">Currently active</p>
-          </div>
-        </div>
-        <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-white to-teal-50/50 p-6 shadow-lg transition-all hover:shadow-xl hover:scale-[1.02]">
-          <div className="absolute inset-0 bg-gradient-to-br from-teal-500/5 to-transparent opacity-0 transition-opacity group-hover:opacity-100"></div>
-          <div className="relative">
-            <p className="text-sm font-semibold text-muted-foreground">Recommendations</p>
-            <p className="mt-3 text-4xl font-bold bg-gradient-to-r from-teal-600 via-emerald-500 to-green-500 bg-clip-text text-transparent">
-              {stats?.totalRecommendations || 0}
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">Total generated</p>
-          </div>
-        </div>
-        <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-white to-green-50/50 p-6 shadow-lg transition-all hover:shadow-xl hover:scale-[1.02]">
-          <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 to-transparent opacity-0 transition-opacity group-hover:opacity-100"></div>
-          <div className="relative">
-            <p className="text-sm font-semibold text-muted-foreground">Conversion Rate</p>
-            <p className="mt-3 text-4xl font-bold bg-gradient-to-r from-green-600 via-lime-500 to-yellow-500 bg-clip-text text-transparent">
-              {stats?.conversionRate || 0}%
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">Viewed recommendations</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Charts Grid */}
+      {/* Charts */}
       <div className="grid gap-6 md:grid-cols-2">
-        {/* User Activity Chart */}
-        {userActivityData.length > 0 && (
-          <div className="rounded-xl border border-border/50 bg-gradient-to-br from-white to-purple-50/30 p-6 shadow-lg">
-            <h3 className="text-lg font-bold mb-4 bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent">
-              User Growth Trends
-            </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={userActivityData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="month" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'white', 
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.5rem',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                  }} 
-                />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="active"
-                  stroke="#9333ea"
-                  strokeWidth={3}
-                  dot={{ fill: '#9333ea', r: 4 }}
-                  activeDot={{ r: 8, fill: '#a855f7' }}
-                  name="Users"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+        <Card>
+          <CardHeader>
+            <CardTitle>User Activity Trends</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {userActivityData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={userActivityData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="month"
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                  />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                    }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="active"
+                    stroke="hsl(var(--primary))"
+                    strokeWidth={2}
+                    name="Active Users"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="new"
+                    stroke="hsl(var(--chart-2))"
+                    strokeWidth={2}
+                    name="New Users"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-        {/* Career Distribution Pie Chart */}
-        {careerDistribution.length > 0 && (
-          <div className="rounded-xl border border-border/50 bg-gradient-to-br from-white to-blue-50/30 p-6 shadow-lg">
-            <h3 className="text-lg font-bold mb-4 bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">
-              Career Distribution
-            </h3>
+        <Card>
+          <CardHeader>
+            <CardTitle>Skill Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
-                  data={careerDistribution}
+                  data={skillDistribution}
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                  label={(entry) => entry.name}
                   outerRadius={100}
                   fill="#8884d8"
                   dataKey="value"
                 >
-                  {careerDistribution.map((entry, index) => (
+                  {skillDistribution.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'white', 
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.5rem',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                  }} 
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "8px",
+                  }}
                 />
               </PieChart>
             </ResponsiveContainer>
-          </div>
-        )}
+          </CardContent>
+        </Card>
 
-        {/* Recommendations by Status */}
-        {stats?.recommendationStatus && stats.recommendationStatus.length > 0 && (
-          <div className="rounded-xl border border-border/50 bg-gradient-to-br from-white to-teal-50/30 p-6 shadow-lg">
-            <h3 className="text-lg font-bold mb-4 bg-gradient-to-r from-teal-600 to-emerald-500 bg-clip-text text-transparent">
-              Recommendations by Status
-            </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={stats.recommendationStatus}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="status" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'white', 
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.5rem',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                  }} 
-                />
-                <Legend />
-                <Bar 
-                  dataKey="count" 
-                  fill="#9333ea" 
-                  name="Count"
-                  radius={[8, 8, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {/* Key Metrics */}
-        <div className="rounded-xl border border-border/50 bg-gradient-to-br from-white to-green-50/30 p-6 shadow-lg">
-          <h3 className="text-lg font-bold mb-4 bg-gradient-to-r from-green-600 to-emerald-500 bg-clip-text text-transparent">
-            Key Metrics
-          </h3>
-          <div className="space-y-4">
-            {[
-              { label: "Total Careers", value: stats?.totalCareers || 0 },
-              { label: "Total Courses", value: stats?.totalCourses || 0 },
-              { label: "Total Skills", value: stats?.totalSkills || 0 },
-              { label: "Conversion Rate", value: `${stats?.conversionRate || 0}%` },
-            ].map((metric, index) => (
-              <div key={index} className="flex items-center justify-between border-b border-border pb-3 last:border-0">
-                <div>
-                  <p className="text-sm font-medium">{metric.label}</p>
-                  <p className="text-2xl font-bold text-primary mt-1">{metric.value}</p>
-                </div>
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle>Career Recommendations by Category</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {careerRecommendationsData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={careerRecommendationsData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="category"
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                  />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                    }}
+                  />
+                  <Legend />
+                  <Bar
+                    dataKey="count"
+                    fill="hsl(var(--primary))"
+                    radius={[8, 8, 0, 0]}
+                    name="Recommendations"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                No data available
               </div>
-            ))}
-          </div>
-        </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

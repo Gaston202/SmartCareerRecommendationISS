@@ -1,7 +1,24 @@
 "use client";
 
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from "recharts";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+} from "recharts";
 import { useDashboardStats } from "@/hooks/use-api";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
+import { LoadingState } from "@/components/ui/loading-state";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Users, UserCheck, Target, TrendingUp } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 export default function DashboardPage() {
   const { data: stats, isLoading, error } = useDashboardStats();
@@ -9,10 +26,11 @@ export default function DashboardPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-          <p className="text-muted-foreground">Loading dashboard data...</p>
-        </div>
+        <PageHeader
+          title="Dashboard"
+          description="Overview of the Smart Career Recommendation system"
+        />
+        <LoadingState message="Loading dashboard data..." />
       </div>
     );
   }
@@ -20,10 +38,17 @@ export default function DashboardPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-          <p className="text-red-500">Error loading dashboard data. Please try again.</p>
-        </div>
+        <PageHeader
+          title="Dashboard"
+          description="Overview of the Smart Career Recommendation system"
+        />
+        <Card className="border-destructive">
+          <CardContent className="pt-6">
+            <p className="text-destructive text-center">
+              Error loading dashboard data. Please try again.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -33,117 +58,177 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-        <p className="text-muted-foreground">
-          Overview of the Smart Career Recommendation system
-        </p>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description="Overview of the Smart Career Recommendation system"
+      />
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg border border-border bg-white p-6">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Total Users</p>
-          </div>
-          <div className="mt-2">
-            <p className="text-3xl font-bold text-primary">{stats?.totalUsers || 0}</p>
-            <p className="text-xs text-muted-foreground mt-1">Registered users</p>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-border bg-white p-6">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Active Users</p>
-          </div>
-          <div className="mt-2">
-            <p className="text-3xl font-bold text-primary">{stats?.activeUsers || 0}</p>
-            <p className="text-xs text-muted-foreground mt-1">Currently active</p>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-border bg-white p-6">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Recommendations</p>
-          </div>
-          <div className="mt-2">
-            <p className="text-3xl font-bold text-primary">{stats?.totalRecommendations || 0}</p>
-            <p className="text-xs text-muted-foreground mt-1">Total generated</p>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-border bg-white p-6">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Conversion Rate</p>
-          </div>
-          <div className="mt-2">
-            <p className="text-3xl font-bold text-primary">{stats?.conversionRate || 0}%</p>
-            <p className="text-xs text-muted-foreground mt-1">Viewed recommendations</p>
-          </div>
-        </div>
+        <StatCard
+          title="Total Users"
+          value={stats?.totalUsers || 0}
+          description="Registered users"
+          icon={Users}
+          trend={{ value: 12, isPositive: true }}
+        />
+        <StatCard
+          title="Active Users"
+          value={stats?.activeUsers || 0}
+          description="Currently active"
+          icon={UserCheck}
+          trend={{ value: 8, isPositive: true }}
+        />
+        <StatCard
+          title="Recommendations"
+          value={stats?.totalRecommendations || 0}
+          description="Total generated"
+          icon={Target}
+        />
+        <StatCard
+          title="Conversion Rate"
+          value={`${stats?.conversionRate || 0}%`}
+          description="Viewed recommendations"
+          icon={TrendingUp}
+          trend={{ value: 3, isPositive: true }}
+        />
       </div>
 
       {/* Charts */}
       <div className="grid gap-6 md:grid-cols-2">
-        {userGrowthData.length > 0 && (
-          <div className="rounded-lg border border-border bg-white p-6">
-            <h3 className="text-lg font-semibold mb-4">User Growth</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={userGrowthData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="users" 
-                  stroke="#7D10B9" 
-                  strokeWidth={2}
-                  activeDot={{ r: 8 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+        <Card>
+          <CardHeader>
+            <CardTitle>User Growth</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {userGrowthData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={userGrowthData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="month"
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                  />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                    }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="users"
+                    stroke="hsl(var(--primary))"
+                    strokeWidth={2}
+                    activeDot={{ r: 6 }}
+                    name="Users"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-        {careerRecommendationsData.length > 0 && (
-          <div className="rounded-lg border border-border bg-white p-6">
-            <h3 className="text-lg font-semibold mb-4">Career Recommendations by Category</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={careerRecommendationsData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="category" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="count" fill="#7D10B9" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+        <Card>
+          <CardHeader>
+            <CardTitle>Career Recommendations by Category</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {careerRecommendationsData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={careerRecommendationsData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="category"
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                  />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                    }}
+                  />
+                  <Legend />
+                  <Bar
+                    dataKey="count"
+                    fill="hsl(var(--primary))"
+                    radius={[8, 8, 0, 0]}
+                    name="Recommendations"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Recent Activity */}
-      <div className="rounded-lg border border-border bg-white p-6">
-        <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
-        <div className="space-y-4">
-          {[
-            { user: "John Doe", action: "Received career recommendation", time: "2 minutes ago" },
-            { user: "Jane Smith", action: "Completed assessment", time: "15 minutes ago" },
-            { user: "Mike Johnson", action: "Updated profile", time: "1 hour ago" },
-            { user: "Sarah Williams", action: "Received career recommendation", time: "2 hours ago" },
-          ].map((activity, index) => (
-            <div key={index} className="flex items-center justify-between border-b border-border pb-3 last:border-0">
-              <div>
-                <p className="font-medium">{activity.user}</p>
-                <p className="text-sm text-muted-foreground">{activity.action}</p>
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Activity</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {[
+              {
+                user: "John Doe",
+                action: "Received career recommendation",
+                time: "2 minutes ago",
+                badge: "New",
+              },
+              {
+                user: "Jane Smith",
+                action: "Completed assessment",
+                time: "15 minutes ago",
+                badge: "Assessment",
+              },
+              {
+                user: "Mike Johnson",
+                action: "Updated profile",
+                time: "1 hour ago",
+                badge: "Update",
+              },
+              {
+                user: "Sarah Williams",
+                action: "Received career recommendation",
+                time: "2 hours ago",
+                badge: "New",
+              },
+            ].map((activity, index) => (
+              <div
+                key={index}
+                className="flex items-center justify-between border-b pb-3 last:border-0"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{activity.user}</p>
+                    <Badge variant="secondary" className="text-xs">
+                      {activity.badge}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{activity.action}</p>
+                </div>
+                <p className="text-sm text-muted-foreground">{activity.time}</p>
               </div>
-              <p className="text-sm text-muted-foreground">{activity.time}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

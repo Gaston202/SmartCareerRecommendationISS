@@ -30,7 +30,7 @@ export function useCreateUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (userData: any) => {
+    mutationFn: async (userData: Record<string, unknown>) => {
       const { data } = await apiClient.post("/users", userData);
       return data;
     },
@@ -49,7 +49,7 @@ export function useUpdateUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, ...userData }: any) => {
+    mutationFn: async ({ id, ...userData }: { id: string; [key: string]: unknown }) => {
       const { data } = await apiClient.put(`/users/${id}`, userData);
       return data;
     },

@@ -55,7 +55,7 @@ export const authService = {
       }
 
       // Return user without password
-      return transformUser(data, false)
+      return transformUser(data)
     } catch (error) {
       console.error('Authentication error:', error)
       return null
@@ -80,7 +80,7 @@ export const authService = {
         return null
       }
 
-      return transformUser(data, false) // Never return password
+      return transformUser(data) // Never return password
     } catch (error) {
       console.error('Error fetching user:', error)
       return null

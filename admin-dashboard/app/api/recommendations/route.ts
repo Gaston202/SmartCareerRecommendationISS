@@ -12,10 +12,42 @@ export async function GET(request: NextRequest) {
       : await recommendationsService.getAll();
 
     return NextResponse.json(recommendations);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error fetching recommendations:", error);
+    const message = error instanceof Error ? error.message : "Failed to fetch recommendations";
     return NextResponse.json(
-      { error: error.message || "Failed to fetch recommendations" },
+      { error: message },
+      { status: 500 }
+    );
+  }
+}
+
+// POST /api/recommendations - Create new recommendation
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+
+    if (!body.userId) {
+      return NextResponse.json(
+        { error: "Missing required field: userId" },
+        { status: 400 }
+      );
+    }
+
+    const newRecommendation = await recommendationsService.create({
+      userId: body.userId,
+      careers: body.careers || [],
+      courses: body.courses || [],
+      matchScore: body.matchScore || 0,
+      status: body.status || "pending",
+    });
+
+    return NextResponse.json(newRecommendation, { status: 201 });
+  } catch (error) {
+    console.error("Error creating recommendation:", error);
+    const message = error instanceof Error ? error.message : "Failed to create recommendation";
+    return NextResponse.json(
+      { error: message },
       { status: 500 }
     );
   }

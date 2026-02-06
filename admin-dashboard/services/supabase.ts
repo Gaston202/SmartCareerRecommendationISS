@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { User, Career, Skill, Course, Recommendation } from '@/types/career'
+import { User } from '@/types/user'
+import { Career, Skill, Course, Recommendation } from '@/types/career'
 import {
   transformUser,
   transformCareer,
@@ -249,12 +250,15 @@ export const skillsService = {
     if (updates.description !== undefined) dbUpdates.description = updates.description
     if (updates.relatedCareers !== undefined) dbUpdates.related_careers = updates.relatedCareers
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('skills')
       .update(dbUpdates)
       .eq('id', id)
+      .select()
+      .single()
 
     if (error) throw error
+    return transformSkill(data)
   },
 
   async delete(id: string) {
@@ -326,9 +330,15 @@ export const coursesService = {
     if (updates.price !== undefined) dbUpdates.price = updates.price
     if (updates.rating !== undefined) dbUpdates.rating = updates.rating
 
-    const { error } = await supabase.from('courses').update(dbUpdates).eq('id', id)
+    const { data, error } = await supabase
+      .from('courses')
+      .update(dbUpdates)
+      .eq('id', id)
+      .select()
+      .single()
 
     if (error) throw error
+    return transformCourse(data)
   },
 
   async delete(id: string) {
@@ -432,6 +442,39 @@ export const recommendationsService = {
     return transformRecommendation(data)
   },
 
+  async getById(id: string) {
+    const supabase = await createClient()
+    const { data: recommendation, error } = await supabase
+      .from('recommendations')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (error) throw error
+
+    // Fetch related careers and courses
+    const careerIds = recommendation.career_ids || []
+    const courseIds = recommendation.course_ids || []
+
+    // Fetch careers
+    const { data: careers } = careerIds.length > 0
+      ? await supabase.from('careers').select('*').in('id', careerIds)
+      : { data: [] }
+
+    // Fetch courses
+    const { data: courses } = courseIds.length > 0
+      ? await supabase.from('courses').select('*').in('id', courseIds)
+      : { data: [] }
+
+    const enrichedRecommendation = {
+      ...recommendation,
+      careers: careers || [],
+      courses: courses || [],
+    }
+
+    return transformRecommendation(enrichedRecommendation)
+  },
+
   async update(id: string, updates: Partial<Recommendation>) {
     const supabase = await createClient()
     // Convert camelCase to snake_case for database
@@ -442,10 +485,39 @@ export const recommendationsService = {
     if (updates.careers !== undefined) dbUpdates.career_ids = updates.careers.map((c) => c.id)
     if (updates.courses !== undefined) dbUpdates.course_ids = updates.courses.map((c) => c.id)
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('recommendations')
       .update(dbUpdates)
       .eq('id', id)
+      .select()
+      .single()
+
+    if (error) throw error
+
+    // Fetch related careers and courses for the updated recommendation
+    const careerIds = data.career_ids || []
+    const courseIds = data.course_ids || []
+
+    const { data: careers } = careerIds.length > 0
+      ? await supabase.from('careers').select('*').in('id', careerIds)
+      : { data: [] }
+
+    const { data: courses } = courseIds.length > 0
+      ? await supabase.from('courses').select('*').in('id', courseIds)
+      : { data: [] }
+
+    const enrichedRecommendation = {
+      ...data,
+      careers: careers || [],
+      courses: courses || [],
+    }
+
+    return transformRecommendation(enrichedRecommendation)
+  },
+
+  async delete(id: string) {
+    const supabase = await createClient()
+    const { error } = await supabase.from('recommendations').delete().eq('id', id)
 
     if (error) throw error
   },

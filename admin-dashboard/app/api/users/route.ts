@@ -2,14 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { usersService } from "@/services/supabase";
 
 // GET /api/users - Get all users
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const users = await usersService.getAll();
     return NextResponse.json(users);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error fetching users:", error);
+    const message = error instanceof Error ? error.message : "Failed to fetch users";
     return NextResponse.json(
-      { error: error.message || "Failed to fetch users" },
+      { error: message },
       { status: 500 }
     );
   }
@@ -40,12 +41,14 @@ export async function POST(request: NextRequest) {
     });
 
     // Remove password from response
-    const { password, ...userWithoutPassword } = newUser as any;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password: _password, ...userWithoutPassword } = newUser as unknown as { password?: string; [key: string]: unknown };
     return NextResponse.json(userWithoutPassword, { status: 201 });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error creating user:", error);
+    const message = error instanceof Error ? error.message : "Failed to create user";
     return NextResponse.json(
-      { error: error.message || "Failed to create user" },
+      { error: message },
       { status: 500 }
     );
   }

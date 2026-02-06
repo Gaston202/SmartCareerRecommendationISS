@@ -2,14 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { coursesService } from "@/services/supabase";
 
 // GET /api/courses - Get all courses
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const courses = await coursesService.getAll();
     return NextResponse.json(courses);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error fetching courses:", error);
+    const message = error instanceof Error ? error.message : "Failed to fetch courses";
     return NextResponse.json(
-      { error: error.message || "Failed to fetch courses" },
+      { error: message },
       { status: 500 }
     );
   }
@@ -40,10 +41,11 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(newCourse, { status: 201 });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error creating course:", error);
+    const message = error instanceof Error ? error.message : "Failed to create course";
     return NextResponse.json(
-      { error: error.message || "Failed to create course" },
+      { error: message },
       { status: 500 }
     );
   }

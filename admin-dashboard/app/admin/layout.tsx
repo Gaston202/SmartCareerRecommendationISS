@@ -15,7 +15,7 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-muted/30">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header
@@ -26,7 +26,9 @@ export default async function AdminLayout({
             await signOut({ redirectTo: "/login" });
           }}
         />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto bg-muted/30 p-6">
+          {children}
+        </main>
       </div>
     </div>
   );

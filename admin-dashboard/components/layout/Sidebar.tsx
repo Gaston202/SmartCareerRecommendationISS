@@ -10,7 +10,9 @@ import {
   Award,
   TrendingUp,
   BarChart3,
+  GraduationCap,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const menuItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -26,10 +28,17 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 border-r border-border/50 bg-gradient-to-b from-white to-purple-50/30 backdrop-blur-sm">
-      <div className="flex h-16 items-center border-b border-border/50 px-6 bg-gradient-to-r from-purple-600 to-pink-500">
-        <h1 className="text-xl font-bold text-white">Smart Career</h1>
+    <aside className="w-64 border-r bg-card">
+      {/* Logo Header */}
+      <div className="flex h-16 items-center gap-2 border-b px-6 bg-primary">
+        <GraduationCap className="h-6 w-6 text-primary-foreground" />
+        <div className="flex flex-col">
+          <h1 className="text-lg font-bold text-primary-foreground leading-tight">Smart Career</h1>
+          <p className="text-[10px] text-primary-foreground/80 leading-tight">Admin Dashboard</p>
+        </div>
       </div>
+
+      {/* Navigation */}
       <nav className="space-y-1 p-4">
         {menuItems.map((item) => {
           const Icon = item.icon;
@@ -39,14 +48,15 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 group",
                 isActive
-                  ? "bg-gradient-to-r from-purple-600 to-pink-500 text-white shadow-lg shadow-purple-500/30 scale-105"
-                  : "text-muted-foreground hover:bg-purple-50 hover:text-purple-700 hover:scale-105"
-              }`}
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground hover:translate-x-0.5"
+              )}
             >
-              <Icon className="h-5 w-5" />
-              {item.label}
+              <Icon className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
+              <span>{item.label}</span>
             </Link>
           );
         })}

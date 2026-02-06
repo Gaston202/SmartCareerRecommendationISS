@@ -1,129 +1,173 @@
+"use client";
+
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
+import { DataTable } from "@/components/ui/data-table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Target, TrendingUp, Send, Eye, MoreVertical } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
 export default function RecommendationsPage() {
+  const recommendations = [
+    {
+      user: "John Doe",
+      career: "Software Engineer",
+      score: 92,
+      status: "Viewed",
+      date: "2026-02-04",
+    },
+    {
+      user: "Jane Smith",
+      career: "Data Scientist",
+      score: 88,
+      status: "Sent",
+      date: "2026-02-04",
+    },
+    {
+      user: "Mike Johnson",
+      career: "Product Manager",
+      score: 85,
+      status: "Pending",
+      date: "2026-02-05",
+    },
+    {
+      user: "Sarah Williams",
+      career: "UX Designer",
+      score: 90,
+      status: "Viewed",
+      date: "2026-02-05",
+    },
+  ];
+
+  const columns = [
+    {
+      header: "User",
+      accessorKey: "user",
+      cell: (row: { user?: string }) => (
+        <span className="font-medium text-foreground">{row.user}</span>
+      ),
+    },
+    {
+      header: "Career Recommended",
+      accessorKey: "career",
+    },
+    {
+      header: "Match Score",
+      accessorKey: "score",
+      cell: (row: { score?: number }) => (
+        <div className="flex items-center gap-2">
+          <div className="w-full max-w-[120px] bg-muted rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-primary to-primary/70 h-2 rounded-full transition-all"
+              style={{ width: `${row.score}%` }}
+            />
+          </div>
+          <span className="text-sm font-medium">{row.score}%</span>
+        </div>
+      ),
+    },
+    {
+      header: "Status",
+      accessorKey: "status",
+      cell: (row: { status?: string }) => {
+        const variant =
+          row.status === "Viewed"
+            ? "default"
+            : row.status === "Sent"
+            ? "secondary"
+            : "outline";
+        return (
+          <Badge
+            variant={variant}
+            className={
+              row.status === "Viewed"
+                ? "bg-emerald-100 text-emerald-700 border-emerald-200 capitalize"
+                : row.status === "Sent"
+                ? "bg-blue-100 text-blue-700 border-blue-200 capitalize"
+                : "bg-amber-100 text-amber-700 border-amber-200 capitalize"
+            }
+          >
+            {row.status}
+          </Badge>
+        );
+      },
+    },
+    {
+      header: "Date",
+      accessorKey: "date",
+      cell: (row: { date?: string }) => (
+        <span className="text-muted-foreground">
+          {row.date ? new Date(row.date).toLocaleDateString() : 'N/A'}
+        </span>
+      ),
+    },
+    {
+      header: "Actions",
+      accessorKey: "id",
+      cell: () => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="hover:bg-muted">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem>View Details</DropdownMenuItem>
+            <DropdownMenuItem>Resend</DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Recommendations</h2>
-          <p className="text-muted-foreground">
-            View and manage career recommendations sent to users
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <select className="rounded-md border border-input bg-white px-3 py-2 text-sm">
-            <option>All Status</option>
-            <option>Pending</option>
-            <option>Sent</option>
-            <option>Viewed</option>
-          </select>
-        </div>
+        <PageHeader
+          title="Recommendations"
+          description="View and manage career recommendations sent to users"
+        />
+        <Select defaultValue="all">
+          <SelectTrigger className="w-[200px] bg-background/90 shadow-sm hover:shadow transition-shadow border-primary/10">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="sent">Sent</SelectItem>
+            <SelectItem value="viewed">Viewed</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg border border-border bg-white p-6">
-          <p className="text-sm font-medium text-muted-foreground">Total Recommendations</p>
-          <p className="mt-2 text-3xl font-bold text-primary">1,650</p>
-          <p className="mt-1 text-xs text-green-600">+18% from last month</p>
-        </div>
-        <div className="rounded-lg border border-border bg-white p-6">
-          <p className="text-sm font-medium text-muted-foreground">Pending</p>
-          <p className="mt-2 text-3xl font-bold">234</p>
-        </div>
-        <div className="rounded-lg border border-border bg-white p-6">
-          <p className="text-sm font-medium text-muted-foreground">Sent</p>
-          <p className="mt-2 text-3xl font-bold">1,198</p>
-        </div>
-        <div className="rounded-lg border border-border bg-white p-6">
-          <p className="text-sm font-medium text-muted-foreground">Avg Match Score</p>
-          <p className="mt-2 text-3xl font-bold">87%</p>
-        </div>
+        <StatCard
+          title="Total Recommendations"
+          value="1,650"
+          icon={Target}
+          trend={{ value: 18, isPositive: true }}
+          description="from last month"
+        />
+        <StatCard title="Pending" value="234" icon={TrendingUp} />
+        <StatCard title="Sent" value="1,198" icon={Send} />
+        <StatCard title="Avg Match Score" value="87%" icon={Eye} />
       </div>
 
-      <div className="rounded-lg border border-border bg-white">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="border-b border-border bg-muted/50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  User
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Career Recommended
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Match Score
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {[
-                {
-                  user: "John Doe",
-                  career: "Software Engineer",
-                  score: 92,
-                  status: "Viewed",
-                  date: "2026-02-04",
-                },
-                {
-                  user: "Jane Smith",
-                  career: "Data Scientist",
-                  score: 88,
-                  status: "Sent",
-                  date: "2026-02-04",
-                },
-                {
-                  user: "Mike Johnson",
-                  career: "Product Manager",
-                  score: 85,
-                  status: "Pending",
-                  date: "2026-02-05",
-                },
-              ].map((rec, index) => (
-                <tr key={index} className="hover:bg-muted/50">
-                  <td className="px-6 py-4 text-sm font-medium">{rec.user}</td>
-                  <td className="px-6 py-4 text-sm">{rec.career}</td>
-                  <td className="px-6 py-4 text-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-20 rounded-full bg-muted">
-                        <div
-                          className="h-2 rounded-full bg-primary"
-                          style={{ width: `${rec.score}%` }}
-                        />
-                      </div>
-                      <span className="font-medium">{rec.score}%</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <span
-                      className={`rounded-full px-2 py-1 text-xs font-medium ${
-                        rec.status === "Viewed"
-                          ? "bg-green-100 text-green-700"
-                          : rec.status === "Sent"
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-yellow-100 text-yellow-700"
-                      }`}
-                    >
-                      {rec.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-muted-foreground">{rec.date}</td>
-                  <td className="px-6 py-4 text-sm">
-                    <button className="text-primary hover:underline">View Details</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable columns={columns} data={recommendations} />
     </div>
   );
 }

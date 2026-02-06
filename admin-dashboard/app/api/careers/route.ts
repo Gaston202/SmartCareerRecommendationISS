@@ -2,14 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { careersService } from "@/services/supabase";
 
 // GET /api/careers - Get all careers
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const careers = await careersService.getAll();
     return NextResponse.json(careers);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error fetching careers:", error);
+    const message = error instanceof Error ? error.message : "Failed to fetch careers";
     return NextResponse.json(
-      { error: error.message || "Failed to fetch careers" },
+      { error: message },
       { status: 500 }
     );
   }
@@ -38,10 +39,11 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(newCareer, { status: 201 });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error creating career:", error);
+    const message = error instanceof Error ? error.message : "Failed to create career";
     return NextResponse.json(
-      { error: error.message || "Failed to create career" },
+      { error: message },
       { status: 500 }
     );
   }

@@ -2,7 +2,7 @@ import { Career, Skill, Course, Recommendation } from "@/types/career";
 import { User } from "@/types/user";
 
 // Transform Supabase user data to match TypeScript interface
-export function transformUser(data: any, includePassword: boolean = false): User {
+export function transformUser(data: any): User {
   const user: User = {
     id: data.id,
     email: data.email,
@@ -14,11 +14,6 @@ export function transformUser(data: any, includePassword: boolean = false): User
     avatar: data.avatar,
     phone: data.phone,
   };
-  
-  // Only include password if explicitly requested (for internal auth checks)
-  if (includePassword && data.password) {
-    user.password = data.password;
-  }
   
   return user;
 }
