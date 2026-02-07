@@ -1,16 +1,14 @@
 import 'react-native-url-polyfill/auto';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+// Expo loads .env and exposes EXPO_PUBLIC_* vars at build time
 const SUPABASE_URL = (process.env as Record<string, string | undefined>).EXPO_PUBLIC_SUPABASE_URL ?? '';
 const SUPABASE_ANON_KEY = (process.env as Record<string, string | undefined>).EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.log('SUPABASE URL:', process.env.EXPO_PUBLIC_SUPABASE_URL);
-
-  // Don't crash builds; just warn.
   console.warn(
-    'Missing EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY in .env'
+    'Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY in .env. Copy .env.example to .env and add your Supabase project URL and anon key.'
   );
 }
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { supabase } from '../api/supabase';
 import type { AuthContextValue, AuthSession, AuthState, AuthUser } from './authTypes';
 
+// Auth is connected to Supabase: signIn/signUp/signOut use supabase.auth.
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -69,12 +70,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       state,
       signIn: async (email, password) => {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw new Error(error.message);
+        // Ensure a row exists in public.users (e.g. if they signed up before sync existed). Do not overwrite existing name/role/status.
+        if (data.user) {
+          const displayName =
+            data.user.user_metadata?.full_name ??
+            data.user.email?.split('@')[0] ??
+            'User';
+          await supabase.from('users').upsert(
+            {
+              id: data.user.id,
+              email: data.user.email ?? email,
+              name: displayName,
+              role: 'user',
+              status: 'active',
+            },
+            { onConflict: 'id', ignoreDuplicates: true }
+          );
+        }
       },
-      signUp: async (email, password) => {
-        const { error } = await supabase.auth.signUp({ email, password });
+      signUp: async (email, password, metadata) => {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: metadata
+            ? { data: { full_name: metadata.fullName, phone: metadata.phone } }
+            : undefined,
+        });
         if (error) throw new Error(error.message);
+        // Insert into public.users to match your database schema (id, email, name, role, status, phone)
+        if (data.user) {
+          await supabase.from('users').insert({
+            id: data.user.id,
+            email: data.user.email ?? email,
+            name: metadata?.fullName ?? null,
+            role: 'user',
+            status: 'active',
+            phone: metadata?.phone ?? null,
+          });
+        }
       },
       signOut: async () => {
         const { error } = await supabase.auth.signOut();

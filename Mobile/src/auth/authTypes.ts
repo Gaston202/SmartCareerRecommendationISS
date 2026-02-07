@@ -22,9 +22,14 @@ export interface AuthState {
   isLoading: boolean;
 }
 
+export interface SignUpMetadata {
+  fullName?: string;
+  phone?: string;
+}
+
 export interface AuthContextValue {
   state: AuthState;
   signIn(email: string, password: string): Promise<void>;
-  signUp(email: string, password: string): Promise<void>;
+  signUp(email: string, password: string, metadata?: SignUpMetadata): Promise<void>;
   signOut(): Promise<void>;
 }
