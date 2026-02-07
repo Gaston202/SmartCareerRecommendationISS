@@ -14,3 +14,6 @@ export default function App() {
     </GluestackUIProvider>
   );
 }
+
+
+//export default function App() {return <ProfileScreen />; } bach tchouf profile screen direct without login
