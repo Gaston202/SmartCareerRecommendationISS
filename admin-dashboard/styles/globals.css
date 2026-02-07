@@ -4,62 +4,62 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Brand colors - Professional Purple (#7D10B9) */
-  --primary: 291 92% 39%; /* #7D10B9 */
+  /* Mobile app theme - Soft violet/lavender (authTheme) */
+  --primary: 263 70% 50%; /* #6D28D9 */
   --primary-foreground: 0 0% 100%;
   
-  /* Neutral backgrounds - White */
-  --background: 0 0% 100%;
-  --foreground: 240 10% 10%;
+  /* Soft gradient backgrounds - E8E4F0 / F8F8FA */
+  --background: 240 14% 98%;
+  --foreground: 217 33% 18%;
   
-  /* Secondary colors */
-  --secondary: 240 4.8% 95.9%;
-  --secondary-foreground: 240 5.9% 10%;
+  /* Secondary - C9C4D8 tint */
+  --secondary: 258 22% 91%;
+  --secondary-foreground: 217 33% 18%;
   
-  /* Muted colors for subtle elements */
-  --muted: 240 4.8% 95.9%;
-  --muted-foreground: 240 3.8% 46.1%;
+  /* Muted - mobile textMuted #6B7280 */
+  --muted: 258 20% 94%;
+  --muted-foreground: 220 9% 46%;
   
-  /* Accent color for success/actions */
-  --accent: 142 76% 36%; /* Green for success */
+  /* Accent - violet link #8B5CF6 */
+  --accent: 262 91% 67%;
   --accent-foreground: 0 0% 100%;
   
-  /* Card components */
-  --card: 0 0% 100%;
-  --card-foreground: 240 10% 10%;
+  /* Card - mobile cardBg #F8F8FA */
+  --card: 240 14% 98%;
+  --card-foreground: 217 33% 18%;
   
-  /* Borders and inputs */
-  --border: 240 5.9% 90%;
-  --input: 240 5.9% 90%;
-  --ring: 291 92% 39%;
+  /* Borders - mobile border #E5E7EB */
+  --border: 220 14% 91%;
+  --input: 220 14% 91%;
+  --ring: 263 70% 50%;
   
-  /* Destructive actions */
+  /* Destructive */
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
   
   /* Popover */
-  --popover: 0 0% 100%;
-  --popover-foreground: 240 10% 10%;
+  --popover: 240 14% 98%;
+  --popover-foreground: 217 33% 18%;
   
-  /* Border radius */
-  --radius: 0.5rem;
+  /* Border radius - slightly rounder like mobile */
+  --radius: 0.75rem;
   
-  /* Chart colors - Professional palette */
-  --chart-1: 291 92% 39%; /* Primary Purple */
-  --chart-2: 221 83% 53%; /* Blue */
-  --chart-3: 142 76% 36%; /* Green */
-  --chart-4: 38 92% 50%; /* Orange */
-  --chart-5: 280 67% 55%; /* Light Purple */
+  /* Chart colors - violet palette */
+  --chart-1: 263 70% 50%;
+  --chart-2: 262 91% 67%;
+  --chart-3: 258 90% 58%;
+  --chart-4: 38 92% 50%;
+  --chart-5: 173 80% 40%;
   
-  /* Sidebar colors */
-  --sidebar: 0 0% 100%;
-  --sidebar-foreground: 240 10% 10%;
-  --sidebar-primary: 291 92% 39%;
+  /* Sidebar - soft gradient feel */
+  --sidebar: 240 14% 99%;
+  --sidebar-foreground: 217 33% 18%;
+  --sidebar-primary: 263 70% 50%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 240 4.8% 95.9%;
-  --sidebar-accent-foreground: 240 5.9% 10%;
-  --sidebar-border: 240 5.9% 90%;
-  --sidebar-ring: 291 92% 39%;
+  --sidebar-accent: 258 22% 94%;
+  --sidebar-accent-foreground: 217 33% 18%;
+  --sidebar-border: 220 14% 91%;
+  --sidebar-ring: 263 70% 50%;
 }
 
 
@@ -134,13 +134,17 @@
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   }
   
-  /* Gradient utilities */
+  /* Gradient utilities - mobile app style */
   .gradient-purple {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(280 67% 55%));
+    background: linear-gradient(135deg, #7C3AED, #9C66FF);
+  }
+  
+  .gradient-bg-soft {
+    background: linear-gradient(180deg, #E8E4F0 0%, #C9C4D8 100%);
   }
   
   .text-gradient-purple {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(280 67% 55%));
+    background: linear-gradient(135deg, #6D28D9, #8B5CF6);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;

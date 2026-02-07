@@ -7,18 +7,19 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   LineChart,
   Line,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 import { useDashboardStats } from "@/hooks/use-api";
-import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { LoadingState } from "@/components/ui/loading-state";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, UserCheck, Target, TrendingUp } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Users, UserCheck, Target, TrendingUp, Briefcase, BookOpen, Award } from "lucide-react";
+
+const CHART_COLORS = ["#8B5CF6", "#A78BFA", "#2DD4BF", "#38BDF8", "#FBBF24"];
 
 export default function DashboardPage() {
   const { data: stats, isLoading, error } = useDashboardStats();
@@ -26,11 +27,10 @@ export default function DashboardPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <PageHeader
-          title="Dashboard"
-          description="Overview of the Smart Career Recommendation system"
-        />
-        <LoadingState message="Loading dashboard data..." />
+        <div className="h-20 w-64 rounded-2xl bg-[#F8F8FA]/80 animate-pulse" />
+        <div className="rounded-2xl bg-[#F8F8FA]/90 p-16 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)]">
+          <LoadingState message="Loading..." />
+        </div>
       </div>
     );
   }
@@ -38,197 +38,139 @@ export default function DashboardPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <PageHeader
-          title="Dashboard"
-          description="Overview of the Smart Career Recommendation system"
-        />
-        <Card className="border-destructive">
-          <CardContent className="pt-6">
-            <p className="text-destructive text-center">
-              Error loading dashboard data. Please try again.
-            </p>
-          </CardContent>
-        </Card>
+        <h1 className="text-2xl font-bold text-[#1F2937]">Dashboard</h1>
+        <div className="rounded-2xl bg-[#F8F8FA]/95 p-8 text-center shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)]">
+          <p className="text-[#DC2626] font-medium">Failed to load dashboard data.</p>
+        </div>
       </div>
     );
   }
 
   const userGrowthData = stats?.userGrowth || [];
-  const careerRecommendationsData = stats?.careerRecommendationsByCategory || [];
+  const careerByCategoryData = stats?.careerRecommendationsByCategory || [];
+  const recommendationStatus = stats?.recommendationStatus || [];
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Dashboard"
-        description="Overview of the Smart Career Recommendation system"
-      />
-
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Total Users"
-          value={stats?.totalUsers || 0}
-          description="Registered users"
-          icon={Users}
-          trend={{ value: 12, isPositive: true }}
-        />
-        <StatCard
-          title="Active Users"
-          value={stats?.activeUsers || 0}
-          description="Currently active"
-          icon={UserCheck}
-          trend={{ value: 8, isPositive: true }}
-        />
-        <StatCard
-          title="Recommendations"
-          value={stats?.totalRecommendations || 0}
-          description="Total generated"
-          icon={Target}
-        />
-        <StatCard
-          title="Conversion Rate"
-          value={`${stats?.conversionRate || 0}%`}
-          description="Viewed recommendations"
-          icon={TrendingUp}
-          trend={{ value: 3, isPositive: true }}
-        />
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold text-[#1F2937] sm:text-3xl">Dashboard</h1>
+        <p className="mt-1 text-sm text-[#6B7280]">Overview of your Smart Career platform</p>
       </div>
 
-      {/* Charts */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>User Growth</CardTitle>
-          </CardHeader>
-          <CardContent>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard title="Total Users" value={stats?.totalUsers ?? 0} description="Registered" icon={Users} accentColor="violet" />
+        <StatCard title="Active Users" value={stats?.activeUsers ?? 0} description="Active" icon={UserCheck} accentColor="teal" />
+        <StatCard title="Recommendations" value={stats?.totalRecommendations ?? 0} description="Generated" icon={Target} accentColor="blue" />
+        <StatCard title="Conversion" value={`${stats?.conversionRate ?? 0}%`} description="Viewed" icon={TrendingUp} accentColor="orange" />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard title="Careers" value={stats?.totalCareers ?? 0} description="Paths" icon={Briefcase} accentColor="violet" />
+        <StatCard title="Courses" value={stats?.totalCourses ?? 0} description="Resources" icon={BookOpen} accentColor="blue" />
+        <StatCard title="Skills" value={stats?.totalSkills ?? 0} description="In catalog" icon={Award} accentColor="teal" />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl bg-[#F8F8FA]/95 p-6 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)]">
+          <h2 className="text-base font-semibold text-[#1F2937]">User growth</h2>
+          <div className="mt-4 h-[260px]">
             {userGrowthData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={userGrowthData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="month"
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                  />
-                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+                  <XAxis dataKey="month" stroke="#6B7280" fontSize={11} tickLine={false} />
+                  <YAxis stroke="#6B7280" fontSize={11} tickLine={false} />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
+                      backgroundColor: "#F8F8FA",
+                      border: "none",
+                      borderRadius: "12px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
                     }}
+                    labelStyle={{ color: "#1F2937" }}
                   />
-                  <Legend />
                   <Line
                     type="monotone"
                     dataKey="users"
-                    stroke="hsl(var(--primary))"
+                    stroke="#8B5CF6"
                     strokeWidth={2}
-                    activeDot={{ r: 6 }}
+                    dot={{ fill: "#A78BFA" }}
+                    activeDot={{ r: 5, fill: "#8B5CF6" }}
                     name="Users"
                   />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                No data available
-              </div>
+              <div className="flex h-full items-center justify-center text-sm text-[#6B7280]">No data yet</div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Career Recommendations by Category</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {careerRecommendationsData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={careerRecommendationsData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="category"
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                  />
-                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+        <div className="rounded-2xl bg-[#F8F8FA]/95 p-6 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)]">
+          <h2 className="text-base font-semibold text-[#1F2937]">Careers by category</h2>
+          <div className="mt-4 h-[260px]">
+            {careerByCategoryData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={careerByCategoryData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+                  <XAxis dataKey="category" stroke="#6B7280" fontSize={11} tickLine={false} />
+                  <YAxis stroke="#6B7280" fontSize={11} tickLine={false} />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
+                      backgroundColor: "#F8F8FA",
+                      border: "none",
+                      borderRadius: "12px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
                     }}
                   />
-                  <Legend />
-                  <Bar
-                    dataKey="count"
-                    fill="hsl(var(--primary))"
-                    radius={[8, 8, 0, 0]}
-                    name="Recommendations"
-                  />
+                  <Bar dataKey="count" radius={[8, 8, 0, 0]} name="Careers">
+                    {careerByCategoryData.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                No data available
-              </div>
+              <div className="flex h-full items-center justify-center text-sm text-[#6B7280]">No data yet</div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {[
-              {
-                user: "John Doe",
-                action: "Received career recommendation",
-                time: "2 minutes ago",
-                badge: "New",
-              },
-              {
-                user: "Jane Smith",
-                action: "Completed assessment",
-                time: "15 minutes ago",
-                badge: "Assessment",
-              },
-              {
-                user: "Mike Johnson",
-                action: "Updated profile",
-                time: "1 hour ago",
-                badge: "Update",
-              },
-              {
-                user: "Sarah Williams",
-                action: "Received career recommendation",
-                time: "2 hours ago",
-                badge: "New",
-              },
-            ].map((activity, index) => (
-              <div
-                key={index}
-                className="flex items-center justify-between border-b pb-3 last:border-0"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">{activity.user}</p>
-                    <Badge variant="secondary" className="text-xs">
-                      {activity.badge}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{activity.action}</p>
-                </div>
-                <p className="text-sm text-muted-foreground">{activity.time}</p>
-              </div>
-            ))}
+      {recommendationStatus.length > 0 && (
+        <div className="rounded-2xl bg-[#F8F8FA]/95 p-6 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)]">
+          <h2 className="text-base font-semibold text-[#1F2937]">Recommendation status</h2>
+          <div className="mt-4 flex justify-center">
+            <ResponsiveContainer width="100%" height={220} className="max-w-[260px]">
+              <PieChart>
+                <Pie
+                  data={recommendationStatus}
+                  dataKey="count"
+                  nameKey="status"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={56}
+                  outerRadius={84}
+                  paddingAngle={2}
+                  label={({ status, count }) => `${status}: ${count}`}
+                >
+                  {recommendationStatus.map((_, i) => (
+                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#F8F8FA",
+                    border: "none",
+                    borderRadius: "12px",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      )}
     </div>
   );
 }

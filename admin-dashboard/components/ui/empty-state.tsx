@@ -23,23 +23,25 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center",
+        "flex flex-col items-center justify-center rounded-2xl bg-[#F8F8FA]/95 p-12 text-center shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)]",
         className
       )}
     >
       {Icon && (
-        <div className="rounded-full bg-muted p-6 mb-4 transition-all hover:bg-muted/80 hover:scale-105">
-          <Icon className="h-10 w-10 text-muted-foreground" />
+        <div className="rounded-2xl bg-white/80 p-5 mb-4">
+          <Icon className="h-10 w-10 text-[#8B5CF6]" />
         </div>
       )}
-      <h3 className="text-lg font-semibold text-foreground mb-2">{title}</h3>
+      <h3 className="text-lg font-semibold text-[#1F2937] mb-2">{title}</h3>
       {description && (
-        <p className="text-sm text-muted-foreground mb-4 max-w-sm">
-          {description}
-        </p>
+        <p className="text-sm text-[#6B7280] mb-4 max-w-sm">{description}</p>
       )}
       {action && (
-        <Button onClick={action.onClick} size="sm" className="shadow-md hover:shadow-lg transition-shadow">
+        <Button
+          onClick={action.onClick}
+          size="sm"
+          className="rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#8B5CF6] text-white shadow-sm hover:opacity-90"
+        >
           {action.label}
         </Button>
       )}

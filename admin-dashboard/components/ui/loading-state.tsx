@@ -10,15 +10,12 @@ export function LoadingState({ message = "Loading...", className }: LoadingState
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-lg border border-dashed bg-muted/30 p-16 text-center",
+        "flex flex-col items-center justify-center rounded-2xl bg-[#F8F8FA]/95 p-16 text-center shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)]",
         className
       )}
     >
-      <div className="relative mb-4">
-        <div className="h-12 w-12 rounded-full border-4 border-primary/20"></div>
-        <Loader2 className="absolute top-0 h-12 w-12 animate-spin text-primary" />
-      </div>
-      <p className="text-sm text-muted-foreground font-medium animate-pulse">{message}</p>
+      <Loader2 className="h-10 w-10 animate-spin text-[#8B5CF6] mb-4" />
+      <p className="text-sm text-[#6B7280] font-medium animate-pulse">{message}</p>
     </div>
   );
 }

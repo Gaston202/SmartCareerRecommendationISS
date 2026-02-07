@@ -58,13 +58,13 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 p-4">
-      <div className="w-full max-w-md space-y-8 rounded-2xl bg-white/90 backdrop-blur-sm p-8 shadow-2xl border border-purple-100/50 animate-in fade-in duration-700 slide-in-from-bottom-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#E8E4F0] to-[#C9C4D8] p-4">
+      <div className="w-full max-w-md space-y-8 rounded-2xl bg-[#F8F8FA] backdrop-blur-sm p-8 shadow-xl border border-[#E5E7EB] animate-in fade-in duration-700 slide-in-from-bottom-4">
         <div className="text-center space-y-2">
-          <div className="inline-block p-3 rounded-2xl bg-gradient-to-br from-purple-100 to-pink-100 mb-2">
-            <GraduationCap className="h-8 w-8 text-purple-600" />
+          <div className="inline-block p-3 rounded-2xl bg-[#6D28D9] mb-2">
+            <GraduationCap className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-500 to-blue-500 bg-clip-text text-transparent">
+          <h1 className="text-4xl font-bold text-gradient-purple">
             Admin Dashboard
           </h1>
           <p className="mt-2 text-muted-foreground text-sm">
@@ -84,7 +84,7 @@ export default function LoginPage() {
               {...register("email")}
               type="email"
               id="email"
-              className="w-full rounded-lg border border-border/50 bg-white px-4 py-3 text-foreground transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 hover:border-border"
+              className="w-full rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-foreground transition-all focus:border-[#8B5CF6] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/20 hover:border-[#C9C4D8]"
               placeholder="admin@example.com"
             />
             {errors.email && (
@@ -105,7 +105,7 @@ export default function LoginPage() {
               {...register("password")}
               type="password"
               id="password"
-              className="w-full rounded-lg border border-border/50 bg-white px-4 py-3 text-foreground transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 hover:border-border"
+              className="w-full rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-foreground transition-all focus:border-[#8B5CF6] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/20 hover:border-[#C9C4D8]"
               placeholder="••••••••"
             />
             {errors.password && (
@@ -124,7 +124,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded-lg bg-gradient-to-r from-purple-600 to-pink-500 px-4 py-3 font-semibold text-white shadow-lg shadow-purple-500/30 transition-all hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+            className="w-full rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#9C66FF] px-4 py-3 font-semibold text-white shadow-lg shadow-[#7C3AED]/30 transition-all hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
           >
             {isLoading ? (
               <span className="flex items-center justify-center gap-2">

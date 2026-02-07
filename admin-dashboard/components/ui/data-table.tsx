@@ -44,14 +44,14 @@ export function DataTable<T extends Record<string, any>>({
   };
 
   return (
-    <div className={cn("rounded-lg border bg-card", className)}>
+    <div className={cn("overflow-hidden rounded-2xl bg-[#F8F8FA]/95 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)]", className)}>
       <Table>
         <TableHeader>
-          <TableRow>
+          <TableRow className="border-0 hover:bg-transparent">
             {columns.map((column, index) => (
               <TableHead
                 key={index}
-                className={cn("font-semibold bg-muted/30", column.className)}
+                className={cn("h-11 border-0 bg-white/40 px-4 text-xs font-semibold uppercase tracking-wider text-[#6B7280]", column.className)}
               >
                 {column.header}
               </TableHead>
@@ -60,19 +60,19 @@ export function DataTable<T extends Record<string, any>>({
         </TableHeader>
         <TableBody>
           {data.length === 0 ? (
-            <TableRow>
+            <TableRow className="border-0 hover:bg-transparent">
               <TableCell
                 colSpan={columns.length}
-                className="h-24 text-center text-muted-foreground"
+                className="h-24 border-0 text-center text-sm text-[#6B7280]"
               >
                 {emptyMessage}
               </TableCell>
             </TableRow>
           ) : (
             data.map((row, rowIndex) => (
-              <TableRow key={rowIndex} className="hover:bg-muted/50 transition-colors cursor-pointer">
+              <TableRow key={rowIndex} className="border-0 border-b border-white/40 hover:bg-white/50 transition-colors last:border-0">
                 {columns.map((column, colIndex) => (
-                  <TableCell key={colIndex} className={column.className}>
+                  <TableCell key={colIndex} className={cn("border-0 px-4 py-3 text-[#1F2937]", column.className)}>
                     {getCellValue(row, column)}
                   </TableCell>
                 ))}
