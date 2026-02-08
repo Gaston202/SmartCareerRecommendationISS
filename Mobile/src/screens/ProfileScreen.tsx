@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -13,15 +13,11 @@ import {
   StatusBar,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import {
-  useForm,
-  Controller,
-  FieldPath,
-  type Control,
-} from "react-hook-form";
+import { useForm, Controller, FieldPath, type Control } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { authColors } from "./auth/authTheme";
+import { getMyUserRow, updateMyUserRow } from "../api/profile"; // adjust path
 
 // ------------------- Theme (shared with auth screens) -------------------
 const COLORS = {
@@ -51,11 +47,7 @@ const profileSchema = z.object({
   fieldOfStudy: z.string().trim().min(2, "Field of study is required"),
   skills: z.string().trim().optional(),
   careerGoal: z.string().trim().optional(),
-  bio: z
-    .string()
-    .trim()
-    .max(220, "Bio is too long (max 220 chars)")
-    .optional(),
+  bio: z.string().trim().max(220, "Bio is too long (max 220 chars)").optional(),
   photoUrl: z
     .string()
     .trim()
@@ -243,8 +235,9 @@ function completeness(data: ProfileFormData) {
     "bio",
     "photoUrl",
   ];
-  const filled = keys.filter((k) => String(data[k] ?? "").trim().length > 0)
-    .length;
+  const filled = keys.filter(
+    (k) => String(data[k] ?? "").trim().length > 0,
+  ).length;
   return filled / keys.length;
 }
 
@@ -284,7 +277,10 @@ function FormField({
     <Controller
       control={control}
       name={name}
-      render={({ field: { value, onChange, onBlur }, fieldState: { error } }) => {
+      render={({
+        field: { value, onChange, onBlur },
+        fieldState: { error },
+      }) => {
         const isEditable = editable && !readOnly;
 
         return (
@@ -334,15 +330,15 @@ function FormField({
 export default function ProfileScreen() {
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
-
+  const [loading, setLoading] = useState(true);
   const [savedProfile, setSavedProfile] = useState<ProfileFormData>({
-    fullName: "Bechir Ben Abda",
-    email: "bechir.benabda@medtech.com",
-    educationLevel: "High School",
-    fieldOfStudy: "Science",
-    skills: "Programming, Math",
-    careerGoal: "Software Engineer",
-    bio: "I love building apps and learning new tech.",
+    fullName: "",
+    email: "",
+    educationLevel: "",
+    fieldOfStudy: "",
+    skills: "",
+    careerGoal: "",
+    bio: "",
     photoUrl: "",
   });
 
@@ -358,7 +354,41 @@ export default function ProfileScreen() {
     defaultValues: savedProfile,
     mode: "onChange",
   });
+  // ✅ Load from Supabase on mount
+  useEffect(() => {
+    let alive = true;
 
+    (async () => {
+      try {
+        setLoading(true);
+      const { authEmail, row } = await getMyUserRow();
+
+        const mapped: ProfileFormData = {
+        fullName: row?.name ?? "",
+        email: authEmail ?? row?.email ?? "",
+        educationLevel: row?.education_level ?? "",
+        fieldOfStudy: row?.field_of_study ?? "",
+        skills: row?.skills ?? "",
+        careerGoal: row?.career_goal ?? "",
+        bio: row?.bio ?? "",
+        photoUrl: row?.photo_url ?? "",
+      };
+
+        if (!alive) return;
+        setSavedProfile(mapped);
+        reset(mapped);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Failed to load profile";
+        Alert.alert("Error", msg);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [reset]);
   // Watch only needed fields (less churn than watching the whole object)
   const watchedValues = watch([
     "fullName",
@@ -382,10 +412,13 @@ export default function ProfileScreen() {
       bio: watchedValues[6] ?? "",
       photoUrl: watchedValues[7] ?? "",
     }),
-    [watchedValues]
+    [watchedValues],
   );
 
-  const skillsList = useMemo(() => parseSkills(watched.skills), [watched.skills]);
+  const skillsList = useMemo(
+    () => parseSkills(watched.skills),
+    [watched.skills],
+  );
   const progress = useMemo(() => completeness(watched), [watched]);
 
   const inputRefs = useRef<Partial<Record<FieldName, TextInput | null>>>({});
@@ -429,28 +462,33 @@ export default function ProfileScreen() {
     reset(savedProfile);
   };
 
-  const onSubmit = async (data: ProfileFormData) => {
-    try {
-      setSaving(true);
+const onSubmit = async (data: ProfileFormData) => {
+  try {
+    setSaving(true);
 
-      // 🔁 Replace with your API call:
-      // await api.updateProfile(data)
-      await new Promise((r) => setTimeout(r, 500));
+    await updateMyUserRow({
+      name: data.fullName,
+      education_level: data.educationLevel?.trim() ? data.educationLevel : null,
+      field_of_study: data.fieldOfStudy?.trim() ? data.fieldOfStudy : null,
+      skills: data.skills?.trim() ? data.skills : null,
+      career_goal: data.careerGoal?.trim() ? data.careerGoal : null,
+      bio: data.bio?.trim() ? data.bio : null,
+      photo_url: data.photoUrl?.trim() ? data.photoUrl : null,
+    });
 
-      setSavedProfile(data);
-      reset(data);
-      setEditMode(false);
-
-      Alert.alert("Saved", "Your profile has been updated ✅");
-    } catch (e) {
-      Alert.alert("Error", "Could not save. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  };
+    setSavedProfile(data);
+    reset(data);
+    setEditMode(false);
+    Alert.alert("Saved", "Your profile has been updated ✅");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Could not save profile";
+    Alert.alert("Error", msg);
+  } finally {
+    setSaving(false);
+  }
+};
 
   // ✅ Optional (Expo only) pick image from gallery.
-  // Works ONLY if you installed expo-image-picker. Otherwise it falls back to URL field.
   const pickImageIfAvailable = async () => {
     try {
       // dynamic import so app still runs even if not installed
@@ -460,7 +498,7 @@ export default function ProfileScreen() {
       if (!perm.granted) {
         Alert.alert(
           "Permission needed",
-          "Allow gallery access to pick a profile picture."
+          "Allow gallery access to pick a profile picture.",
         );
         return;
       }
@@ -480,14 +518,25 @@ export default function ProfileScreen() {
     } catch {
       Alert.alert(
         "Gallery picker not installed",
-        "Install it with: npx expo install expo-image-picker\n(or just paste a Photo URL)."
+        "Install it with: npx expo install expo-image-picker\n(or just paste a Photo URL).",
       );
     }
   };
 
   const avatarUri = watched.photoUrl?.trim();
   const initials = initialsFromName(watched.fullName || "User");
-
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <StatusBar barStyle="light-content" />
+        <View style={{ padding: 16 }}>
+          <Text style={{ color: COLORS.text, fontWeight: "900" }}>
+            Loading profile…
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" />
@@ -562,7 +611,9 @@ export default function ProfileScreen() {
               </View>
 
               <View style={{ flex: 1 }}>
-                <Text style={styles.name}>{watched.fullName || "Your Name"}</Text>
+                <Text style={styles.name}>
+                  {watched.fullName || "Your Name"}
+                </Text>
                 <Text style={styles.email}>
                   {watched.email || "email@example.com"}
                 </Text>
@@ -582,7 +633,10 @@ export default function ProfileScreen() {
             {/* Quick actions */}
             <View style={styles.quickActions}>
               <Pressable
-                style={[styles.actionBtn, !editMode && styles.actionBtnDisabled]}
+                style={[
+                  styles.actionBtn,
+                  !editMode && styles.actionBtnDisabled,
+                ]}
                 disabled={!editMode}
                 onPress={pickImageIfAvailable}
                 accessibilityRole="button"
@@ -594,7 +648,10 @@ export default function ProfileScreen() {
               <Pressable
                 style={styles.actionBtnAlt}
                 onPress={() =>
-                  Alert.alert("Feature", "Add navigation to Account Settings here.")
+                  Alert.alert(
+                    "Feature",
+                    "Add navigation to Account Settings here.",
+                  )
                 }
                 accessibilityRole="button"
                 accessibilityLabel="Open account settings"
@@ -660,7 +717,10 @@ export default function ProfileScreen() {
             <Pressable
               style={styles.rowBtn}
               onPress={() =>
-                Alert.alert("Security", "Hook this to your Change Password screen.")
+                Alert.alert(
+                  "Security",
+                  "Hook this to your Change Password screen.",
+                )
               }
               accessibilityRole="button"
               accessibilityLabel="Change password"
@@ -672,7 +732,10 @@ export default function ProfileScreen() {
             <Pressable
               style={styles.rowBtn}
               onPress={() =>
-                Alert.alert("Export", "Hook this to an export/share flow (PDF/JSON).")
+                Alert.alert(
+                  "Export",
+                  "Hook this to an export/share flow (PDF/JSON).",
+                )
               }
               accessibilityRole="button"
               accessibilityLabel="Export profile"
@@ -683,14 +746,18 @@ export default function ProfileScreen() {
 
             <Pressable
               style={[styles.rowBtn, { borderBottomWidth: 0 }]}
-              onPress={() => Alert.alert("Logout", "Hook this to AuthContext logout.")}
+              onPress={() =>
+                Alert.alert("Logout", "Hook this to AuthContext logout.")
+              }
               accessibilityRole="button"
               accessibilityLabel="Log out"
             >
               <Text style={[styles.rowBtnText, { color: COLORS.danger }]}>
                 🚪 Log Out
               </Text>
-              <Text style={[styles.rowBtnRight, { color: COLORS.danger }]}>›</Text>
+              <Text style={[styles.rowBtnRight, { color: COLORS.danger }]}>
+                ›
+              </Text>
             </Pressable>
           </View>
 
