@@ -16,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useForm, Controller, FieldPath, type Control } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useAuth } from "../auth/AuthProvider";
 import { authColors } from "./auth/authTheme";
 import { getMyUserRow, updateMyUserRow } from "../api/profile"; // adjust path
 
@@ -328,6 +329,7 @@ function FormField({
 
 // ------------------- Main Screen -------------------
 export default function ProfileScreen() {
+  const { signOut } = useAuth();
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -520,6 +522,28 @@ const onSubmit = async (data: ProfileFormData) => {
         "Gallery picker not installed",
         "Install it with: npx expo install expo-image-picker\n(or just paste a Photo URL).",
       );
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      Alert.alert("Log Out", "Are you sure you want to log out?", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Log Out",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await signOut();
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : "Logout failed";
+              Alert.alert("Error", msg);
+            }
+          },
+        },
+      ]);
+    } catch {
+      Alert.alert("Error", "Failed to process logout");
     }
   };
 
@@ -746,9 +770,7 @@ const onSubmit = async (data: ProfileFormData) => {
 
             <Pressable
               style={[styles.rowBtn, { borderBottomWidth: 0 }]}
-              onPress={() =>
-                Alert.alert("Logout", "Hook this to AuthContext logout.")
-              }
+              onPress={() => handleLogout()}
               accessibilityRole="button"
               accessibilityLabel="Log out"
             >
