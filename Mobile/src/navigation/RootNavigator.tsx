@@ -8,6 +8,8 @@ import { LoginScreen } from '../screens/auth/LoginScreen';
 import { SignupScreen } from '../screens/auth/SignupScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import { View, Text } from 'react-native';
+import HomeScreen from "../screens/HomeScreen";
+
 
 type AuthStackParamList = {
   Welcome: undefined;
@@ -18,13 +20,7 @@ type AuthStackParamList = {
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const Tab = createBottomTabNavigator();
 
-function HomeScreen(): React.ReactElement {
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Text>Home</Text>
-    </View>
-  );
-}
+
 
 export function RootNavigator(): React.ReactElement {
   const { state } = useAuth();
