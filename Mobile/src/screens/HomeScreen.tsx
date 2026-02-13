@@ -6,17 +6,31 @@ import {
   Pressable,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
+import { useNavigation } from "@react-navigation/native";
+import { useUploadCv, useTriggerCvAnalysis, useLatestCvUpload, useUserSkills } from "../features/cv/hooks";
 
 export default function HomeScreen(): React.ReactElement {
+  const navigation = useNavigation();
+  const { data: latestUpload, isLoading: loadingUpload } = useLatestCvUpload();
+  const { data: skills = [], isLoading: loadingSkills } = useUserSkills();
+  const { mutate: uploadCv, isPending: isUploading } = useUploadCv();
+  const { mutate: triggerAnalysis, isPending: isAnalyzing } = useTriggerCvAnalysis();
 
-  const [cvName, setCvName] = useState<string | null>(null);
+  const [localCvName, setLocalCvName] = useState<string | null>(null);
+
+  // Use latest upload from DB or local state
+  const cvName = latestUpload?.filename || localCvName;
+  const isProcessing = isUploading || isAnalyzing;
 
   const pickCV = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: "application/pdf",
+        copyToCacheDirectory: true,
+        multiple: false,
       });
 
       if (result.canceled) return;
@@ -28,8 +42,39 @@ export default function HomeScreen(): React.ReactElement {
         return;
       }
 
-      setCvName(file.name);
-    } catch {
+      setLocalCvName(file.name);
+
+      // Upload to Supabase
+      uploadCv(
+        {
+          uri: file.uri,
+          name: file.name,
+          mimeType: file.mimeType,
+        },
+        {
+          onSuccess: (uploaded) => {
+            Alert.alert("Success", "CV uploaded successfully!");
+            
+            // Trigger AI analysis
+            triggerAnalysis(uploaded.id, {
+              onSuccess: () => {
+                Alert.alert("Analysis Complete", "Your CV has been analyzed!");
+              },
+              onError: (error) => {
+                console.error("Analysis error:", error);
+                Alert.alert("Analysis Failed", "Could not analyze CV. Check console.");
+              },
+            });
+          },
+          onError: (error) => {
+            console.error("Upload error:", error);
+            Alert.alert("Upload Failed", "Could not upload CV. Try again.");
+            setLocalCvName(null);
+          },
+        }
+      );
+    } catch (error) {
+      console.error("Pick error:", error);
       Alert.alert("Error", "Failed to pick file.");
     }
   };
@@ -40,7 +85,7 @@ export default function HomeScreen(): React.ReactElement {
       {
         text: "Delete",
         style: "destructive",
-        onPress: () => setCvName(null),
+        onPress: () => setLocalCvName(null),
       },
     ]);
   };
@@ -58,23 +103,34 @@ export default function HomeScreen(): React.ReactElement {
 
       {/* PROGRESS STEPS */}
       <View style={styles.stepsContainer}>
-        <Step label="Upload CV" done={!!cvName} />
-        <Step label="Take Test" done={false} />
-        <Step label="AI Results" done={false} />
+        <Step label="Upload CV" done={!!cvName && latestUpload?.status === 'done'} />
+        <Step label="Extract Skills" done={skills.length > 0} />
+        <Step label="AI Analysis" done={latestUpload?.status === 'done'} />
       </View>
 
       {/* CV CARD */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Your Resume</Text>
 
-        {!cvName ? (
-          <Pressable style={styles.primaryButton} onPress={pickCV}>
+        {isProcessing && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#2563EB" />
+            <Text style={styles.loadingText}>
+              {isUploading ? "Uploading..." : "Analyzing..."}
+            </Text>
+          </View>
+        )}
+
+        {!cvName && !isProcessing ? (
+          <Pressable style={styles.primaryButton} onPress={pickCV} disabled={isProcessing}>
             <Text style={styles.primaryText}>Upload PDF CV</Text>
           </Pressable>
-        ) : (
+        ) : cvName && !isProcessing ? (
           <>
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>Uploaded ✅</Text>
+              <Text style={styles.badgeText}>
+                {latestUpload?.status === 'done' ? 'Analyzed ✅' : 'Uploaded ✅'}
+              </Text>
             </View>
 
             <Text style={styles.fileName}>{cvName}</Text>
@@ -89,23 +145,51 @@ export default function HomeScreen(): React.ReactElement {
               </Pressable>
             </View>
           </>
-        )}
+        ) : null}
       </View>
 
       {/* AI RECOMMENDATION CTA */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>AI Career Suggestions</Text>
+        <Text style={styles.cardTitle}>Review Your Skills</Text>
+        <Text style={styles.cardSubtitle}>
+          {skills.length > 0 
+            ? `${skills.length} skills extracted from your CV` 
+            : "Upload CV to extract skills"}
+        </Text>
 
         <Pressable
-          disabled={!cvName}
+          disabled={skills.length === 0}
           style={[
             styles.secondaryButton,
-            { opacity: cvName ? 1 : 0.4 },
+            { opacity: skills.length > 0 ? 1 : 0.4 },
           ]}
-          onPress={() => Alert.alert("Coming Soon")}
+          onPress={() => navigation.navigate('SkillsReview' as never)}
         >
           <Text style={styles.secondaryText}>
-            Generate Recommendations
+            Review & Confirm Skills
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* CV ANALYSIS CTA */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>CV Analysis Results</Text>
+        <Text style={styles.cardSubtitle}>
+          {latestUpload?.status === 'done'
+            ? "View ATS score and career suggestions"
+            : "Upload and analyze CV first"}
+        </Text>
+
+        <Pressable
+          disabled={!cvName || latestUpload?.status !== 'done'}
+          style={[
+            styles.tertiaryButton,
+            { opacity: cvName && latestUpload?.status === 'done' ? 1 : 0.4 },
+          ]}
+          onPress={() => navigation.navigate('CVAnalysis' as never)}
+        >
+          <Text style={styles.tertiaryText}>
+            View Analysis
           </Text>
         </Pressable>
       </View>
@@ -185,6 +269,22 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
 
+  cardSubtitle: {
+    fontSize: 14,
+    color: "#64748B",
+    marginBottom: 12,
+  },
+
+  loadingContainer: {
+    alignItems: "center",
+    paddingVertical: 20,
+  },
+
+  loadingText: {
+    marginTop: 10,
+    color: "#64748B",
+  },
+
   primaryButton: {
     backgroundColor: "#2563EB",
     padding: 16,
@@ -254,6 +354,18 @@ const styles = StyleSheet.create({
   },
 
   secondaryText: {
+    color: "white",
+    fontWeight: "600",
+  },
+
+  tertiaryButton: {
+    backgroundColor: "#7D10B9",
+    padding: 16,
+    borderRadius: 14,
+    alignItems: "center",
+  },
+
+  tertiaryText: {
     color: "white",
     fontWeight: "600",
   },

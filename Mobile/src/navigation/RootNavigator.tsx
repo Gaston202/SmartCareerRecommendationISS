@@ -7,8 +7,8 @@ import { WelcomeScreen } from '../screens/auth/WelcomeScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { SignupScreen } from '../screens/auth/SignupScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import { View, Text } from 'react-native';
 import HomeScreen from "../screens/HomeScreen";
+import { SkillsReviewScreen, CVAnalysisScreen } from '../features/cv';
 
 
 type AuthStackParamList = {
@@ -43,6 +43,16 @@ export function RootNavigator(): React.ReactElement {
         >
           <Tab.Screen name="Home" component={HomeScreen} />
           <Tab.Screen name="Profile" component={ProfileScreen} />
+          <Tab.Screen 
+            name="SkillsReview" 
+            component={SkillsReviewScreen} 
+            options={{ title: "Skills", headerShown: true }} 
+          />
+          <Tab.Screen 
+            name="CVAnalysis" 
+            component={CVAnalysisScreen} 
+            options={{ title: "Analysis", headerShown: true }} 
+          />
         </Tab.Navigator>
       ) : (
         <AuthStack.Navigator
