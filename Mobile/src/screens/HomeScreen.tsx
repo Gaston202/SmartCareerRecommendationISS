@@ -8,23 +8,70 @@ import {
   ScrollView,
   ActivityIndicator,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { useNavigation } from "@react-navigation/native";
-import { useUploadCv, useTriggerCvAnalysis, useLatestCvUpload, useUserSkills, useDeleteCv } from "../features/cv/hooks";
+import { useUploadCv, useTriggerCvAnalysis, useLatestCvUpload, useDeleteCv } from "../features/cv/hooks";
+import { homeColors } from "./homeTheme";
+
+const TESTIMONIALS = [
+  { quote: "This helped me choose computer science!", author: "Sarah", age: 18 },
+  { quote: "I finally found direction after being confused for years.", author: "Ahmed", age: 20 },
+  { quote: "The mentor feature is amazing. Got real advice!", author: "Lina", age: 22 },
+];
+
+const HOW_IT_WORKS = [
+  {
+    step: 1,
+    title: "Discover",
+    description: "Take our smart AI quiz to find careers that match your interests.",
+    icon: "bulb" as const,
+    color: homeColors.primary,
+  },
+  {
+    step: 2,
+    title: "Improve",
+    description: "Upload your CV and get instant AI feedback + job suggestions.",
+    icon: "document-text" as const,
+    color: homeColors.accentTeal,
+  },
+  {
+    step: 3,
+    title: "Plan",
+    description: "Get a step-by-step roadmap to reach your target career.",
+    icon: "map" as const,
+    color: homeColors.accentGreen,
+  },
+  {
+    step: 4,
+    title: "Connect",
+    description: "Talk to real professionals and learn from their experience.",
+    icon: "people" as const,
+    color: homeColors.accentOrange,
+  },
+];
+
+function StarRating() {
+  return (
+    <View style={styles.starRow}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <Ionicons key={i} name="star" size={16} color={homeColors.starYellow} />
+      ))}
+    </View>
+  );
+}
 
 export default function HomeScreen(): React.ReactElement {
   const navigation = useNavigation();
   const { data: latestUpload, isLoading: loadingUpload } = useLatestCvUpload();
-  const { data: skills = [], isLoading: loadingSkills } = useUserSkills();
   const { mutate: uploadCv, isPending: isUploading } = useUploadCv();
-  const { mutate: triggerAnalysis, isPending: isAnalyzing } = useTriggerCvAnalysis();
+  const { mutate: triggerAnalysis } = useTriggerCvAnalysis();
   const { mutate: deleteCv, isPending: isDeleting } = useDeleteCv();
-
   const [localCvName, setLocalCvName] = useState<string | null>(null);
 
-  // Use latest upload from DB or local state
   const cvName = latestUpload?.filename || localCvName;
-  const isProcessing = isUploading || isAnalyzing || isDeleting;
+  const isProcessing = isUploading || isDeleting;
 
   const pickCV = async () => {
     try {
@@ -33,361 +80,376 @@ export default function HomeScreen(): React.ReactElement {
         copyToCacheDirectory: true,
         multiple: false,
       });
-
-      if (result.canceled) {
-        return;
-      }
-
+      if (result.canceled) return;
       const file = result.assets[0];
-
       if (!file.name.toLowerCase().endsWith(".pdf")) {
         Alert.alert("Invalid file", "Please upload PDF only.");
         return;
       }
-
       setLocalCvName(file.name);
-
-      // Upload to Supabase
       uploadCv(
-        {
-          uri: file.uri,
-          name: file.name,
-          mimeType: file.mimeType,
-        },
+        { uri: file.uri, name: file.name, mimeType: file.mimeType },
         {
           onSuccess: (uploaded) => {
             Alert.alert("Success", "CV uploaded successfully!");
-            
-            // Trigger AI analysis (optional - skip if Edge Function not deployed)
             triggerAnalysis(uploaded.id, {
               onSuccess: () => {
                 Alert.alert("Analysis Complete", "Your CV has been analyzed!");
+                (navigation as any).navigate("SkillsReview");
               },
-              onError: (error) => {
-                console.warn("Analysis skipped (Edge Function not available):", error);
-                // Don't show error to user - upload was successful
-              },
+              onError: () => {},
             });
           },
-          onError: (error) => {
-            console.error("Upload error:", error);
+          onError: () => {
             Alert.alert("Upload Failed", "Could not upload CV. Try again.");
             setLocalCvName(null);
           },
         }
       );
-    } catch (error) {
-      console.error("Pick error:", error);
+    } catch {
       Alert.alert("Error", "Failed to pick file.");
     }
   };
 
-  const deleteCV = () => {
-    if (!latestUpload) {
-      // Just clear local state if no DB record
-      setLocalCvName(null);
-      return;
-    }
-
-    Alert.alert("Remove CV", "Delete your uploaded CV?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          deleteCv(latestUpload, {
-            onSuccess: () => {
-              setLocalCvName(null);
-              Alert.alert("Success", "CV deleted successfully!");
-            },
-            onError: (error) => {
-              console.error("Delete error:", error);
-              Alert.alert("Delete Failed", "Could not delete CV. Try again.");
-            },
-          });
-        },
-      },
-    ]);
+  const goToQuiz = () => {
+    (navigation as any).navigate("Quiz");
   };
 
   return (
-    <ScrollView style={styles.container}>
-
-      {/* HERO */}
-      <View style={styles.hero}>
-        <Text style={styles.title}>Smart Career 🚀</Text>
-        <Text style={styles.subtitle}>
-          AI-powered career guidance for students and graduates.
-        </Text>
-      </View>
-
-      {/* PROGRESS STEPS */}
-      <View style={styles.stepsContainer}>
-        <Step label="Upload CV" done={!!cvName && latestUpload?.status === 'done'} />
-        <Step label="Extract Skills" done={skills.length > 0} />
-        <Step label="AI Analysis" done={latestUpload?.status === 'done'} />
-      </View>
-
-      {/* CV CARD */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Your Resume</Text>
-
-        {isProcessing && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#2563EB" />
-            <Text style={styles.loadingText}>
-              {isUploading ? "Uploading..." : "Analyzing..."}
-            </Text>
+    <View style={styles.container}>
+      <LinearGradient
+        colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
+        style={StyleSheet.absoluteFill}
+      />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Hero: Logo + Title + Subtitle */}
+        <View style={styles.hero}>
+          <View style={styles.logoBox}>
+            <FontAwesome5 name="graduation-cap" size={26} color="#fff" />
           </View>
-        )}
+          <Text style={styles.heroTitle}>
+            Find Your Career Path{"\n"}
+            <Text style={styles.heroTitleHighlight}>with AI Guidance</Text>
+          </Text>
+          <Text style={styles.heroSubtitle}>
+            Take a quiz, scan your CV, explore roadmaps, and connect with real professionals.
+          </Text>
+        </View>
 
-        {!cvName && !isProcessing ? (
-          <Pressable style={styles.primaryButton} onPress={pickCV} disabled={isProcessing}>
-            <Text style={styles.primaryText}>Upload PDF CV</Text>
+        {/* Two CTA Buttons */}
+        <View style={styles.ctaRow}>
+          <Pressable style={({ pressed }) => [styles.ctaQuizWrap, pressed && styles.pressed]} onPress={goToQuiz}>
+            <LinearGradient
+              colors={[homeColors.primary, homeColors.primaryDark]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.ctaQuizGradient}
+            >
+              <Ionicons name="bulb-outline" size={22} color="#fff" />
+              <Text style={styles.ctaQuizText}>Take Career Quiz</Text>
+            </LinearGradient>
           </Pressable>
-        ) : cvName && !isProcessing ? (
-          <>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {latestUpload?.status === 'done' ? 'Analyzed ✅' : 'Uploaded ✅'}
-              </Text>
+          <Pressable
+            style={({ pressed }) => [styles.ctaUploadWrap, pressed && styles.pressed]}
+            onPress={pickCV}
+            disabled={isProcessing}
+          >
+            {isProcessing ? (
+              <ActivityIndicator size="small" color={homeColors.primary} />
+            ) : (
+              <>
+                <Ionicons name="cloud-upload-outline" size={22} color={homeColors.textDark} />
+                <Text style={styles.ctaUploadText}>Upload Your CV</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+
+        {/* How It Works */}
+        <Text style={styles.sectionTitle}>How It Works</Text>
+        <View style={styles.howItWorksGrid}>
+          {HOW_IT_WORKS.map((item) => (
+            <View key={item.step} style={styles.howCard}>
+              <View style={[styles.howIconBox, { backgroundColor: item.color + "20" }]}>
+                <Ionicons name={item.icon} size={24} color={item.color} />
+              </View>
+              <Text style={styles.howCardTitle}>{item.step}. {item.title}</Text>
+              <Text style={styles.howCardDesc}>{item.description}</Text>
             </View>
+          ))}
+        </View>
 
-            <Text style={styles.fileName}>{cvName}</Text>
+        {/* Trusted by Students */}
+        <Text style={styles.sectionTitle}>Trusted by Students</Text>
+        <View style={styles.trustedSubtitle}>
+          <Ionicons name="sparkles" size={14} color={homeColors.primary} />
+          <Text style={styles.trustedSubtitleText}>AI-powered career matching</Text>
+        </View>
+        <View style={styles.testimonials}>
+          {TESTIMONIALS.map((t, i) => (
+            <View key={i} style={styles.testimonialCard}>
+              <StarRating />
+              <Text style={styles.testimonialQuote}>"{t.quote}"</Text>
+              <Text style={styles.testimonialAuthor}>– {t.author}, {t.age}</Text>
+            </View>
+          ))}
+        </View>
 
-            <View style={styles.row}>
-              <Pressable style={styles.changeButton} onPress={pickCV}>
-                <Text style={styles.changeText}>Change</Text>
+        {/* CTA Block: Ready to Build Your Future? */}
+        <Pressable style={({ pressed }) => [styles.ctaBlockWrap, pressed && styles.pressed]}>
+          <LinearGradient
+            colors={[homeColors.primaryLight, homeColors.primaryDark]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.ctaBlockGradient}
+          >
+            <Text style={styles.ctaBlockTitle}>Ready to Build Your Future?</Text>
+            <Text style={styles.ctaBlockSubtitle}>
+              Start your journey today and discover the perfect career for you.
+            </Text>
+            <View style={styles.ctaBlockButtons}>
+              <Pressable style={({ pressed }) => [styles.ctaBlockBtnWhite, pressed && styles.pressed]} onPress={goToQuiz}>
+                <Text style={styles.ctaBlockBtnWhiteText}>Take the Quiz</Text>
+                <Ionicons name="arrow-forward" size={18} color={homeColors.primary} />
               </Pressable>
-
-              <Pressable style={styles.deleteButton} onPress={deleteCV}>
-                <Text style={styles.deleteText}>Delete</Text>
+              <Pressable
+                style={({ pressed }) => [styles.ctaBlockBtnPurple, pressed && styles.pressed]}
+                onPress={pickCV}
+                disabled={isProcessing}
+              >
+                <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+                <Text style={styles.ctaBlockBtnPurpleText}>Upload CV</Text>
               </Pressable>
             </View>
-          </>
-        ) : null}
-      </View>
-
-      {/* AI RECOMMENDATION CTA */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Review Your Skills</Text>
-        <Text style={styles.cardSubtitle}>
-          {skills.length > 0 
-            ? `${skills.length} skills extracted from your CV` 
-            : "Upload CV to extract skills"}
-        </Text>
-
-        <Pressable
-          disabled={skills.length === 0}
-          style={[
-            styles.secondaryButton,
-            { opacity: skills.length > 0 ? 1 : 0.4 },
-          ]}
-          onPress={() => navigation.navigate('SkillsReview' as never)}
-        >
-          <Text style={styles.secondaryText}>
-            Review & Confirm Skills
-          </Text>
+          </LinearGradient>
         </Pressable>
-      </View>
 
-      {/* CV ANALYSIS CTA */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>CV Analysis Results</Text>
-        <Text style={styles.cardSubtitle}>
-          {latestUpload?.status === 'done'
-            ? "View ATS score and career suggestions"
-            : "Upload and analyze CV first"}
-        </Text>
-
-        <Pressable
-          disabled={!cvName || latestUpload?.status !== 'done'}
-          style={[
-            styles.tertiaryButton,
-            { opacity: cvName && latestUpload?.status === 'done' ? 1 : 0.4 },
-          ]}
-          onPress={() => navigation.navigate('CVAnalysis' as never)}
-        >
-          <Text style={styles.tertiaryText}>
-            View Analysis
-          </Text>
-        </Pressable>
-      </View>
-
-    </ScrollView>
+        <View style={styles.bottomSpacer} />
+      </ScrollView>
+    </View>
   );
 }
 
-const Step = ({ label, done }: { label: string; done: boolean }) => (
-  <View style={styles.step}>
-    <View style={[styles.circle, done && styles.circleDone]} />
-    <Text style={styles.stepText}>{label}</Text>
-  </View>
-);
-
 const styles = StyleSheet.create({
-
-  container: {
-    flex: 1,
-    backgroundColor: "#F1F5F9",
-    padding: 20,
-  },
+  container: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 48, paddingBottom: 32 },
+  pressed: { opacity: 0.9 },
 
   hero: {
-    marginTop: 40,
-    marginBottom: 30,
-  },
-
-  title: {
-    fontSize: 30,
-    fontWeight: "bold",
-  },
-
-  subtitle: {
-    marginTop: 8,
-    color: "#64748B",
-  },
-
-  stepsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 25,
-  },
-
-  step: {
     alignItems: "center",
+    marginBottom: 36,
   },
-
-  circle: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "#CBD5F5",
-    marginBottom: 5,
+  logoBox: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: homeColors.logoBg,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
   },
-
-  circleDone: {
-    backgroundColor: "#22C55E",
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: homeColors.textDark,
+    textAlign: "center",
+    lineHeight: 30,
+    marginBottom: 8,
   },
-
-  stepText: {
-    fontSize: 12,
-    color: "#475569",
+  heroTitleHighlight: {
+    color: homeColors.primary,
   },
-
-  card: {
-    backgroundColor: "white",
-    borderRadius: 18,
-    padding: 20,
-    marginBottom: 20,
-    elevation: 4,
-  },
-
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 15,
-  },
-
-  cardSubtitle: {
+  heroSubtitle: {
     fontSize: 14,
-    color: "#64748B",
-    marginBottom: 12,
+    color: homeColors.textMuted,
+    textAlign: "center",
+    lineHeight: 20,
+    paddingHorizontal: 8,
   },
 
-  loadingContainer: {
+  ctaRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 40,
+  },
+  ctaQuizWrap: {
+    flex: 1,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  ctaQuizGradient: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 20,
+    justifyContent: "center",
+    paddingVertical: 16,
+    gap: 8,
+  },
+  ctaQuizText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  ctaUploadWrap: {
+    flex: 1,
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    gap: 8,
+  },
+  ctaUploadText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: homeColors.textDark,
   },
 
-  loadingText: {
-    marginTop: 10,
-    color: "#64748B",
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: homeColors.textDark,
+    marginTop: 8,
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  trustedSubtitle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginBottom: 20,
+  },
+  trustedSubtitleText: {
+    fontSize: 14,
+    color: homeColors.primary,
   },
 
-  primaryButton: {
-    backgroundColor: "#2563EB",
+  howItWorksGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14,
+    marginBottom: 40,
+  },
+  howCard: {
+    width: "48%",
+    minWidth: "48%",
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 16,
     padding: 16,
-    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+  },
+  howIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: "center",
-  },
-
-  primaryText: {
-    color: "white",
-    fontWeight: "600",
-  },
-
-  badge: {
-    backgroundColor: "#DCFCE7",
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
+    justifyContent: "center",
     marginBottom: 10,
   },
-
-  badgeText: {
-    color: "#166534",
-    fontWeight: "600",
+  howCardTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: homeColors.textDark,
+    marginBottom: 6,
+  },
+  howCardDesc: {
+    fontSize: 12,
+    color: homeColors.textMuted,
+    lineHeight: 17,
   },
 
-  fileName: {
-    marginBottom: 15,
-    fontWeight: "500",
+  testimonials: {
+    gap: 16,
+    marginBottom: 36,
   },
-
-  row: {
+  testimonialCard: {
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+  },
+  starRow: {
     flexDirection: "row",
-    gap: 10,
+    gap: 2,
+    marginBottom: 8,
+  },
+  testimonialQuote: {
+    fontSize: 14,
+    color: homeColors.textDark,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  testimonialAuthor: {
+    fontSize: 13,
+    color: homeColors.textMuted,
   },
 
-  changeButton: {
+  ctaBlockWrap: {
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  ctaBlockGradient: {
+    padding: 24,
+  },
+  ctaBlockTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#fff",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  ctaBlockSubtitle: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.9)",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  ctaBlockButtons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  ctaBlockBtnWhite: {
     flex: 1,
-    backgroundColor: "#E2E8F0",
-    padding: 12,
-    borderRadius: 10,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    paddingVertical: 14,
+    borderRadius: 14,
+    gap: 6,
   },
-
-  changeText: {
-    fontWeight: "600",
+  ctaBlockBtnWhiteText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: homeColors.primary,
   },
-
-  deleteButton: {
+  ctaBlockBtnPurple: {
     flex: 1,
-    backgroundColor: "#EF4444",
-    padding: 12,
-    borderRadius: 10,
+    flexDirection: "row",
     alignItems: "center",
-  },
-
-  deleteText: {
-    color: "white",
-    fontWeight: "600",
-  },
-
-  secondaryButton: {
-    backgroundColor: "#16A34A",
-    padding: 16,
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingVertical: 14,
     borderRadius: 14,
-    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.5)",
+    gap: 6,
+  },
+  ctaBlockBtnPurpleText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#fff",
   },
 
-  secondaryText: {
-    color: "white",
-    fontWeight: "600",
-  },
-
-  tertiaryButton: {
-    backgroundColor: "#7D10B9",
-    padding: 16,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-
-  tertiaryText: {
-    color: "white",
-    fontWeight: "600",
-  },
-
+  bottomSpacer: { height: 40 },
 });
