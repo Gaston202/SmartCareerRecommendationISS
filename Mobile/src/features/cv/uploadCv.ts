@@ -28,21 +28,25 @@ export async function pickAndUploadCv(): Promise<{ cvUploadId: string; storagePa
       throw new Error("Not logged in");
     }
 
-    // Fetch file as blob
-    const fileRes = await fetch(file.uri);
-    const blob = await fileRes.blob();
+    // Read file as ArrayBuffer (this works in React Native)
+    const response = await fetch(file.uri);
+    if (!response.ok) {
+      throw new Error(`Failed to read file: ${response.statusText}`);
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
 
     // Generate unique path
     const path = `${userId}/${Date.now()}_${file.name}`;
 
     // Upload to Supabase Storage
-    const uploadRes = await supabase.storage.from("cvs").upload(path, blob, {
+    const uploadRes = await supabase.storage.from("cvs_debug").upload(path, arrayBuffer, {
       contentType: file.mimeType ?? "application/pdf",
       upsert: false,
     });
 
     if (uploadRes.error) {
-      throw uploadRes.error;
+      throw new Error(`Upload failed: ${uploadRes.error.message}`);
     }
 
     // Create record in cvs table
@@ -59,7 +63,9 @@ export async function pickAndUploadCv(): Promise<{ cvUploadId: string; storagePa
       .single();
 
     if (insertRes.error) {
-      throw insertRes.error;
+      // Clean up uploaded file if DB insert fails
+      await supabase.storage.from("cvs_debug").remove([path]);
+      throw new Error(`Database error: ${insertRes.error.message}`);
     }
 
     return {

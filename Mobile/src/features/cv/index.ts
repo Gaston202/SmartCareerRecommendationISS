@@ -8,7 +8,7 @@ export { CVAnalysisScreen } from "./CVAnalysisScreen";
 export { SkillEditModal } from "./SkillEditModal";
 export { SkillAddModal } from "./SkillAddModal";
 
-export { useUserSkills, useUpdateSkills, useLatestCvUpload, useCvAnalysis, useUploadCv, useTriggerCvAnalysis } from "./hooks";
+export { useUserSkills, useUpdateSkills, useLatestCvUpload, useCvAnalysis, useUploadCv, useTriggerCvAnalysis, useDeleteCv } from "./hooks";
 export { pickAndUploadCv, triggerCvAnalysis } from "./uploadCv";
 
 export type { UserSkill, CvUpload, CvAnalysis, DraftSkill, SkillStatus, SkillSource } from "./types";

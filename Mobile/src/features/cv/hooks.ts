@@ -165,19 +165,26 @@ export function useUploadCv() {
 
       if (!userId) throw new Error("Not logged in");
 
-      // Fetch file as blob
-      const fileRes = await fetch(file.uri);
-      const blob = await fileRes.blob();
+      // Read file as ArrayBuffer (this works in React Native)
+      const response = await fetch(file.uri);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to read file: ${response.statusText}`);
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
 
       const path = `${userId}/${Date.now()}_${file.name}`;
 
       // Upload to Storage
-      const uploadRes = await supabase.storage.from("cvs").upload(path, blob, {
+      const uploadRes = await supabase.storage.from("cvs_debug").upload(path, arrayBuffer, {
         contentType: file.mimeType ?? "application/pdf",
         upsert: false,
       });
 
-      if (uploadRes.error) throw uploadRes.error;
+      if (uploadRes.error) {
+        throw new Error(`Upload failed: ${uploadRes.error.message}`);
+      }
 
       // Create DB record
       const insertRes = await supabase
@@ -192,7 +199,11 @@ export function useUploadCv() {
         .select("*")
         .single();
 
-      if (insertRes.error) throw insertRes.error;
+      if (insertRes.error) {
+        // Clean up uploaded file if DB insert fails
+        await supabase.storage.from("cvs_debug").remove([path]);
+        throw new Error(`Database error: ${insertRes.error.message}`);
+      }
 
       return insertRes.data as CvUpload;
     },
@@ -228,6 +239,48 @@ export function useTriggerCvAnalysis() {
       // Refetch analysis and skills
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.skills() });
+    },
+  });
+}
+
+/**
+ * Delete CV upload and associated data
+ */
+export function useDeleteCv() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (cvUpload: CvUpload) => {
+      const userRes = await supabase.auth.getUser();
+      const userId = userRes.data.user?.id;
+
+      if (!userId) throw new Error("Not logged in");
+
+      // 1. Delete file from storage
+      const { error: storageError } = await supabase.storage
+        .from("cvs_debug")
+        .remove([cvUpload.storage_path]);
+
+      if (storageError) {
+        console.warn("Storage delete warning:", storageError);
+        // Continue anyway - file might not exist
+      }
+
+      // 2. Delete CV record (will cascade delete cv_analysis due to FK)
+      const { error: dbError } = await supabase
+        .from("cvs")
+        .delete()
+        .eq("id", cvUpload.id)
+        .eq("user_id", userId);
+
+      if (dbError) throw dbError;
+
+      return { success: true };
+    },
+    onSuccess: () => {
+      // Refresh all CV-related queries
+      queryClient.invalidateQueries({ queryKey: cvQueryKeys.uploads() });
+      queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
     },
   });
 }

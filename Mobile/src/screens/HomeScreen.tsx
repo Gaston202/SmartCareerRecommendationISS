@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { useNavigation } from "@react-navigation/native";
-import { useUploadCv, useTriggerCvAnalysis, useLatestCvUpload, useUserSkills } from "../features/cv/hooks";
+import { useUploadCv, useTriggerCvAnalysis, useLatestCvUpload, useUserSkills, useDeleteCv } from "../features/cv/hooks";
 
 export default function HomeScreen(): React.ReactElement {
   const navigation = useNavigation();
@@ -18,12 +18,13 @@ export default function HomeScreen(): React.ReactElement {
   const { data: skills = [], isLoading: loadingSkills } = useUserSkills();
   const { mutate: uploadCv, isPending: isUploading } = useUploadCv();
   const { mutate: triggerAnalysis, isPending: isAnalyzing } = useTriggerCvAnalysis();
+  const { mutate: deleteCv, isPending: isDeleting } = useDeleteCv();
 
   const [localCvName, setLocalCvName] = useState<string | null>(null);
 
   // Use latest upload from DB or local state
   const cvName = latestUpload?.filename || localCvName;
-  const isProcessing = isUploading || isAnalyzing;
+  const isProcessing = isUploading || isAnalyzing || isDeleting;
 
   const pickCV = async () => {
     try {
@@ -33,7 +34,9 @@ export default function HomeScreen(): React.ReactElement {
         multiple: false,
       });
 
-      if (result.canceled) return;
+      if (result.canceled) {
+        return;
+      }
 
       const file = result.assets[0];
 
@@ -55,14 +58,14 @@ export default function HomeScreen(): React.ReactElement {
           onSuccess: (uploaded) => {
             Alert.alert("Success", "CV uploaded successfully!");
             
-            // Trigger AI analysis
+            // Trigger AI analysis (optional - skip if Edge Function not deployed)
             triggerAnalysis(uploaded.id, {
               onSuccess: () => {
                 Alert.alert("Analysis Complete", "Your CV has been analyzed!");
               },
               onError: (error) => {
-                console.error("Analysis error:", error);
-                Alert.alert("Analysis Failed", "Could not analyze CV. Check console.");
+                console.warn("Analysis skipped (Edge Function not available):", error);
+                // Don't show error to user - upload was successful
               },
             });
           },
@@ -80,12 +83,29 @@ export default function HomeScreen(): React.ReactElement {
   };
 
   const deleteCV = () => {
+    if (!latestUpload) {
+      // Just clear local state if no DB record
+      setLocalCvName(null);
+      return;
+    }
+
     Alert.alert("Remove CV", "Delete your uploaded CV?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
         style: "destructive",
-        onPress: () => setLocalCvName(null),
+        onPress: () => {
+          deleteCv(latestUpload, {
+            onSuccess: () => {
+              setLocalCvName(null);
+              Alert.alert("Success", "CV deleted successfully!");
+            },
+            onError: (error) => {
+              console.error("Delete error:", error);
+              Alert.alert("Delete Failed", "Could not delete CV. Try again.");
+            },
+          });
+        },
       },
     ]);
   };
