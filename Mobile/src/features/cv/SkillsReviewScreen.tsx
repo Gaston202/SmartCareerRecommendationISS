@@ -6,6 +6,8 @@
 
 import React, { useState, useCallback } from "react";
 import { StyleSheet, FlatList, ActivityIndicator, Alert } from "react-native";
+// WARNING: Expo Go does not support Android push notifications as of SDK 53.
+// Use a development build for full notification support.
 import * as Notifications from "expo-notifications";
 import {
   Box,

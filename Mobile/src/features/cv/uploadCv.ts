@@ -45,9 +45,9 @@ export async function pickAndUploadCv(): Promise<{ cvUploadId: string; storagePa
       throw uploadRes.error;
     }
 
-    // Create record in cv_uploads table
+    // Create record in cvs table
     const insertRes = await supabase
-      .from("cv_uploads")
+      .from("cvs")
       .insert({
         user_id: userId,
         storage_path: path,

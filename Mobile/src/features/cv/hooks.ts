@@ -107,7 +107,7 @@ export function useLatestCvUpload() {
       if (!userId) throw new Error("Not logged in");
 
       const { data, error } = await supabase
-        .from("cv_uploads")
+        .from("cvs")
         .select("*")
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
@@ -181,7 +181,7 @@ export function useUploadCv() {
 
       // Create DB record
       const insertRes = await supabase
-        .from("cv_uploads")
+        .from("cvs")
         .insert({
           user_id: userId,
           storage_path: path,
