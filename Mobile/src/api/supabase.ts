@@ -24,3 +24,18 @@ export const supabase: SupabaseClient = createClient(
     },
   }
 );
+
+/** Client that never has a user session. Use for Edge Function calls that must use only the anon key (avoids 401 Invalid JWT). */
+const anonOnlyStorage = {
+  getItem: async () => null,
+  setItem: async () => {},
+  removeItem: async () => {},
+};
+export const supabaseAnonOnly: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storage: anonOnlyStorage,
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
+});
