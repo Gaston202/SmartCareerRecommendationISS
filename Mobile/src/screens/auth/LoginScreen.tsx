@@ -9,6 +9,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  Modal,
+  TouchableWithoutFeedback,
+  Keyboard,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
@@ -18,6 +23,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../../auth/AuthProvider';
 import { authColors as colors } from './authTheme';
+import { supabase } from '../../api/supabase';
 
 type AuthStackParamList = {
   Welcome: undefined;
@@ -45,15 +51,358 @@ const parseAuthError = (error: unknown): string => {
     if ('message' in errObj && typeof errObj.message === 'string') return errObj.message;
   }
   if (typeof error === 'string') return error;
-  return 'An error occurred during login. Please try again.';
+  return 'An error occurred. Please try again.';
 };
+
+/**
+ * Forgot Password modal using EMAIL OTP (6-digit code)
+ * Flow:
+ * 1) send OTP to email
+ * 2) verify OTP
+ * 3) update password
+ */
+function ForgotPasswordModal({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const [step, setStep] = useState<'email' | 'verify'>('email');
+  const [busy, setBusy] = useState(false);
+
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
+
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const emailRef = useRef<TextInput | null>(null);
+  const codeRef = useRef<TextInput | null>(null);
+
+  const resetAll = () => {
+    setStep('email');
+    setBusy(false);
+    setEmail('');
+    setCode('');
+    setNewPass('');
+    setConfirmPass('');
+    setShowNew(false);
+    setShowConfirm(false);
+  };
+
+  const close = () => {
+    Keyboard.dismiss();
+    resetAll();
+    onClose();
+  };
+
+  useEffect(() => {
+    if (!visible) return;
+    const t = setTimeout(() => {
+      if (step === 'email') emailRef.current?.focus?.();
+      if (step === 'verify') codeRef.current?.focus?.();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [visible, step]);
+
+  const validateEmail = () => {
+    const e = email.trim();
+    if (!e) {
+      Alert.alert('Missing email', 'Please enter your email address.');
+      return false;
+    }
+    // quick check
+    if (!e.includes('@') || !e.includes('.')) {
+      Alert.alert('Invalid email', 'Please enter a valid email address.');
+      return false;
+    }
+    return true;
+  };
+
+  const validateVerify = () => {
+    if (!code.trim() || code.trim().length !== 6) {
+      Alert.alert('Invalid code', 'Please enter the 6-digit code.');
+      return false;
+    }
+    if (!newPass || newPass.length < 6) {
+      Alert.alert('Weak password', 'Password must be at least 6 characters.');
+      return false;
+    }
+    if (confirmPass !== newPass) {
+      Alert.alert('Mismatch', 'Passwords do not match.');
+      return false;
+    }
+    return true;
+  };
+
+  const sendCode = async () => {
+    if (!validateEmail()) return;
+
+    setBusy(true);
+    try {
+      /**
+       * This triggers Supabase Email OTP if enabled.
+       * It may send a 6-digit code, depending on your Supabase Auth email settings.
+       */
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          shouldCreateUser: false, // don’t create new users
+        },
+      });
+
+      if (error) {
+        Alert.alert('Could not send code', error.message);
+        return;
+      }
+
+      setStep('verify');
+      Alert.alert('Code sent ✅', 'Check your email for the 6-digit code.');
+    } catch (e) {
+      Alert.alert('Could not send code', parseAuthError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verifyAndUpdate = async () => {
+    if (!validateVerify()) return;
+
+    setBusy(true);
+    try {
+      /**
+       * Verify the 6-digit code.
+       * NOTE: Depending on supabase-js version/settings, `type` might need to be:
+       * - 'email' (common for Email OTP)
+       * - or 'magiclink'
+       *
+       * If you get "Invalid type" error, change type to 'magiclink'.
+       */
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: code.trim(),
+        type: 'email' as any,
+      });
+
+      if (error) {
+        Alert.alert('Invalid code', error.message);
+        return;
+      }
+
+      // Now user is authenticated (session created), we can update password
+      const { error: updateErr } = await supabase.auth.updateUser({
+        password: newPass,
+      });
+
+      if (updateErr) {
+        Alert.alert('Could not update password', updateErr.message);
+        return;
+      }
+
+      // Optional: sign out so they can log in normally with new password
+      await supabase.auth.signOut();
+
+      Alert.alert('Done ✅', 'Password updated. Please sign in with your new password.');
+      close();
+    } catch (e) {
+      Alert.alert('Error', parseAuthError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onChangeCode = (t: string) => {
+    // digits only, max 6
+    const digits = t.replace(/\D/g, '').slice(0, 6);
+    setCode(digits);
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+      <TouchableWithoutFeedback onPress={close}>
+        <View style={fpStyles.root}>
+          <View style={fpStyles.backdrop} />
+          <TouchableWithoutFeedback>
+            <View style={fpStyles.card}>
+              <Text style={fpStyles.title}>Reset password</Text>
+              <Text style={fpStyles.sub}>
+                {step === 'email'
+                  ? 'Enter your email and we’ll send a 6-digit code.'
+                  : 'Enter the code and choose a new password.'}
+              </Text>
+
+              {step === 'email' ? (
+                <>
+                  <Text style={fpStyles.label}>Email</Text>
+                  <View style={fpStyles.inputWrap}>
+                    <Ionicons name="mail-outline" size={18} color={colors.textMuted} />
+                    <TextInput
+                      ref={emailRef}
+                      style={fpStyles.input}
+                      placeholder="you@example.com"
+                      placeholderTextColor={colors.textMuted}
+                      value={email}
+                      onChangeText={setEmail}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      editable={!busy}
+                      returnKeyType="done"
+                      onSubmitEditing={() => !busy && sendCode()}
+                    />
+                  </View>
+
+                  <View style={fpStyles.actions}>
+                    <Pressable
+                      style={[fpStyles.btnGhost, busy && fpStyles.disabled]}
+                      onPress={close}
+                      disabled={busy}
+                    >
+                      <Text style={fpStyles.btnGhostText}>Cancel</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[fpStyles.btnPrimary, busy && fpStyles.disabled]}
+                      onPress={sendCode}
+                      disabled={busy}
+                    >
+                      {busy ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <Text style={fpStyles.btnPrimaryText}>Send code</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={fpStyles.label}>6-digit code</Text>
+                  <View style={fpStyles.inputWrap}>
+                    <Ionicons name="key-outline" size={18} color={colors.textMuted} />
+                    <TextInput
+                      ref={codeRef}
+                      style={fpStyles.input}
+                      placeholder="123456"
+                      placeholderTextColor={colors.textMuted}
+                      value={code}
+                      onChangeText={onChangeCode}
+                      keyboardType="number-pad"
+                      editable={!busy}
+                      maxLength={6}
+                      returnKeyType="done"
+                    />
+                  </View>
+
+                  <Text style={[fpStyles.label, { marginTop: 10 }]}>New password</Text>
+                  <View style={fpStyles.inputWrap}>
+                    <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} />
+                    <TextInput
+                      style={[fpStyles.input, { paddingRight: 36 }]}
+                      placeholder="New password"
+                      placeholderTextColor={colors.textMuted}
+                      value={newPass}
+                      onChangeText={setNewPass}
+                      secureTextEntry={!showNew}
+                      editable={!busy}
+                      autoCapitalize="none"
+                    />
+                    <Pressable
+                      onPress={() => setShowNew((v) => !v)}
+                      style={fpStyles.eye}
+                      hitSlop={8}
+                      disabled={busy}
+                    >
+                      <Ionicons
+                        name={showNew ? 'eye-off-outline' : 'eye-outline'}
+                        size={18}
+                        color={colors.textMuted}
+                      />
+                    </Pressable>
+                  </View>
+
+                  <Text style={[fpStyles.label, { marginTop: 10 }]}>Confirm password</Text>
+                  <View style={fpStyles.inputWrap}>
+                    <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} />
+                    <TextInput
+                      style={[fpStyles.input, { paddingRight: 36 }]}
+                      placeholder="Confirm password"
+                      placeholderTextColor={colors.textMuted}
+                      value={confirmPass}
+                      onChangeText={setConfirmPass}
+                      secureTextEntry={!showConfirm}
+                      editable={!busy}
+                      autoCapitalize="none"
+                    />
+                    <Pressable
+                      onPress={() => setShowConfirm((v) => !v)}
+                      style={fpStyles.eye}
+                      hitSlop={8}
+                      disabled={busy}
+                    >
+                      <Ionicons
+                        name={showConfirm ? 'eye-off-outline' : 'eye-outline'}
+                        size={18}
+                        color={colors.textMuted}
+                      />
+                    </Pressable>
+                  </View>
+
+                  <View style={fpStyles.actions}>
+                    <Pressable
+                      style={[fpStyles.btnGhost, busy && fpStyles.disabled]}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setBusy(false);
+                        setStep('email');
+                        setCode('');
+                        setNewPass('');
+                        setConfirmPass('');
+                        setTimeout(() => emailRef.current?.focus?.(), 200);
+                      }}
+                      disabled={busy}
+                    >
+                      <Text style={fpStyles.btnGhostText}>Back</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[fpStyles.btnPrimary, busy && fpStyles.disabled]}
+                      onPress={verifyAndUpdate}
+                      disabled={busy}
+                    >
+                      {busy ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <Text style={fpStyles.btnPrimaryText}>Update</Text>
+                      )}
+                    </Pressable>
+                  </View>
+
+                  <Pressable
+                    onPress={sendCode}
+                    disabled={busy}
+                    style={{ marginTop: 10, alignSelf: 'center' }}
+                  >
+                    <Text style={fpStyles.resend}>Resend code</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+}
 
 export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElement {
   const { signIn, state } = useAuth();
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [fpOpen, setFpOpen] = useState(false);
 
-  // Floating animation values for background shapes (different phases/durations)
+  // Floating animation values for background shapes
   const float1 = useRef(new Animated.Value(0)).current;
   const float2 = useRef(new Animated.Value(0)).current;
   const float3 = useRef(new Animated.Value(0)).current;
@@ -63,16 +412,8 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
       return Animated.loop(
         Animated.sequence([
           Animated.delay(delay),
-          Animated.timing(animValue, {
-            toValue: 1,
-            duration,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animValue, {
-            toValue: 0,
-            duration,
-            useNativeDriver: true,
-          }),
+          Animated.timing(animValue, { toValue: 1, duration, useNativeDriver: true }),
+          Animated.timing(animValue, { toValue: 0, duration, useNativeDriver: true }),
         ])
       );
     };
@@ -122,11 +463,10 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={[colors.gradientStart, colors.gradientEnd]}
-        style={StyleSheet.absoluteFill}
-      />
-      {/* Decorative shapes with floating animation */}
+      <ForgotPasswordModal visible={fpOpen} onClose={() => setFpOpen(false)} />
+
+      <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={StyleSheet.absoluteFill} />
+
       <Animated.View
         style={[
           styles.shape,
@@ -149,20 +489,13 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
         ]}
       />
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardView}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.card}>
-            {/* Logo */}
             <View style={styles.logoCircle}>
               <FontAwesome5 name="graduation-cap" size={26} color="#fff" />
             </View>
+
             <Text style={styles.title}>Welcome back</Text>
             <Text style={styles.subtitle}>Sign in to continue your career journey</Text>
 
@@ -195,19 +528,20 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
                   )}
                 />
               </View>
-              {errors.email?.message ? (
-                <Text style={styles.fieldError}>{errors.email.message}</Text>
-              ) : null}
+              {errors.email?.message ? <Text style={styles.fieldError}>{errors.email.message}</Text> : null}
             </View>
 
             {/* Password */}
             <View style={styles.fieldWrap}>
               <View style={styles.passwordLabelRow}>
                 <Text style={styles.label}>Password</Text>
-                <Pressable hitSlop={8}>
+
+                {/* ✅ now functional: opens modal */}
+                <Pressable hitSlop={8} onPress={() => setFpOpen(true)} disabled={busy}>
                   <Text style={styles.forgotLink}>Forgot password?</Text>
                 </Pressable>
               </View>
+
               <View style={styles.inputWrap}>
                 <Ionicons name="lock-closed-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
                 <Controller
@@ -226,24 +560,15 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
                     />
                   )}
                 />
-                <Pressable
-                  onPress={() => setShowPassword((v) => !v)}
-                  style={styles.eyeIcon}
-                  hitSlop={8}
-                >
-                  <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={20}
-                    color={colors.textMuted}
-                  />
+                <Pressable onPress={() => setShowPassword((v) => !v)} style={styles.eyeIcon} hitSlop={8} disabled={busy}>
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textMuted} />
                 </Pressable>
               </View>
-              {errors.password?.message ? (
-                <Text style={styles.fieldError}>{errors.password.message}</Text>
-              ) : null}
+
+              {errors.password?.message ? <Text style={styles.fieldError}>{errors.password.message}</Text> : null}
             </View>
 
-            {/* Sign In button */}
+            {/* Sign In */}
             <Pressable
               onPress={handleSubmit(onSubmit)}
               disabled={busy}
@@ -261,22 +586,15 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
               </LinearGradient>
             </Pressable>
 
-            {/* OR */}
             <View style={styles.orRow}>
               <View style={styles.orLine} />
               <Text style={styles.orText}>OR</Text>
               <View style={styles.orLine} />
             </View>
 
-            {/* Sign up link */}
             <View style={styles.signupRow}>
               <Text style={styles.signupPrompt}>Don't have an account? </Text>
-              <Pressable
-                onPress={() => navigation?.navigate?.('Signup')}
-                disabled={busy}
-                hitSlop={8}
-                testID="signup-link"
-              >
+              <Pressable onPress={() => navigation?.navigate?.('Signup')} disabled={busy} hitSlop={8} testID="signup-link">
                 <Text style={styles.signupLink}>Sign Up</Text>
               </Pressable>
             </View>
@@ -291,23 +609,70 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
   );
 }
 
+const fpStyles = StyleSheet.create({
+  root: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 18 },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
+  card: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: colors.cardBg,
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  title: { fontSize: 18, fontWeight: '800', color: colors.textDark },
+  sub: { marginTop: 6, color: colors.textMuted, fontSize: 12.5, lineHeight: 18 },
+  label: { marginTop: 14, marginBottom: 8, fontSize: 13, fontWeight: '700', color: colors.textDark },
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    minHeight: 48,
+  },
+  input: { flex: 1, fontSize: 15.5, color: colors.textDark, paddingVertical: 12, marginLeft: 10, paddingRight: 8 },
+  eye: { position: 'absolute', right: 14 },
+  actions: { flexDirection: 'row', gap: 10, marginTop: 16, justifyContent: 'flex-end' },
+  btnPrimary: {
+    backgroundColor: colors.buttonStart,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnPrimaryText: { color: '#fff', fontWeight: '800' },
+  btnGhost: {
+    backgroundColor: 'transparent',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minWidth: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnGhostText: { color: colors.textDark, fontWeight: '800' },
+  resend: { color: colors.link, fontWeight: '700', fontSize: 13 },
+  disabled: { opacity: 0.6 },
+});
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  keyboardView: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  keyboardView: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 24,
     paddingVertical: 32,
   },
-  shape: {
-    position: 'absolute',
-    borderRadius: 999,
-  },
+  shape: { position: 'absolute', borderRadius: 999 },
   shapeCircle: {
     width: 200,
     height: 200,
@@ -366,16 +731,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 24,
   },
-  errorWrap: {
-    marginBottom: 12,
-  },
-  errorText: {
-    fontSize: 13,
-    color: '#DC2626',
-  },
-  fieldWrap: {
-    marginBottom: 18,
-  },
+  errorWrap: { marginBottom: 12 },
+  errorText: { fontSize: 13, color: '#DC2626' },
+  fieldWrap: { marginBottom: 18 },
   label: {
     fontSize: 14,
     fontWeight: '600',
@@ -388,11 +746,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  forgotLink: {
-    fontSize: 13,
-    color: colors.link,
-    fontWeight: '500',
-  },
+  forgotLink: { fontSize: 13, color: colors.link, fontWeight: '500' },
   inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -403,9 +757,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     minHeight: 48,
   },
-  inputIcon: {
-    marginRight: 10,
-  },
+  inputIcon: { marginRight: 10 },
   input: {
     flex: 1,
     fontSize: 16,
@@ -413,74 +765,18 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingRight: 8,
   },
-  inputRight: {
-    paddingRight: 36,
-  },
-  eyeIcon: {
-    position: 'absolute',
-    right: 14,
-  },
-  fieldError: {
-    fontSize: 12,
-    color: '#DC2626',
-    marginTop: 4,
-  },
-  buttonWrap: {
-    marginTop: 8,
-    marginBottom: 20,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  buttonPressed: {
-    opacity: 0.9,
-  },
-  buttonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    gap: 8,
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  orRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  orLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  orText: {
-    fontSize: 12,
-    color: colors.textMuted,
-    marginHorizontal: 12,
-  },
-  signupRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  signupPrompt: {
-    fontSize: 14,
-    color: colors.textDark,
-  },
-  signupLink: {
-    fontSize: 14,
-    color: colors.link,
-    fontWeight: '600',
-  },
-  terms: {
-    fontSize: 12,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: 20,
-    paddingHorizontal: 8,
-  },
+  inputRight: { paddingRight: 36 },
+  eyeIcon: { position: 'absolute', right: 14 },
+  fieldError: { fontSize: 12, color: '#DC2626', marginTop: 4 },
+  buttonWrap: { marginTop: 8, marginBottom: 20, borderRadius: 12, overflow: 'hidden' },
+  buttonPressed: { opacity: 0.9 },
+  buttonGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, gap: 8 },
+  buttonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
+  orRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  orLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  orText: { fontSize: 12, color: colors.textMuted, marginHorizontal: 12 },
+  signupRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' },
+  signupPrompt: { fontSize: 14, color: colors.textDark },
+  signupLink: { fontSize: 14, color: colors.link, fontWeight: '600' },
+  terms: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: 20, paddingHorizontal: 8 },
 });
