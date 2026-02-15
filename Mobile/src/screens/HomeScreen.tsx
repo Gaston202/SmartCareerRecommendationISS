@@ -12,7 +12,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { useNavigation } from "@react-navigation/native";
-import { useUploadCv, useTriggerCvAnalysis, useLatestCvUpload, useDeleteCv } from "../features/cv/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+import { useUploadCv, useTriggerCvAnalysis, useLatestCvUpload, useDeleteCv, cvQueryKeys } from "../features/cv/hooks";
 import { homeColors } from "./homeTheme";
 
 const TESTIMONIALS = [
@@ -64,7 +65,8 @@ function StarRating() {
 
 export default function HomeScreen(): React.ReactElement {
   const navigation = useNavigation();
-  const { data: latestUpload, isLoading: loadingUpload } = useLatestCvUpload();
+  const queryClient = useQueryClient();
+  const { data: latestUpload, isLoading: loadingUpload, refetch: refetchCv } = useLatestCvUpload();
   const { mutate: uploadCv, isPending: isUploading } = useUploadCv();
   const { mutate: triggerAnalysis } = useTriggerCvAnalysis();
   const { mutate: deleteCv, isPending: isDeleting } = useDeleteCv();
@@ -111,6 +113,39 @@ export default function HomeScreen(): React.ReactElement {
     }
   };
 
+  const handleChangeCV = async () => {
+    pickCV();
+  };
+
+  const handleDeleteCV = () => {
+    if (!latestUpload) return;
+    
+    Alert.alert(
+      "Delete CV",
+      "Are you sure you want to delete your CV? This will also remove your CV analysis.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            deleteCv(latestUpload, {
+              onSuccess: () => {
+                setLocalCvName(null);
+                // Immediately update cache to null for instant UI update
+                queryClient.setQueryData(cvQueryKeys.uploads(), null);
+                Alert.alert("Success", "CV deleted successfully!");
+              },
+              onError: () => {
+                Alert.alert("Error", "Failed to delete CV. Try again.");
+              },
+            });
+          },
+        },
+      ]
+    );
+  };
+
   const goToQuiz = () => {
     (navigation as any).navigate("Quiz");
   };
@@ -153,20 +188,68 @@ export default function HomeScreen(): React.ReactElement {
               <Text style={styles.ctaQuizText}>Take Career Quiz</Text>
             </LinearGradient>
           </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.ctaUploadWrap, pressed && styles.pressed]}
-            onPress={pickCV}
-            disabled={isProcessing}
-          >
-            {isProcessing ? (
-              <ActivityIndicator size="small" color={homeColors.primary} />
-            ) : (
-              <>
-                <Ionicons name="cloud-upload-outline" size={22} color={homeColors.textDark} />
-                <Text style={styles.ctaUploadText}>Upload Your CV</Text>
-              </>
-            )}
-          </Pressable>
+
+          {/* CV Upload/Status Section */}
+          {cvName ? (
+            <View style={styles.cvUploadedContainer}>
+              <View style={styles.cvUploadedContent}>
+                <View style={styles.cvUploadedHeader}>
+                  <Ionicons name="checkmark-circle" size={20} color={homeColors.accentGreen} />
+                  <Text style={styles.cvUploadedTitle}>CV Uploaded</Text>
+                </View>
+                <Text style={styles.cvUploadedFilename} numberOfLines={1}>
+                  {cvName}
+                </Text>
+                <View style={styles.cvActionsRow}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.cvActionBtn,
+                      styles.cvChangeBtnStyle,
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={handleChangeCV}
+                    disabled={isProcessing}
+                  >
+                    <Ionicons name="swap-horizontal-outline" size={16} color={homeColors.primary} />
+                    <Text style={styles.cvChangeBtnText}>Change</Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.cvActionBtn,
+                      styles.cvDeleteBtnStyle,
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={handleDeleteCV}
+                    disabled={isProcessing}
+                  >
+                    {isDeleting ? (
+                      <ActivityIndicator size="small" color="#f44336" />
+                    ) : (
+                      <>
+                        <Ionicons name="trash-outline" size={16} color="#f44336" />
+                        <Text style={styles.cvDeleteBtnText}>Delete</Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [styles.ctaUploadWrap, pressed && styles.pressed]}
+              onPress={pickCV}
+              disabled={isProcessing}
+            >
+              {isUploading ? (
+                <ActivityIndicator size="small" color={homeColors.primary} />
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload-outline" size={22} color={homeColors.textDark} />
+                  <Text style={styles.ctaUploadText}>Upload Your CV</Text>
+                </>
+              )}
+            </Pressable>
+          )}
         </View>
 
         {/* How It Works */}
@@ -216,14 +299,30 @@ export default function HomeScreen(): React.ReactElement {
                 <Text style={styles.ctaBlockBtnWhiteText}>Take the Quiz</Text>
                 <Ionicons name="arrow-forward" size={18} color={homeColors.primary} />
               </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.ctaBlockBtnPurple, pressed && styles.pressed]}
-                onPress={pickCV}
-                disabled={isProcessing}
-              >
-                <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
-                <Text style={styles.ctaBlockBtnPurpleText}>Upload CV</Text>
-              </Pressable>
+              {cvName ? (
+                <Pressable
+                  style={({ pressed }) => [styles.ctaBlockBtnPurple, pressed && styles.pressed]}
+                  onPress={() => (navigation as any).navigate("SkillsReview")}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+                  <Text style={styles.ctaBlockBtnPurpleText}>View CV Analysis</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={({ pressed }) => [styles.ctaBlockBtnPurple, pressed && styles.pressed]}
+                  onPress={pickCV}
+                  disabled={isProcessing}
+                >
+                  {isUploading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+                      <Text style={styles.ctaBlockBtnPurpleText}>Upload CV</Text>
+                    </>
+                  )}
+                </Pressable>
+              )}
             </View>
           </LinearGradient>
         </Pressable>
@@ -312,6 +411,68 @@ const styles = StyleSheet.create({
     color: homeColors.textDark,
   },
 
+  // CV Uploaded State Styles
+  cvUploadedContainer: {
+    flex: 1,
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: homeColors.accentGreen,
+    padding: 12,
+  },
+  cvUploadedContent: {
+    gap: 8,
+  },
+  cvUploadedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  cvUploadedTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: homeColors.accentGreen,
+  },
+  cvUploadedFilename: {
+    fontSize: 13,
+    color: homeColors.textDark,
+    fontWeight: "600",
+  },
+  cvActionsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4,
+  },
+  cvActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 4,
+  },
+  cvChangeBtnStyle: {
+    backgroundColor: homeColors.primary + "15",
+    borderWidth: 1,
+    borderColor: homeColors.primary + "30",
+  },
+  cvChangeBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: homeColors.primary,
+  },
+  cvDeleteBtnStyle: {
+    backgroundColor: "#f4433615",
+    borderWidth: 1,
+    borderColor: "#f4433630",
+  },
+  cvDeleteBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#f44336",
+  },
+
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -335,12 +496,12 @@ const styles = StyleSheet.create({
   howItWorksGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 14,
+    justifyContent: "space-between",
     marginBottom: 40,
+    gap: 14,
   },
   howCard: {
-    width: "48%",
-    minWidth: "48%",
+    width: "47.5%",
     backgroundColor: homeColors.cardBg,
     borderRadius: 16,
     padding: 16,
