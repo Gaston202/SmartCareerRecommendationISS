@@ -6,7 +6,7 @@ This document summarizes the complete implementation of US009 (Skills Review Scr
 
 ## What Was Built
 
-### 📱 Three Main Screens
+### 📱 Three Main Screens 
 
 1. **UploadCVScreen** (`UploadCVScreen.tsx`)
    - File picker for PDF documents
