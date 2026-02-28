@@ -1,6 +1,6 @@
 import React from 'react';
-import { GluestackUIProvider } from '@gluestack-ui/themed';
-import { config } from '@gluestack-ui/config';
+import { StyledProvider } from '@gluestack-ui/themed';
+import { config } from './src/ui/gluestack-ui.config';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/auth/AuthProvider';
@@ -10,13 +10,15 @@ const queryClient = new QueryClient();
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <QueryClientProvider client={queryClient}>
-          <RootNavigator />
-        </QueryClientProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <StyledProvider config={config}>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <QueryClientProvider client={queryClient}>
+            <RootNavigator />
+          </QueryClientProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </StyledProvider>
   );
 }
 //export default function App() {return <ProfileScreen />; } bach tchouf profile screen direct without login

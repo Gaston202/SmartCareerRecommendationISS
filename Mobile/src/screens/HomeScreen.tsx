@@ -14,7 +14,8 @@ import * as DocumentPicker from "expo-document-picker";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQueryClient } from "@tanstack/react-query";
-import { useUploadCv, useTriggerCvAnalysis, useLatestCvUpload, useDeleteCv, cvQueryKeys } from "../features/cv/hooks";
+import { useUploadCv, useLatestCvUpload, useDeleteCv, cvQueryKeys } from "../features/cv/hooks";
+import { triggerCvAnalysisFetch } from "../features/cv/cv.service";
 import { homeColors } from "./homeTheme";
 
 type HomeStackParamList = {
@@ -78,7 +79,6 @@ export default function HomeScreen(): React.ReactElement {
   const queryClient = useQueryClient();
   const { data: latestUpload, isLoading: loadingUpload, refetch: refetchCv } = useLatestCvUpload();
   const { mutate: uploadCv, isPending: isUploading } = useUploadCv();
-  const { mutate: triggerAnalysis } = useTriggerCvAnalysis();
   const { mutate: deleteCv, isPending: isDeleting } = useDeleteCv();
   const [localCvName, setLocalCvName] = useState<string | null>(null);
 
@@ -87,38 +87,53 @@ export default function HomeScreen(): React.ReactElement {
 
   const pickCV = async () => {
     try {
+      console.log("Starting CV pick...");
       const result = await DocumentPicker.getDocumentAsync({
         type: "application/pdf",
         copyToCacheDirectory: true,
         multiple: false,
       });
-      if (result.canceled) return;
+      if (result.canceled) {
+        console.log("CV pick canceled");
+        return;
+      }
       const file = result.assets[0];
       if (!file.name.toLowerCase().endsWith(".pdf")) {
         Alert.alert("Invalid file", "Please upload PDF only.");
         return;
       }
       setLocalCvName(file.name);
+      console.log("Uploading CV...", file);
       uploadCv(
         { uri: file.uri, name: file.name, mimeType: file.mimeType },
         {
           onSuccess: (uploaded) => {
+            console.log("CV uploaded successfully!", uploaded);
             Alert.alert("Success", "CV uploaded successfully!");
-            triggerAnalysis(uploaded.id, {
-              onSuccess: () => {
+            console.log("Triggering analysis for CV ID:", uploaded.id);
+            triggerCvAnalysisFetch(uploaded.id)
+              .then(() => {
+                console.log("Analysis complete for CV ID:", uploaded.id);
                 Alert.alert("Analysis Complete", "Your CV has been analyzed!");
-                navigation.navigate("SkillsReview");
-              },
-              onError: () => {},
-            });
+                (navigation as any).navigate("CVAnalysis");
+              })
+              .catch((error) => {
+                console.error("ANALYZE (FETCH) ERROR:", error?.message ?? error);
+                Alert.alert(
+                  "Analysis Failed",
+                  error?.message || "Could not analyze CV. Check logs for details."
+                );
+              });
           },
-          onError: () => {
-            Alert.alert("Upload Failed", "Could not upload CV. Try again.");
+          onError: (error) => {
+            console.error("CV upload failed:", error);
+            Alert.alert("Upload Failed", error?.message || "Could not upload CV. Try again.");
             setLocalCvName(null);
           },
         }
       );
-    } catch {
+    } catch (err) {
+      console.error("Error during pickCV:", err);
       Alert.alert("Error", "Failed to pick file.");
     }
   };
@@ -128,8 +143,10 @@ export default function HomeScreen(): React.ReactElement {
   };
 
   const handleDeleteCV = () => {
-    if (!latestUpload) return;
-    
+    if (!latestUpload) {
+      console.log("No latestUpload found, cannot delete.");
+      return;
+    }
     Alert.alert(
       "Delete CV",
       "Are you sure you want to delete your CV? This will also remove your CV analysis.",
@@ -139,14 +156,16 @@ export default function HomeScreen(): React.ReactElement {
           text: "Delete",
           style: "destructive",
           onPress: () => {
+            console.log("Attempting to delete CV:", latestUpload);
             deleteCv(latestUpload, {
               onSuccess: () => {
+                console.log("CV deleted successfully!");
                 setLocalCvName(null);
-                // Immediately update cache to null for instant UI update
                 queryClient.setQueryData(cvQueryKeys.uploads(), null);
                 Alert.alert("Success", "CV deleted successfully!");
               },
-              onError: () => {
+              onError: (error) => {
+                console.error("Delete CV failed:", error);
                 Alert.alert("Error", "Failed to delete CV. Try again.");
               },
             });
@@ -312,7 +331,7 @@ export default function HomeScreen(): React.ReactElement {
               {cvName ? (
                 <Pressable
                   style={({ pressed }) => [styles.ctaBlockBtnPurple, pressed && styles.pressed]}
-                  onPress={() => navigation.navigate("SkillsReview")}
+                  onPress={() => (navigation as any).navigate("CVAnalysis")}
                 >
                   <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
                   <Text style={styles.ctaBlockBtnPurpleText}>View CV Analysis</Text>
