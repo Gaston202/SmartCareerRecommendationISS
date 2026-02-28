@@ -12,9 +12,19 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUploadCv, useTriggerCvAnalysis, useLatestCvUpload, useDeleteCv, cvQueryKeys } from "../features/cv/hooks";
 import { homeColors } from "./homeTheme";
+
+type HomeStackParamList = {
+  HomeMain: undefined;
+  Quiz: undefined;
+  SkillsReview: undefined;
+  CVAnalysis: undefined;
+};
+
+type HomeScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'HomeMain'>;
 
 const TESTIMONIALS = [
   { quote: "This helped me choose computer science!", author: "Sarah", age: 18 },
@@ -64,7 +74,7 @@ function StarRating() {
 }
 
 export default function HomeScreen(): React.ReactElement {
-  const navigation = useNavigation();
+  const navigation = useNavigation<HomeScreenNavigationProp>();
   const queryClient = useQueryClient();
   const { data: latestUpload, isLoading: loadingUpload, refetch: refetchCv } = useLatestCvUpload();
   const { mutate: uploadCv, isPending: isUploading } = useUploadCv();
@@ -97,7 +107,7 @@ export default function HomeScreen(): React.ReactElement {
             triggerAnalysis(uploaded.id, {
               onSuccess: () => {
                 Alert.alert("Analysis Complete", "Your CV has been analyzed!");
-                (navigation as any).navigate("SkillsReview");
+                navigation.navigate("SkillsReview");
               },
               onError: () => {},
             });
@@ -147,7 +157,7 @@ export default function HomeScreen(): React.ReactElement {
   };
 
   const goToQuiz = () => {
-    (navigation as any).navigate("Quiz");
+    navigation.navigate("Quiz");
   };
 
   return (
@@ -302,7 +312,7 @@ export default function HomeScreen(): React.ReactElement {
               {cvName ? (
                 <Pressable
                   style={({ pressed }) => [styles.ctaBlockBtnPurple, pressed && styles.pressed]}
-                  onPress={() => (navigation as any).navigate("SkillsReview")}
+                  onPress={() => navigation.navigate("SkillsReview")}
                 >
                   <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
                   <Text style={styles.ctaBlockBtnPurpleText}>View CV Analysis</Text>

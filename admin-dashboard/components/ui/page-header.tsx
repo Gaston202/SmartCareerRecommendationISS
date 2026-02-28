@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { LucideIcon } from "lucide-react";
+import { ReactNode } from "react";
 
 interface PageHeaderProps {
   title: string;
@@ -9,7 +10,7 @@ interface PageHeaderProps {
     label: string;
     icon?: LucideIcon;
     onClick: () => void;
-  };
+  } | ReactNode;
   className?: string;
 }
 
@@ -30,10 +31,16 @@ export function PageHeader({
         )}
       </div>
       {action && (
-        <Button onClick={action.onClick} className="gap-2">
-          {action.icon && <action.icon className="h-4 w-4" />}
-          {action.label}
-        </Button>
+        <>
+          {typeof action === 'object' && 'label' in action ? (
+            <Button onClick={action.onClick} className="gap-2">
+              {action.icon && <action.icon className="h-4 w-4" />}
+              {action.label}
+            </Button>
+          ) : (
+            action
+          )}
+        </>
       )}
     </div>
   );

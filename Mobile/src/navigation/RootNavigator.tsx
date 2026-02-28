@@ -13,10 +13,13 @@ import { SignupScreen } from '../screens/auth/SignupScreen';
 
 import ProfileScreen from '../screens/ProfileScreen';
 import HomeScreen from '../screens/HomeScreen';
-import QuizScreen from '../screens/QuizScreen';
 import RoadmapsScreen from '../screens/RoadmapsScreen';
-import MentorsScreen from '../screens/MentorsScreen';
+import QuizScreen from '../screens/QuizScreen';
 import { SkillsReviewScreen, CVAnalysisScreen } from '../features/cv';
+import { MentorsListScreen } from '../screens/mentors/MentorsListScreen';
+import { MentorDetailScreen } from '../screens/mentors/MentorDetailScreen';
+import { GroupChatsScreen } from '../screens/mentors/GroupChatsScreen';
+import { GroupChatScreen } from '../screens/mentors/GroupChatScreen';
 import { homeColors } from '../screens/homeTheme';
 
 type AuthStackParamList = {
@@ -27,21 +30,72 @@ type AuthStackParamList = {
 
 type HomeStackParamList = {
   HomeMain: undefined;
+  Quiz: undefined;
   SkillsReview: undefined;
   CVAnalysis: undefined;
 };
 
+type MentorsStackParamList = {
+  MentorsList: undefined;
+  MentorDetail: { mentorId: string };
+  GroupChats: undefined;
+  GroupChat: { chatId: string };
+};
+
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
+const MentorsStack = createNativeStackNavigator<MentorsStackParamList>();
 const Tab = createBottomTabNavigator();
 
 function HomeStackNavigator(): React.ReactElement {
   return (
-    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+    <HomeStack.Navigator 
+      id="HomeStack"
+      screenOptions={{ headerShown: false }} 
+      initialRouteName="HomeMain"
+    >
       <HomeStack.Screen name="HomeMain" component={HomeScreen} />
+      <HomeStack.Screen name="Quiz" component={QuizScreen} />
       <HomeStack.Screen name="SkillsReview" component={SkillsReviewScreen} />
       <HomeStack.Screen name="CVAnalysis" component={CVAnalysisScreen} />
     </HomeStack.Navigator>
+  );
+}
+
+function MentorsStackNavigator(): React.ReactElement {
+  return (
+    <MentorsStack.Navigator
+        id="MentorsStack"
+      screenOptions={{
+        headerShown: true,
+        headerStyle: { backgroundColor: homeColors.primary },
+        headerTintColor: '#fff',
+        headerTitleStyle: { fontWeight: 'bold' },
+      }}
+    >
+      <MentorsStack.Screen
+        name="GroupChats"
+        component={GroupChatsScreen}
+        options={{ title: 'Group Chats', headerShown: false }}
+      />
+      <MentorsStack.Screen
+        name="GroupChat"
+        component={GroupChatScreen}
+        options={({ route }) => ({
+          title: 'Chat',
+        })}
+      />
+      <MentorsStack.Screen
+        name="MentorsList"
+        component={MentorsListScreen}
+        options={{ title: 'Find Mentors', headerShown: false }}
+      />
+      <MentorsStack.Screen
+        name="MentorDetail"
+        component={MentorDetailScreen}
+        options={{ title: 'Mentor Profile' }}
+      />
+    </MentorsStack.Navigator>
   );
 }
 
@@ -121,12 +175,10 @@ export function RootNavigator(): React.ReactElement {
               let iconName: keyof typeof Ionicons.glyphMap;
               if (route.name === 'Home') {
                 iconName = focused ? 'home' : 'home-outline';
-              } else if (route.name === 'Quiz') {
-                iconName = focused ? 'bulb' : 'bulb-outline';
               } else if (route.name === 'Roadmaps') {
                 iconName = focused ? 'map' : 'map-outline';
               } else if (route.name === 'Mentors') {
-                iconName = focused ? 'people' : 'people-outline';
+                iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
               } else {
                 iconName = focused ? 'person' : 'person-outline';
               }
@@ -135,9 +187,8 @@ export function RootNavigator(): React.ReactElement {
           })}
         >
           <Tab.Screen name="Home" component={HomeStackNavigator} />
-          <Tab.Screen name="Quiz" component={QuizScreen} />
           <Tab.Screen name="Roadmaps" component={RoadmapsScreen} />
-          <Tab.Screen name="Mentors" component={MentorsScreen} />
+          <Tab.Screen name="Mentors" component={MentorsStackNavigator} />
           <Tab.Screen name="Profile" component={ProfileScreen} />
         </Tab.Navigator>
       ) : (

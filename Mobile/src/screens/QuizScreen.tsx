@@ -12,6 +12,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { fetchQuizNext } from "../features/quiz/api";
 import type {
   QuizQuestion,
@@ -21,6 +22,15 @@ import type {
   ChatMessage,
 } from "../features/quiz/types";
 import { homeColors } from "./homeTheme";
+
+type HomeStackParamList = {
+  HomeMain: undefined;
+  Quiz: undefined;
+  SkillsReview: undefined;
+  CVAnalysis: undefined;
+};
+
+type QuizScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'Quiz'>;
 
 const WELCOME_MESSAGE: ChatMessage = {
   id: "welcome",
@@ -66,7 +76,7 @@ function ThinkingDots() {
 
 export default function QuizScreen(): React.ReactElement {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
+  const navigation = useNavigation<QuizScreenNavigationProp>();
   const scrollRef = useRef<ScrollView>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [answers, setAnswers] = useState<string[]>([]);
@@ -164,7 +174,7 @@ export default function QuizScreen(): React.ReactElement {
                 "Your progress will be lost.",
                 [
                   { text: "Stay", style: "cancel" },
-                  { text: "Leave", style: "destructive", onPress: () => (navigation.getParent() as any)?.navigate?.("Home") },
+                  { text: "Leave", style: "destructive", onPress: () => navigation.goBack() },
                 ]
               );
             }

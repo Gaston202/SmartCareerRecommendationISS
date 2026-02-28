@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       name: body.name,
       role: body.role || "user",
       status: "active",
-      avatar: body.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(body.name)}`,
+      avatar: body.avatar || `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(body.name)}`,
       phone: body.phone,
       password: body.password, // Will be hashed in the service
     });
