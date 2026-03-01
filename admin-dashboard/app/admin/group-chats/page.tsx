@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Table,
   TableBody,
@@ -14,6 +14,18 @@ import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { LoadingState } from '@/components/ui/loading-state';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Eye, Trash2, Plus, MessageSquare, Shield } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface GroupChat {
   id: string;
@@ -29,6 +41,7 @@ interface GroupChat {
 }
 
 export default function GroupChatsPage() {
+  const router = useRouter();
   const [chats, setChats] = useState<GroupChat[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,11 +72,17 @@ export default function GroupChatsPage() {
       const response = await fetch(`/api/group-chats/${id}`, {
         method: 'DELETE',
       });
-      if (!response.ok) throw new Error('Failed to delete group chat');
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to delete group chat');
+      }
+      const chatTitle = chats.find((c) => c.id === id)?.title || 'Group Chat';
       setChats(chats.filter((c) => c.id !== id));
       setDeleteId(null);
+      toast.success(`${chatTitle} has been deleted successfully`);
     } catch (error) {
       console.error('Error deleting group chat:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to delete group chat');
     } finally {
       setDeleteLoading(false);
     }
@@ -81,68 +100,95 @@ export default function GroupChatsPage() {
         title="Group Chats"
         description="Manage group chats organized by specialty"
         action={
-          <Link href="/admin/group-chats/new">
-            <Button>Create Group Chat</Button>
-          </Link>
+          <Button
+            onClick={() => router.push('/admin/group-chats/new')}
+            className="rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#8B5CF6] text-white shadow-sm hover:opacity-90 gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Create Group Chat
+          </Button>
         }
       />
 
       {/* Search Bar */}
-      <div className="bg-white p-4 rounded-lg border">
+      <div className="rounded-2xl bg-[#F8F8FA]/95 p-4 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)]">
         <Input
           placeholder="Search by title or specialty..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full"
+          className="w-full rounded-xl bg-white border-[#DDD6FE] focus:ring-[#7C3AED]"
         />
       </div>
 
       {/* Group Chats Table */}
-      <div className="bg-white rounded-lg border overflow-hidden">
+      <div className="rounded-2xl bg-[#F8F8FA]/95 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)] overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading group chats...</div>
+          <LoadingState message="Loading group chats..." />
         ) : filteredChats.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No group chats found</div>
+          <EmptyState
+            icon={MessageSquare}
+            title="No group chats found"
+            description={searchQuery ? 'Try adjusting your search terms' : 'Get started by creating a new group chat'}
+            action={
+              !searchQuery
+                ? {
+                    label: 'Create Group Chat',
+                    onClick: () => {
+                      window.location.href = '/admin/group-chats/new';
+                    },
+                  }
+                : undefined
+            }
+          />
         ) : (
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Specialty</TableHead>
-                <TableHead>Mentor</TableHead>
-                <TableHead>Moderated</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Actions</TableHead>
+              <TableRow className="border-b border-[#E5E7EB]/50">
+                <TableHead className="text-[#1F2937] font-semibold">Title</TableHead>
+                <TableHead className="text-[#1F2937] font-semibold">Specialty</TableHead>
+                <TableHead className="text-[#1F2937] font-semibold">Mentor</TableHead>
+                <TableHead className="text-[#1F2937] font-semibold">Moderated</TableHead>
+                <TableHead className="text-[#1F2937] font-semibold">Created</TableHead>
+                <TableHead className="text-[#1F2937] font-semibold text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredChats.map((chat) => (
-                <TableRow key={chat.id}>
-                  <TableCell className="font-medium">{chat.title}</TableCell>
+                <TableRow key={chat.id} className="border-b border-[#E5E7EB]/30 hover:bg-white/40 transition-colors">
+                  <TableCell className="font-medium text-[#1F2937]">{chat.title}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">{chat.specialty}</Badge>
+                    <Badge className="bg-[#EDE9FE]/80 text-[#7C3AED] border border-[#DDD6FE] rounded-lg">{chat.specialty}</Badge>
                   </TableCell>
-                  <TableCell>{chat.mentor?.name || 'None'}</TableCell>
+                  <TableCell className="text-[#6B7280] text-sm">{chat.mentor?.name || 'None'}</TableCell>
                   <TableCell>
                     {chat.is_moderated ? (
-                      <Badge className="bg-green-100 text-green-800">Yes</Badge>
+                      <Badge className="bg-emerald-100/80 text-emerald-700 border border-emerald-200 rounded-lg gap-1 flex items-center w-fit">
+                        <Shield className="h-3 w-3" />
+                        Yes
+                      </Badge>
                     ) : (
-                      <Badge className="bg-gray-100 text-gray-800">No</Badge>
+                      <Badge className="bg-slate-100/80 text-slate-700 border border-slate-200 rounded-lg">No</Badge>
                     )}
                   </TableCell>
-                  <TableCell>{new Date(chat.created_at).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-[#6B7280] text-sm">{new Date(chat.created_at).toLocaleDateString()}</TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
-                      <Link href={`/admin/group-chats/${chat.id}`}>
-                        <Button variant="outline" size="sm">
-                          View
-                        </Button>
-                      </Link>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => router.push(`/admin/group-chats/${chat.id}`)}
+                        className="border-[#DDD6FE] hover:bg-[#F8F8FA] text-[#7C3AED] rounded-lg gap-1"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        View
+                      </Button>
                       <Button
                         variant="destructive"
                         size="sm"
                         onClick={() => setDeleteId(chat.id)}
+                        className="rounded-lg gap-1 bg-rose-100/80 text-rose-700 border border-rose-200 hover:bg-rose-200/80"
                       >
+                        <Trash2 className="h-3.5 w-3.5" />
                         Delete
                       </Button>
                     </div>
@@ -154,29 +200,34 @@ export default function GroupChatsPage() {
         )}
       </div>
 
-      {/* Delete Confirmation */}
-      {deleteId && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg max-w-sm">
-            <h2 className="text-lg font-bold mb-4">Delete Group Chat</h2>
-            <p className="text-gray-600 mb-6">
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-[#1F2937]">Delete Group Chat</DialogTitle>
+            <DialogDescription className="text-[#6B7280]">
               Are you sure you want to delete this group chat? This action cannot be undone.
-            </p>
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={() => setDeleteId(null)}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => handleDelete(deleteId)}
-                disabled={deleteLoading}
-              >
-                {deleteLoading ? 'Deleting...' : 'Delete'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-3 sm:gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteId(null)}
+              className="border-[#DDD6FE] hover:bg-[#F8F8FA] text-[#6B7280] rounded-lg"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => handleDelete(deleteId!)}
+              disabled={deleteLoading}
+              className="rounded-lg bg-rose-600 hover:bg-rose-700 text-white"
+            >
+              {deleteLoading ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

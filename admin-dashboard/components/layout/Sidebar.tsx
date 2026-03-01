@@ -11,6 +11,8 @@ import {
   TrendingUp,
   BarChart3,
   GraduationCap,
+  Users2,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +22,8 @@ const menuItems = [
   { href: "/admin/skills", label: "Skills", icon: Award },
   { href: "/admin/careers", label: "Careers", icon: Briefcase },
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
+  { href: "/admin/mentors", label: "Mentors", icon: Users2 },
+  { href: "/admin/group-chats", label: "Group Chats", icon: MessageSquare },
   { href: "/admin/recommendations", label: "Recommendations", icon: TrendingUp },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
 ];
