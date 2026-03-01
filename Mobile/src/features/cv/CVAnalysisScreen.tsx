@@ -1,274 +1,593 @@
-/**
- * CV Analysis Screen
- * Displays ATS score, issues, improvements, and career suggestions
- */
 import React from "react";
-import { ActivityIndicator } from "react-native";
 import {
-  Box,
-  ScrollView,
-  VStack,
-  HStack,
-  Text,
-  Heading,
-  Icon,
-  AlertCircleIcon,
-  CheckIcon,
+  ActivityIndicator,
   Pressable,
-} from "@gluestack-ui/themed";
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { useCvAnalysis } from "./hooks";
-import type { AtsIssue } from "./types";
+import { homeColors } from "../../screens/homeTheme";
+
+type RawIssue = {
+  title?: string;
+  impact?: "low" | "medium" | "high";
+  fix?: string;
+  type?: string;
+  severity?: "critical" | "warning" | "info";
+  description?: string;
+};
+
+type RawImprovement = {
+  section?: string;
+  suggestion?: string;
+  example?: string;
+};
+
+type RawCareer = {
+  title?: string;
+  why?: string;
+  reasoning?: string;
+  match_score?: number;
+  missing_skills?: string[];
+  learning_plan?: string[];
+};
+
+function getSeverityColor(severity: string) {
+  if (severity === "critical" || severity === "high") return "#DC2626";
+  if (severity === "warning" || severity === "medium") return "#D97706";
+  return homeColors.primary;
+}
+
+function toSeverityLabel(issue: RawIssue): string {
+  const severity = issue.severity ?? issue.impact ?? "info";
+  return severity.toUpperCase();
+}
+
+function getIssueTitle(issue: RawIssue): string {
+  if (issue.title?.trim()) return issue.title;
+  if (issue.type?.trim()) {
+    return issue.type.charAt(0).toUpperCase() + issue.type.slice(1);
+  }
+  return "Issue";
+}
+
+function getIssueDescription(issue: RawIssue): string {
+  return issue.fix?.trim() || issue.description?.trim() || "No additional details provided.";
+}
+
+function getCareerReason(career: RawCareer): string {
+  return career.why?.trim() || career.reasoning?.trim() || "This path aligns with your profile.";
+}
+
+function getScoreLabel(score: number): string {
+  if (score >= 80) return "Excellent";
+  if (score >= 60) return "Good";
+  return "Needs improvement";
+}
+
+function getScoreColor(score: number): string {
+  if (score >= 80) return "#059669";
+  if (score >= 60) return "#D97706";
+  return "#DC2626";
+}
 
 export function CVAnalysisScreen() {
-  const { data: analysis, isLoading, error } = useCvAnalysis();
+  const { data: analysis, isLoading, isFetching, error, refetch } = useCvAnalysis();
 
-  if (isLoading) {
+  if (isLoading || isFetching) {
     return (
-      <Box flex={1} justifyContent="center" alignItems="center" bg="$white">
-        <VStack space="md" alignItems="center">
-          <ActivityIndicator size="large" />
-          <Text color="$gray600">Analyzing your CV...</Text>
-        </VStack>
-      </Box>
+      <View style={styles.container}>
+        <LinearGradient
+          colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.centeredState}>
+          <ActivityIndicator size="large" color={homeColors.primary} />
+          <Text style={styles.loadingTitle}>Analyzing your CV insights</Text>
+          <Text style={styles.loadingSubtitle}>Preparing ATS score, improvements, and career matches...</Text>
+        </View>
+      </View>
     );
   }
 
   if (error || !analysis) {
     return (
-      <Box flex={1} bg="$white" p="$4">
-        <Box bg="$red50" p="$4" rounded="$lg">
-          <HStack space="md" alignItems="center">
-            <Icon as={AlertCircleIcon} color="$error600" size="lg" />
-            <VStack flex={1} space="xs">
-              <Text fontWeight="$semibold" color="$error700">
-                No analysis available
-              </Text>
-              <Text size="sm" color="$error600">
-                Upload a CV first to see analysis results
-              </Text>
-            </VStack>
-          </HStack>
-        </Box>
-      </Box>
+      <View style={styles.container}>
+        <LinearGradient
+          colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.centeredState}>
+          <View style={styles.errorCard}>
+            <Ionicons name="alert-circle-outline" size={28} color="#DC2626" />
+            <Text style={styles.errorTitle}>No CV analysis available</Text>
+            <Text style={styles.errorText}>
+              {error?.message || "Go back, analyze your CV, then open this page again."}
+            </Text>
+            <Pressable style={styles.retryButton} onPress={() => refetch()}>
+              <Text style={styles.retryButtonText}>Try again</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
     );
   }
 
-  return (
-    <Box flex={1} bg="$white">
-      <ScrollView>
-        <VStack p="$4" space="lg">
-          {/* Header */}
-          <VStack space="xs">
-            <Heading size="xl">CV Analysis</Heading>
-            <Text size="sm" color="$gray600">
-              ATS compatibility & career recommendations
-            </Text>
-          </VStack>
-
-          {/* ATS Score */}
-          <ATSScoreCard score={analysis.ats_score} />
-
-          {/* ATS Issues */}
-          {analysis.ats_issues?.length > 0 && (
-            <VStack space="md">
-              <Heading size="md">ATS Issues</Heading>
-              {analysis.ats_issues.map((issue: AtsIssue, idx: number) => (
-                <IssueCard key={idx} issue={issue} />
-              ))}
-            </VStack>
-          )}
-
-          {/* ATS Suggestions */}
-          {analysis.ats_suggestions?.length > 0 && (
-            <VStack space="md">
-              <Heading size="md">Suggested Improvements</Heading>
-              {analysis.ats_suggestions.map((sugg: any, idx: number) => (
-                <Box key={idx} bg="$blue50" p="$3" rounded="$lg">
-                  <VStack space="sm">
-                    <HStack space="sm" alignItems="center">
-                      <Icon as={CheckIcon} color="$blue600" size="md" />
-                      <Text fontWeight="$semibold" color="$blue700" flex={1}>
-                        {sugg.section}
-                      </Text>
-                    </HStack>
-
-                    <Text size="sm" color="$blue600" ml="$6">
-                      {sugg.suggestion}
-                    </Text>
-
-                    {sugg.example && (
-                      <Box
-                        bg="$white"
-                        p="$2"
-                        rounded="$md"
-                        ml="$6"
-                        borderLeftWidth={2}
-                        borderLeftColor="$blue300"
-                      >
-                        <Text size="xs" color="$gray700">
-                          {sugg.example}
-                        </Text>
-                      </Box>
-                    )}
-                  </VStack>
-                </Box>
-              ))}
-            </VStack>
-          )}
-
-          {/* Career Suggestions */}
-          {analysis.career_suggestions?.length > 0 && (
-            <VStack space="md">
-              <Heading size="md">Suggested Career Paths</Heading>
-              {analysis.career_suggestions.map((career: any, idx: number) => (
-                <CareerCard key={idx} career={career} />
-              ))}
-            </VStack>
-          )}
-
-          {/* Empty State */}
-          {!analysis.ats_issues?.length &&
-            !analysis.ats_suggestions?.length &&
-            !analysis.career_suggestions?.length && (
-              <Box bg="$gray50" p="$6" rounded="$lg" alignItems="center">
-                <Text color="$gray600">No detailed analysis available yet</Text>
-              </Box>
-            )}
-        </VStack>
-      </ScrollView>
-    </Box>
-  );
-}
-
-/**
- * ATS Score Card
- */
-function ATSScoreCard({ score }: { score: number }) {
-  const getScoreColor = (s: number) => {
-    if (s >= 80) return "$success600";
-    if (s >= 60) return "$warning600";
-    return "$error600";
-  };
-
-  const getScoreLabel = (s: number) => {
-    if (s >= 80) return "Excellent";
-    if (s >= 60) return "Good";
-    return "Needs improvement";
-  };
+  const issues = (analysis.ats_issues ?? []) as RawIssue[];
+  const improvements = (analysis.suggested_improvements ?? []) as RawImprovement[];
+  const careers = (analysis.career_suggestions ?? []) as RawCareer[];
 
   return (
-    <Box bg="$gray50" p="$6" rounded="$lg">
-      <VStack alignItems="center" space="md">
-        <Text size="sm" color="$gray600">
-          ATS Friendliness Score
-        </Text>
+    <View style={styles.container}>
+      <LinearGradient
+        colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
+        style={StyleSheet.absoluteFill}
+      />
 
-        <HStack alignItems="center" space="md">
-          <Box
-            width={120}
-            height={120}
-            rounded="$full"
-            bg={getScoreColor(score)}
-            justifyContent="center"
-            alignItems="center"
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.headerCard}>
+          <View style={styles.headerIconWrap}>
+            <Ionicons name="document-text-outline" size={20} color={homeColors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle}>CV Analysis</Text>
+            <Text style={styles.headerSubtitle}>ATS compatibility and role-fit recommendations</Text>
+          </View>
+        </View>
+
+        <View style={styles.scoreCard}>
+          <LinearGradient
+            colors={[homeColors.primary, homeColors.primaryDark]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.scoreGradient}
           >
-            <VStack alignItems="center">
-              <Text size="4xl" fontWeight="$bold" color="$white">
-                {score}
-              </Text>
-              <Text size="xs" color="$white" mt="$1">
-                / 100
-              </Text>
-            </VStack>
-          </Box>
+            <View style={styles.scoreCircle}>
+              <Text style={styles.scoreValue}>{analysis.ats_score}</Text>
+              <Text style={styles.scoreOutOf}>/100</Text>
+            </View>
+            <View style={styles.scoreTextWrap}>
+              <Text style={styles.scoreTitle}>ATS Friendliness</Text>
+              <Text style={styles.scoreLabel}>{getScoreLabel(analysis.ats_score)}</Text>
+              <Text style={styles.scoreHint}>Improving this score increases shortlist chances.</Text>
+            </View>
+          </LinearGradient>
+        </View>
 
-          <VStack flex={1} space="sm">
-            <Text fontWeight="$bold" size="lg" color={getScoreColor(score)}>
-              {getScoreLabel(score)}
-            </Text>
-            <Text size="sm" color="$gray600">
-              Your CV is formatted for automated screening systems.
-            </Text>
-          </VStack>
-        </HStack>
-      </VStack>
-    </Box>
-  );
-}
+        <View style={styles.statsRow}>
+          <StatCard
+            icon="alert-circle-outline"
+            label="Issues"
+            value={String(issues.length)}
+            color={issues.length > 0 ? "#D97706" : "#059669"}
+          />
+          <StatCard
+            icon="construct-outline"
+            label="Improvements"
+            value={String(improvements.length)}
+            color={homeColors.primary}
+          />
+          <StatCard
+            icon="briefcase-outline"
+            label="Careers"
+            value={String(careers.length)}
+            color={homeColors.accentTeal}
+          />
+        </View>
 
-/**
- * Issue Card
- */
-function IssueCard({ issue }: { issue: AtsIssue }) {
-  const impactColors: Record<string, string> = {
-    high: "$error600",
-    medium: "$warning600",
-    low: "$info600",
-  };
-
-  return (
-    <Box
-      bg="$gray50"
-      p="$3"
-      rounded="$lg"
-      borderLeftWidth={4}
-      borderLeftColor={impactColors[issue.impact]}
-    >
-      <VStack space="sm">
-        <HStack justifyContent="space-between" alignItems="center">
-          <Text fontWeight="$semibold" color="$gray900" flex={1}>
-            {issue.title}
-          </Text>
-          <Box bg={impactColors[issue.impact]} px="$2" py="$1" rounded="$full">
-            <Text size="xs" fontWeight="$bold" color="$white">
-              {issue.impact}
-            </Text>
-          </Box>
-        </HStack>
-        <Text size="sm" color="$gray700">
-          {issue.fix}
-        </Text>
-      </VStack>
-    </Box>
-  );
-}
-
-/**
- * Career Card
- */
-function CareerCard({ career }: any) {
-  const [expanded, setExpanded] = React.useState(false);
-
-  return (
-    <Pressable onPress={() => setExpanded(!expanded)}>
-      <Box bg="$blue50" p="$4" rounded="$lg">
-        <VStack space="md">
-          <HStack justifyContent="space-between" alignItems="center">
-            <Text fontWeight="$bold" size="lg" color="$blue900">
-              {career.title}
-            </Text>
-            {expanded ? (
-              <Icon as={CheckIcon} color="$blue600" />
-            ) : (
-              <Text color="$blue600">›</Text>
-            )}
-          </HStack>
-
-          <Text size="sm" color="$blue700">
-            {career.why}
-          </Text>
-
-          {expanded && (
-            <VStack space="sm">
-              {career.missing_skills?.map((s: string, i: number) => (
-                <Text key={i} size="sm" color="$blue700">
-                  • {s}
-                </Text>
-              ))}
-            </VStack>
+        <Section title="ATS Issues" icon="warning-outline">
+          {issues.length === 0 ? (
+            <EmptyState text="No major ATS issues detected." />
+          ) : (
+            issues.map((issue, idx) => {
+              const severityLabel = toSeverityLabel(issue);
+              const severityColor = getSeverityColor((issue.severity || issue.impact || "info") as string);
+              return (
+                <View key={`issue-${idx}`} style={styles.itemCard}>
+                  <View style={styles.itemHeaderRow}>
+                    <Text style={styles.itemTitle}>{getIssueTitle(issue)}</Text>
+                    <View style={[styles.badge, { backgroundColor: `${severityColor}22`, borderColor: `${severityColor}55` }]}>
+                      <Text style={[styles.badgeText, { color: severityColor }]}>{severityLabel}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.itemDescription}>{getIssueDescription(issue)}</Text>
+                </View>
+              );
+            })
           )}
-        </VStack>
-      </Box>
+        </Section>
+
+        <Section title="Suggested Improvements" icon="sparkles-outline">
+          {improvements.length === 0 ? (
+            <EmptyState text="No improvement suggestions returned yet." />
+          ) : (
+            improvements.map((improvement, idx) => (
+              <View key={`improvement-${idx}`} style={styles.itemCard}>
+                <View style={styles.itemHeaderRow}>
+                  <Text style={styles.itemTitle}>{improvement.section || "General"}</Text>
+                </View>
+                <Text style={styles.itemDescription}>{improvement.suggestion || "No suggestion provided."}</Text>
+                {!!improvement.example && (
+                  <View style={styles.exampleBox}>
+                    <Text style={styles.exampleLabel}>Example</Text>
+                    <Text style={styles.exampleText}>{improvement.example}</Text>
+                  </View>
+                )}
+              </View>
+            ))
+          )}
+        </Section>
+
+        <Section title="Suggested Career Paths" icon="compass-outline">
+          {careers.length === 0 ? (
+            <EmptyState text="No career recommendations returned yet." />
+          ) : (
+            careers.map((career, idx) => (
+              <CareerCard key={`${career.title || "career"}-${idx}`} career={career} />
+            ))
+          )}
+        </Section>
+      </ScrollView>
+    </View>
+  );
+}
+
+function StatCard({ icon, label, value, color }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; color: string }) {
+  return (
+    <View style={styles.statCard}>
+      <Ionicons name={icon} size={16} color={color} />
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function Section({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.sectionWrap}>
+      <View style={styles.sectionHeader}>
+        <Ionicons name={icon} size={18} color={homeColors.primary} />
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
+      <View style={styles.sectionContent}>{children}</View>
+    </View>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <View style={styles.emptyStateCard}>
+      <Text style={styles.emptyStateText}>{text}</Text>
+    </View>
+  );
+}
+
+function CareerCard({ career }: { career: RawCareer }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const match = typeof career.match_score === "number" ? Math.max(0, Math.min(100, career.match_score)) : null;
+  const reason = getCareerReason(career);
+
+  return (
+    <Pressable onPress={() => setExpanded((prev) => !prev)} style={styles.itemCard}>
+      <View style={styles.itemHeaderRow}>
+        <Text style={styles.itemTitle}>{career.title || "Career Recommendation"}</Text>
+        <View style={styles.careerRightWrap}>
+          {match !== null && (
+            <View style={[styles.badge, { backgroundColor: `${getScoreColor(match)}22`, borderColor: `${getScoreColor(match)}55` }]}>
+              <Text style={[styles.badgeText, { color: getScoreColor(match) }]}>{match}% Match</Text>
+            </View>
+          )}
+          <Ionicons
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={homeColors.textMuted}
+          />
+        </View>
+      </View>
+
+      <Text style={styles.itemDescription}>{reason}</Text>
+
+      {expanded && (
+        <View style={styles.expandedWrap}>
+          {!!career.missing_skills?.length && (
+            <View style={styles.expandedBlock}>
+              <Text style={styles.expandedTitle}>Missing skills</Text>
+              {career.missing_skills.map((skill, idx) => (
+                <Text key={`missing-skill-${idx}`} style={styles.expandedItem}>• {skill}</Text>
+              ))}
+            </View>
+          )}
+
+          {!!career.learning_plan?.length && (
+            <View style={styles.expandedBlock}>
+              <Text style={styles.expandedTitle}>Learning plan</Text>
+              {career.learning_plan.map((step, idx) => (
+                <Text key={`learning-step-${idx}`} style={styles.expandedItem}>• {step}</Text>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  centeredState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    gap: 10,
+  },
+  loadingTitle: {
+    marginTop: 6,
+    fontSize: 18,
+    fontWeight: "700",
+    color: homeColors.textDark,
+  },
+  loadingSubtitle: {
+    fontSize: 14,
+    color: homeColors.textMuted,
+    textAlign: "center",
+    maxWidth: 320,
+  },
+  errorCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#FFF5F5",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 16,
+    padding: 18,
+    alignItems: "center",
+    gap: 8,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#991B1B",
+  },
+  errorText: {
+    fontSize: 14,
+    color: "#B91C1C",
+    textAlign: "center",
+  },
+  retryButton: {
+    marginTop: 6,
+    backgroundColor: homeColors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+  },
+  retryButtonText: {
+    color: "#FFF",
+    fontWeight: "700",
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 28,
+    gap: 14,
+  },
+  headerCard: {
+    backgroundColor: homeColors.cardBg,
+    borderColor: homeColors.cardBorder,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  headerIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: `${homeColors.primary}1A`,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: homeColors.textDark,
+  },
+  headerSubtitle: {
+    marginTop: 2,
+    fontSize: 13,
+    color: homeColors.textMuted,
+  },
+  scoreCard: {
+    borderRadius: 18,
+    overflow: "hidden",
+  },
+  scoreGradient: {
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  scoreCircle: {
+    width: 94,
+    height: 94,
+    borderRadius: 47,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scoreValue: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: "#FFF",
+    lineHeight: 36,
+  },
+  scoreOutOf: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.9)",
+  },
+  scoreTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  scoreTitle: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.85)",
+    fontWeight: "600",
+  },
+  scoreLabel: {
+    fontSize: 22,
+    color: "#FFF",
+    fontWeight: "800",
+  },
+  scoreHint: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.85)",
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: homeColors.cardBg,
+    borderColor: homeColors.cardBorder,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    gap: 3,
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: homeColors.textDark,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: homeColors.textMuted,
+  },
+  sectionWrap: {
+    gap: 10,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: homeColors.textDark,
+  },
+  sectionContent: {
+    gap: 10,
+  },
+  itemCard: {
+    backgroundColor: homeColors.cardBg,
+    borderColor: homeColors.cardBorder,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    gap: 8,
+  },
+  itemHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  itemTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "700",
+    color: homeColors.textDark,
+  },
+  itemDescription: {
+    fontSize: 14,
+    color: homeColors.textMuted,
+    lineHeight: 20,
+  },
+  badge: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  exampleBox: {
+    backgroundColor: homeColors.backgroundMuted,
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 2,
+  },
+  exampleLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: homeColors.primary,
+    marginBottom: 3,
+  },
+  exampleText: {
+    fontSize: 13,
+    color: homeColors.textDark,
+    lineHeight: 18,
+  },
+  emptyStateCard: {
+    backgroundColor: homeColors.cardBg,
+    borderColor: homeColors.cardBorder,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: "center",
+  },
+  emptyStateText: {
+    color: homeColors.textMuted,
+    fontSize: 14,
+  },
+  careerRightWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  expandedWrap: {
+    marginTop: 2,
+    gap: 8,
+  },
+  expandedBlock: {
+    backgroundColor: homeColors.backgroundMuted,
+    borderRadius: 10,
+    padding: 10,
+    gap: 4,
+  },
+  expandedTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: homeColors.textDark,
+  },
+  expandedItem: {
+    fontSize: 13,
+    color: homeColors.textMuted,
+    lineHeight: 18,
+  },
+});

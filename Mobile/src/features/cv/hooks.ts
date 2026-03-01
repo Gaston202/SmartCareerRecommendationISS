@@ -151,6 +151,7 @@ export function useCvAnalysis() {
       return (data as CvAnalysis) || null;
     },
     enabled: !!latestUpload,
+    // ⭐ Client-side analysis is now synchronous, so normal caching works
   });
 }
 
@@ -211,36 +212,6 @@ export function useUploadCv() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.uploads() });
-    },
-  });
-}
-
-/**
- * Trigger CV analysis via Edge Function
- */
-export function useTriggerCvAnalysis() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (cvUploadId: string) => {
-      const userRes = await supabase.auth.getUser();
-      const userId = userRes.data.user?.id;
-
-      if (!userId) throw new Error("Not logged in");
-
-      // Call Edge Function
-      const response = await supabase.functions.invoke("analyze-cv", {
-        body: { cv_id: cvUploadId, user_id: userId },
-      });
-
-      if (response.error) throw response.error;
-
-      return response.data;
-    },
-    onSuccess: () => {
-      // Refetch analysis and skills
-      queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
-      queryClient.invalidateQueries({ queryKey: cvQueryKeys.skills() });
     },
   });
 }

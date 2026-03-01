@@ -107,7 +107,7 @@ export default function QuizScreen(): React.ReactElement {
         setCurrentQuestion(response);
         setMessages((prev) => [
           ...prev,
-          { id: `q-${response.questionNumber}`, role: "ai", content: response.question },
+          { id: `q-${response.questionNumber}-${Date.now()}`, role: "ai", content: response.question },
         ]);
       } else {
         setCurrentQuestion(null);
@@ -115,7 +115,7 @@ export default function QuizScreen(): React.ReactElement {
         setMessages((prev) => [
           ...prev,
           {
-            id: "results-intro",
+            id: `results-intro-${Date.now()}`,
             role: "ai",
             content:
               "Based on your answers, here are careers that match you:",

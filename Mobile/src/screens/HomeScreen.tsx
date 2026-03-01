@@ -16,7 +16,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUploadCv, useLatestCvUpload, useDeleteCv, cvQueryKeys } from "../features/cv/hooks";
 import type { CvUpload } from "../features/cv/types";
-import { triggerCvAnalysisFetch } from "../features/cv/cv.service";
+import { analyzeCvWithOpenRouter } from "../features/cv/cv-analysis.service";
 import { supabase } from "../api/supabase";
 import { homeColors } from "./homeTheme";
 
@@ -370,11 +370,21 @@ export default function HomeScreen(): React.ReactElement {
     
     setStatus("analyzing");
     setError(null);
-    console.log("[HomeScreen] 👉 Starting analysis for CV:", cv.id);
+    console.log("[HomeScreen] 👉 Starting client-side CV analysis:", cv.id);
     
     try {
-      const result = await triggerCvAnalysisFetch(cv.id);
-      console.log("[HomeScreen] ✅ Analysis triggered successfully");
+      // ⭐ Client-side analysis with OpenRouter (no Edge Function)
+      const result = await analyzeCvWithOpenRouter(
+        cv.id,
+        cv.storage_path,
+        cv.filename
+      );
+      
+      console.log("[HomeScreen] ✅ CV analysis completed and saved!");
+      
+      // Invalidate queries to show new results
+      queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
+      
       setStatus("idle");
       setError(null);
       Alert.alert("Analysis Complete", "Your CV has been analyzed!");
@@ -385,6 +395,7 @@ export default function HomeScreen(): React.ReactElement {
       setError(errorMsg);
       setStatus("error");
       Alert.alert("Analysis Failed", errorMsg);
+      setStatus("idle");
     }
   };
   

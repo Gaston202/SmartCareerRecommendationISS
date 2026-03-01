@@ -56,7 +56,7 @@ export type CvAnalysis = {
   user_id: string;
   ats_score: number;
   ats_issues: AtsIssue[];
-  ats_suggestions: AtsImprovement[];
+  suggested_improvements: AtsImprovement[]; // Matches database column name
   career_suggestions: CareerSuggestion[];
   created_at: string;
 };
