@@ -15,8 +15,15 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUploadCv, useLatestCvUpload, useDeleteCv, cvQueryKeys } from "../features/cv/hooks";
+import type { CvUpload } from "../features/cv/types";
 import { triggerCvAnalysisFetch } from "../features/cv/cv.service";
+import { supabase } from "../api/supabase";
 import { homeColors } from "./homeTheme";
+
+// ============================================================================
+// STATE MACHINE TYPES
+// ============================================================================
+type Status = "idle" | "picking" | "uploading" | "deleting" | "changing" | "analyzing" | "error";
 
 type HomeStackParamList = {
   HomeMain: undefined;
@@ -77,108 +84,320 @@ function StarRating() {
 export default function HomeScreen(): React.ReactElement {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const queryClient = useQueryClient();
-  const { data: latestUpload, isLoading: loadingUpload, refetch: refetchCv } = useLatestCvUpload();
-  const { mutate: uploadCv, isPending: isUploading } = useUploadCv();
-  const { mutate: deleteCv, isPending: isDeleting } = useDeleteCv();
-  const [localCvName, setLocalCvName] = useState<string | null>(null);
-
-  const cvName = latestUpload?.filename || localCvName;
-  const isProcessing = isUploading || isDeleting;
-
-  const pickCV = async () => {
+  
+  // React Query hooks - fetch latest CV upload
+  const { data: latestUpload, refetch: refetchCv } = useLatestCvUpload();
+  const { mutate: uploadCv } = useUploadCv();
+  const { mutate: deleteCv } = useDeleteCv();
+  
+  // ========================================================================
+  // STATE MACHINE: Finite State Machine Pattern
+  // ========================================================================
+  // Single source of truth for CV data (CvUpload from Supabase)
+  const [cv, setCv] = useState<CvUpload | null>(null);
+  
+  // Status transitions: idle → action → idle/error
+  const [status, setStatus] = useState<Status>("idle");
+  
+  // Error display
+  const [error, setError] = useState<string | null>(null);
+  
+  // Sync with React Query data
+  React.useEffect(() => {
+    if (latestUpload) {
+      setCv(latestUpload);
+    }
+  }, [latestUpload]);
+  
+  // Derived states from FSM
+  const cvName = cv?.filename || null;
+  const hasCv = cv !== null;
+  const isProcessing = status !== "idle" && status !== "error";
+  
+  // ========================================================================
+  // HANDLER 1: UPLOAD CV
+  // ========================================================================
+  const handleUpload = async () => {
+    setStatus("picking");
+    setError(null);
+    
     try {
-      console.log("Starting CV pick...");
+      console.log("[HomeScreen] Starting CV pick...");
       const result = await DocumentPicker.getDocumentAsync({
         type: "application/pdf",
         copyToCacheDirectory: true,
         multiple: false,
       });
+      
       if (result.canceled) {
-        console.log("CV pick canceled");
+        console.log("[HomeScreen] CV pick canceled by user");
+        setStatus("idle");
         return;
       }
+      
       const file = result.assets[0];
       if (!file.name.toLowerCase().endsWith(".pdf")) {
-        Alert.alert("Invalid file", "Please upload PDF only.");
+        const err = "Please upload PDF only.";
+        setError(err);
+        setStatus("error");
+        Alert.alert("Invalid file", err);
+        setStatus("idle");
         return;
       }
-      setLocalCvName(file.name);
-      console.log("Uploading CV...", file);
+      
+      setStatus("uploading");
+      console.log("[HomeScreen] Uploading CV...", file.name);
+      
+      // Use React Query mutation
       uploadCv(
         { uri: file.uri, name: file.name, mimeType: file.mimeType },
         {
           onSuccess: (uploaded) => {
-            console.log("CV uploaded successfully!", uploaded);
-            Alert.alert("Success", "CV uploaded successfully!");
-            console.log("Triggering analysis for CV ID:", uploaded.id);
-            triggerCvAnalysisFetch(uploaded.id)
-              .then(() => {
-                console.log("Analysis complete for CV ID:", uploaded.id);
-                Alert.alert("Analysis Complete", "Your CV has been analyzed!");
-                (navigation as any).navigate("CVAnalysis");
-              })
-              .catch((error) => {
-                console.error("ANALYZE (FETCH) ERROR:", error?.message ?? error);
-                Alert.alert(
-                  "Analysis Failed",
-                  error?.message || "Could not analyze CV. Check logs for details."
-                );
-              });
+            console.log("[HomeScreen] ✅ CV uploaded successfully!", uploaded);
+            setCv(uploaded);
+            setStatus("idle");
+            setError(null);
+            Alert.alert("Success", "CV uploaded! Tap 'Analyze' to analyze it.");
           },
-          onError: (error) => {
-            console.error("CV upload failed:", error);
-            Alert.alert("Upload Failed", error?.message || "Could not upload CV. Try again.");
-            setLocalCvName(null);
+          onError: (err: any) => {
+            console.error("[HomeScreen] ❌ Upload failed:", err);
+            const errorMsg = err?.message || "Could not upload CV.";
+            setError(errorMsg);
+            setStatus("error");
+            Alert.alert("Upload Failed", errorMsg);
           },
         }
       );
-    } catch (err) {
-      console.error("Error during pickCV:", err);
-      Alert.alert("Error", "Failed to pick file.");
+    } catch (err: any) {
+      console.error("[HomeScreen] Exception during upload:", err);
+      const errorMsg = err?.message || "Failed to pick file.";
+      setError(errorMsg);
+      setStatus("error");
+      Alert.alert("Error", errorMsg);
+    } finally {
+      // If error and we're still in picking/uploading, reset to idle
+      if (status === "picking" || status === "uploading") {
+        setStatus("idle");
+      }
     }
   };
-
-  const handleChangeCV = async () => {
-    pickCV();
-  };
-
-  const handleDeleteCV = () => {
-    if (!latestUpload) {
-      console.log("No latestUpload found, cannot delete.");
+  
+  // ========================================================================
+  // HANDLER 2: DELETE CV
+  // ========================================================================
+  const handleDelete = () => {
+    if (!cv?.id) {
+      console.warn("[HomeScreen] ⚠️ Cannot delete: no CV found");
       return;
     }
+    
     Alert.alert(
       "Delete CV",
-      "Are you sure you want to delete your CV? This will also remove your CV analysis.",
+      "Are you sure? This will remove your CV and analysis.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            console.log("Attempting to delete CV:", latestUpload);
-            deleteCv(latestUpload, {
-              onSuccess: () => {
-                console.log("CV deleted successfully!");
-                setLocalCvName(null);
-                queryClient.setQueryData(cvQueryKeys.uploads(), null);
-                Alert.alert("Success", "CV deleted successfully!");
-              },
-              onError: (error) => {
-                console.error("Delete CV failed:", error);
-                Alert.alert("Error", "Failed to delete CV. Try again.");
-              },
-            });
+          onPress: async () => {
+            setStatus("deleting");
+            setError(null);
+            console.log("[HomeScreen] User confirmed delete for CV:", cv.id);
+            
+            try {
+              deleteCv(cv, {
+                onSuccess: () => {
+                  console.log("[HomeScreen] ✅ CV deleted from storage/DB");
+                  // CRITICAL: Reset cv immediately + invalidate queries
+                  setCv(null);
+                  setStatus("idle");
+                  setError(null);
+                  
+                  // Invalidate all CV-related queries
+                  queryClient.invalidateQueries({ queryKey: cvQueryKeys.uploads() });
+                  queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
+                  queryClient.invalidateQueries({ queryKey: cvQueryKeys.skills() });
+                  refetchCv();
+                  
+                  console.log("[HomeScreen] ✅ UI reset to 'Upload CV' state");
+                  Alert.alert("Success", "CV deleted successfully!");
+                },
+                onError: (err: any) => {
+                  console.error("[HomeScreen] ❌ Delete failed:", err);
+                  const errorMsg = err?.message || "Could not delete CV.";
+                  setError(errorMsg);
+                  setStatus("error");
+                  Alert.alert("Error", errorMsg);
+                },
+              });
+            } catch (err: any) {
+              console.error("[HomeScreen] Exception during delete:", err);
+              const errorMsg = err?.message || "Delete operation failed.";
+              setError(errorMsg);
+              setStatus("error");
+              Alert.alert("Error", errorMsg);
+            }
           },
         },
       ]
     );
   };
-
+  
+  // ========================================================================
+  // HANDLER 3: CHANGE CV (delete old → upload new)
+  // ========================================================================
+  const handleChange = async () => {
+    if (!cv?.id) {
+      console.log("[HomeScreen] No existing CV, just uploading");
+      await handleUpload();
+      return;
+    }
+    
+    setStatus("changing");
+    setError(null);
+    console.log("[HomeScreen] 🔄 Change CV: deleting old CV first:", cv.id);
+    
+    try {
+      // Step 1: Delete old CV and wait for completion
+      await new Promise<void>((resolve, reject) => {
+        deleteCv(cv, {
+          onSuccess: () => {
+            console.log("[HomeScreen] ✅ Old CV deleted, state reset");
+            setCv(null);
+            setStatus("idle");
+            
+            // Invalidate queries
+            queryClient.invalidateQueries({ queryKey: cvQueryKeys.uploads() });
+            queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
+            refetchCv();
+            
+            resolve();
+          },
+          onError: (err: any) => {
+            console.error("[HomeScreen] ❌ Delete during change failed:", err);
+            setStatus("error");
+            setError(err?.message || "Delete failed.");
+            reject(err);
+          },
+        });
+      });
+      
+      // Step 2: Upload new CV (pick file)
+      setStatus("picking");
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "application/pdf",
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      
+      if (result.canceled) {
+        console.log("[HomeScreen] New CV pick canceled");
+        setStatus("idle");
+        return;
+      }
+      
+      const file = result.assets[0];
+      if (!file.name.toLowerCase().endsWith(".pdf")) {
+        setStatus("error");
+        setError("Please upload PDF only.");
+        Alert.alert("Invalid file", "Please upload PDF only.");
+        setStatus("idle");
+        return;
+      }
+      
+      setStatus("uploading");
+      console.log("[HomeScreen] Uploading new CV...", file.name);
+      
+      // Step 3: Upload new CV
+      await new Promise<void>((resolve, reject) => {
+        uploadCv(
+          { uri: file.uri, name: file.name, mimeType: file.mimeType },
+          {
+            onSuccess: (uploaded) => {
+              console.log("[HomeScreen] ✅ New CV uploaded!", uploaded);
+              setCv(uploaded);
+              setStatus("idle");
+              setError(null);
+              Alert.alert("Success", "CV changed successfully!");
+              resolve();
+            },
+            onError: (err: any) => {
+              console.error("[HomeScreen] ❌ New CV upload failed:", err);
+              setStatus("error");
+              setError(err?.message || "Upload failed.");
+              reject(err);
+            },
+          }
+        );
+      });
+    } catch (err: any) {
+      console.error("[HomeScreen] Exception during change flow:", err);
+      setStatus("error");
+      setError(err?.message || "Change CV failed.");
+      Alert.alert("Error", err?.message || "Change CV failed. Try again.");
+    }
+  };
+  
+  // ========================================================================
+  // HANDLER 4: ANALYZE CV
+  // ========================================================================
+  const handleAnalyze = async () => {
+    if (!cv?.id) {
+      console.warn("[HomeScreen] ⚠️ Cannot analyze: no CV ID");
+      setError("No CV found.");
+      setStatus("error");
+      Alert.alert("No CV", "Please upload a CV first.");
+      setStatus("idle");
+      return;
+    }
+    
+    // Verify session exists before attempting analysis
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session) {
+      console.error("[HomeScreen] ❌ No session found. User not authenticated.");
+      const errorMsg = "Session expired. Please sign in again.";
+      setError(errorMsg);
+      setStatus("error");
+      Alert.alert("Not Authenticated", errorMsg);
+      setStatus("idle");
+      return;
+    }
+    
+    console.log("[HomeScreen] ✅ Session verified", {
+      userId: session.user?.id,
+      tokenLength: session.access_token?.length,
+    });
+    
+    setStatus("analyzing");
+    setError(null);
+    console.log("[HomeScreen] 👉 Starting analysis for CV:", cv.id);
+    
+    try {
+      const result = await triggerCvAnalysisFetch(cv.id);
+      console.log("[HomeScreen] ✅ Analysis triggered successfully");
+      setStatus("idle");
+      setError(null);
+      Alert.alert("Analysis Complete", "Your CV has been analyzed!");
+      (navigation as any).navigate("CVAnalysis");
+    } catch (err: any) {
+      console.error("[HomeScreen] ❌ Analysis failed:", err);
+      const errorMsg = err?.message || "Could not analyze CV.";
+      setError(errorMsg);
+      setStatus("error");
+      Alert.alert("Analysis Failed", errorMsg);
+    }
+  };
+  
+  // ========================================================================
+  // NAVIGATION HANDLERS
+  // ========================================================================
   const goToQuiz = () => {
     navigation.navigate("Quiz");
   };
-
+  
+  // ========================================================================
+  // RENDER: Build UI based on FSM state
+  // ========================================================================
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -190,7 +409,7 @@ export default function HomeScreen(): React.ReactElement {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero: Logo + Title + Subtitle */}
+        {/* Hero Section */}
         <View style={styles.hero}>
           <View style={styles.logoBox}>
             <FontAwesome5 name="graduation-cap" size={26} color="#fff" />
@@ -204,9 +423,12 @@ export default function HomeScreen(): React.ReactElement {
           </Text>
         </View>
 
-        {/* Two CTA Buttons */}
+        {/* Two CTA Buttons: Quiz + CV */}
         <View style={styles.ctaRow}>
-          <Pressable style={({ pressed }) => [styles.ctaQuizWrap, pressed && styles.pressed]} onPress={goToQuiz}>
+          <Pressable
+            style={({ pressed }) => [styles.ctaQuizWrap, pressed && styles.pressed]}
+            onPress={goToQuiz}
+          >
             <LinearGradient
               colors={[homeColors.primary, homeColors.primaryDark]}
               start={{ x: 0, y: 0 }}
@@ -218,13 +440,19 @@ export default function HomeScreen(): React.ReactElement {
             </LinearGradient>
           </Pressable>
 
-          {/* CV Upload/Status Section */}
-          {cvName ? (
+          {/* CV Card: Shows different UI based on hasCv + status */}
+          {hasCv ? (
             <View style={styles.cvUploadedContainer}>
               <View style={styles.cvUploadedContent}>
                 <View style={styles.cvUploadedHeader}>
-                  <Ionicons name="checkmark-circle" size={20} color={homeColors.accentGreen} />
-                  <Text style={styles.cvUploadedTitle}>CV Uploaded</Text>
+                  <Ionicons
+                    name={status === "analyzing" ? "hourglass-outline" : "checkmark-circle"}
+                    size={20}
+                    color={status === "analyzing" ? homeColors.primary : homeColors.accentGreen}
+                  />
+                  <Text style={styles.cvUploadedTitle}>
+                    {status === "analyzing" ? "Analyzing..." : "CV Uploaded"}
+                  </Text>
                 </View>
                 <Text style={styles.cvUploadedFilename} numberOfLines={1}>
                   {cvName}
@@ -234,24 +462,32 @@ export default function HomeScreen(): React.ReactElement {
                     style={({ pressed }) => [
                       styles.cvActionBtn,
                       styles.cvChangeBtnStyle,
-                      pressed && styles.pressed,
+                      isProcessing && styles.disabled,
+                      pressed && !isProcessing && styles.pressed,
                     ]}
-                    onPress={handleChangeCV}
+                    onPress={handleChange}
                     disabled={isProcessing}
                   >
-                    <Ionicons name="swap-horizontal-outline" size={16} color={homeColors.primary} />
-                    <Text style={styles.cvChangeBtnText}>Change</Text>
+                    {status === "changing" ? (
+                      <ActivityIndicator size="small" color={homeColors.primary} />
+                    ) : (
+                      <>
+                        <Ionicons name="swap-horizontal-outline" size={16} color={homeColors.primary} />
+                        <Text style={styles.cvChangeBtnText}>Change</Text>
+                      </>
+                    )}
                   </Pressable>
                   <Pressable
                     style={({ pressed }) => [
                       styles.cvActionBtn,
                       styles.cvDeleteBtnStyle,
-                      pressed && styles.pressed,
+                      isProcessing && styles.disabled,
+                      pressed && !isProcessing && styles.pressed,
                     ]}
-                    onPress={handleDeleteCV}
+                    onPress={handleDelete}
                     disabled={isProcessing}
                   >
-                    {isDeleting ? (
+                    {status === "deleting" ? (
                       <ActivityIndicator size="small" color="#f44336" />
                     ) : (
                       <>
@@ -265,11 +501,15 @@ export default function HomeScreen(): React.ReactElement {
             </View>
           ) : (
             <Pressable
-              style={({ pressed }) => [styles.ctaUploadWrap, pressed && styles.pressed]}
-              onPress={pickCV}
+              style={({ pressed }) => [
+                styles.ctaUploadWrap,
+                isProcessing && styles.disabled,
+                pressed && !isProcessing && styles.pressed,
+              ]}
+              onPress={handleUpload}
               disabled={isProcessing}
             >
-              {isUploading ? (
+              {status === "uploading" ? (
                 <ActivityIndicator size="small" color={homeColors.primary} />
               ) : (
                 <>
@@ -280,6 +520,17 @@ export default function HomeScreen(): React.ReactElement {
             </Pressable>
           )}
         </View>
+
+        {/* Error Display */}
+        {error && status === "error" && (
+          <View style={styles.errorBanner}>
+            <Ionicons name="alert-circle" size={16} color="#f44336" />
+            <Text style={styles.errorText}>{error}</Text>
+            <Pressable onPress={() => { setError(null); setStatus("idle"); }}>
+              <Ionicons name="close" size={16} color="#f44336" />
+            </Pressable>
+          </View>
+        )}
 
         {/* How It Works */}
         <Text style={styles.sectionTitle}>How It Works</Text>
@@ -324,34 +575,42 @@ export default function HomeScreen(): React.ReactElement {
               Start your journey today and discover the perfect career for you.
             </Text>
             <View style={styles.ctaBlockButtons}>
-              <Pressable style={({ pressed }) => [styles.ctaBlockBtnWhite, pressed && styles.pressed]} onPress={goToQuiz}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.ctaBlockBtnWhite,
+                  isProcessing && styles.disabled,
+                  pressed && !isProcessing && styles.pressed,
+                ]}
+                onPress={goToQuiz}
+                disabled={isProcessing}
+              >
                 <Text style={styles.ctaBlockBtnWhiteText}>Take the Quiz</Text>
                 <Ionicons name="arrow-forward" size={18} color={homeColors.primary} />
               </Pressable>
-              {cvName ? (
-                <Pressable
-                  style={({ pressed }) => [styles.ctaBlockBtnPurple, pressed && styles.pressed]}
-                  onPress={() => (navigation as any).navigate("CVAnalysis")}
-                >
-                  <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                  <Text style={styles.ctaBlockBtnPurpleText}>View CV Analysis</Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  style={({ pressed }) => [styles.ctaBlockBtnPurple, pressed && styles.pressed]}
-                  onPress={pickCV}
-                  disabled={isProcessing}
-                >
-                  {isUploading ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
-                      <Text style={styles.ctaBlockBtnPurpleText}>Upload CV</Text>
-                    </>
-                  )}
-                </Pressable>
-              )}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.ctaBlockBtnPurple,
+                  isProcessing && styles.disabled,
+                  pressed && !isProcessing && styles.pressed,
+                ]}
+                onPress={hasCv ? handleAnalyze : handleUpload}
+                disabled={isProcessing}
+              >
+                {status === "uploading" || status === "analyzing" ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={hasCv ? "analytics-outline" : "cloud-upload-outline"}
+                      size={18}
+                      color="#fff"
+                    />
+                    <Text style={styles.ctaBlockBtnPurpleText}>
+                      {hasCv ? "Analyze CV" : "Upload CV"}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
             </View>
           </LinearGradient>
         </Pressable>
@@ -367,6 +626,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 48, paddingBottom: 32 },
   pressed: { opacity: 0.9 },
+  disabled: { opacity: 0.5 },
 
   hero: {
     alignItems: "center",
@@ -469,7 +729,7 @@ const styles = StyleSheet.create({
   },
   cvActionsRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
     marginTop: 4,
   },
   cvActionBtn: {
@@ -500,6 +760,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: "#f44336",
+  },
+
+  // Error Banner
+  errorBanner: {
+    backgroundColor: "#f4433615",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#f4433630",
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    marginBottom: 16,
+    gap: 8,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#f44336",
+    fontWeight: "500",
   },
 
   sectionTitle: {

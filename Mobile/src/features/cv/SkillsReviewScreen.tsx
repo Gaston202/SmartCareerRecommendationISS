@@ -4,8 +4,8 @@
  * Allows editing, confirming, removing, and adding skills
  */
 
-import React, { useState, useCallback } from "react";
-import { StyleSheet, FlatList, ActivityIndicator, Alert } from "react-native";
+import React, { useState } from "react";
+import { ActivityIndicator, Alert } from "react-native";
 // WARNING: Expo Go does not support Android push notifications as of SDK 53.
 // Use a development build for full notification support.
 import * as Notifications from "expo-notifications";
@@ -47,10 +47,10 @@ export function SkillsReviewScreen() {
 
   // Initialize draft from server skills on first load
   React.useEffect(() => {
-    if (skills.length > 0 && draftSkills.length === 0) {
-      setDraftSkills(skills as DraftSkill[]);
+    if (!hasChanges) {
+      setDraftSkills((skills as DraftSkill[]) || []);
     }
-  }, [skills, draftSkills.length]);
+  }, [skills, hasChanges]);
 
   const handleEditSkill = (skill: UserSkill) => {
     setEditingSkill(skill);
@@ -110,11 +110,11 @@ export function SkillsReviewScreen() {
   const handleSaveAll = async () => {
     try {
       const toInsert = draftSkills
-        .filter((s) => s.isNew)
+        .filter((s) => s.isNew && s.status !== "removed")
         .map(({ id, user_id, created_at, updated_at, isNew, ...rest }) => rest);
 
       const toUpdate = draftSkills
-        .filter((s) => !s.isNew && s.status !== "removed")
+        .filter((s) => !s.isNew)
         .map(({ id, name, category, status }) => ({ id, name, category, status }));
 
       const payload: SkillsUpdatePayload = {
@@ -335,9 +335,3 @@ function SkillCard({ skill, onEdit, onRemove, onConfirm }: SkillCardProps) {
     </Box>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-});

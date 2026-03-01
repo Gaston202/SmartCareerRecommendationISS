@@ -4,7 +4,7 @@
  */
 
 import React from "react";
-import { StyleSheet, View, Alert, ActivityIndicator } from "react-native";
+import { ActivityIndicator } from "react-native";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -163,10 +163,3 @@ export function SkillEditModal({ isOpen, skill, onClose, onSave, isLoading = fal
   );
 }
 
-const styles = StyleSheet.create({
-  errorText: {
-    color: "#DC2626",
-    fontSize: 12,
-    marginTop: 4,
-  },
-});

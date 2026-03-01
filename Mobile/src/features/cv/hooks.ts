@@ -127,7 +127,9 @@ export function useCvAnalysis() {
   const { data: latestUpload } = useLatestCvUpload();
 
   return useQuery({
-    queryKey: latestUpload ? cvQueryKeys.analysis(latestUpload.id) : [],
+    queryKey: latestUpload
+      ? cvQueryKeys.analysis(latestUpload.id)
+      : [...cvQueryKeys.analyses(), "latest-none"],
     queryFn: async () => {
       if (!latestUpload) throw new Error("No CV upload found");
 
@@ -228,7 +230,7 @@ export function useTriggerCvAnalysis() {
 
       // Call Edge Function
       const response = await supabase.functions.invoke("analyze-cv", {
-        body: { cvUploadId, userId },
+        body: { cv_id: cvUploadId, user_id: userId },
       });
 
       if (response.error) throw response.error;
