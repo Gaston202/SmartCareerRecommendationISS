@@ -7,28 +7,28 @@ export type UserRow = {
   phone: string | null;
   role: string | null;
   status: string | null;
-
+  avatar: string | null;
+  bio: string | null;
   education_level?: string | null;
   field_of_study?: string | null;
   skills?: string | null;
   career_goal?: string | null;
-  bio?: string | null;
-  photo_url?: string | null;
-
   updated_at?: string | null;
+  
+  // ✅ Client-side alias for avatar
+  photo_url?: string | null;
 };
 
 export type UpdateUserProfileInput = Partial<
   Pick<
     UserRow,
     | "name"
-    | "phone"
+    | "avatar"
+    | "bio"
     | "education_level"
     | "field_of_study"
     | "skills"
     | "career_goal"
-    | "bio"
-    | "photo_url"
   >
 >;
 
@@ -46,7 +46,10 @@ export async function getMyUserRow(): Promise<{ userId: string; authEmail: strin
 
   if (error) throw new Error(error.message);
 
-  return { userId: user.id, authEmail: user.email ?? null, row: (data as UserRow) ?? null };
+  // ✅ Map avatar to photo_url for form compatibility
+  const mappedRow = data ? { ...data, photo_url: data.avatar } : null;
+
+  return { userId: user.id, authEmail: user.email ?? null, row: (mappedRow as UserRow) ?? null };
 }
 
 export async function updateMyUserRow(input: UpdateUserProfileInput): Promise<void> {

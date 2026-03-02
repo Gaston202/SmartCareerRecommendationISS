@@ -14,12 +14,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { fetchQuizNext } from "../features/quiz/api";
+import { saveQuizResults, saveQuizSession } from "../features/quiz/storage";
 import type {
   QuizQuestion,
   QuizResults,
   QuizOption,
   CareerRecommendation,
   ChatMessage,
+  QuestionWithAnswer,
 } from "../features/quiz/types";
 import { homeColors } from "./homeTheme";
 
@@ -80,6 +82,13 @@ export default function QuizScreen(): React.ReactElement {
   const scrollRef = useRef<ScrollView>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [answers, setAnswers] = useState<string[]>([]);
+  const [questionsAsked, setQuestionsAsked] = useState<
+    Array<{
+      questionNumber: number;
+      question: string;
+      options: string[];
+    }>
+  >([]);
   const [currentQuestion, setCurrentQuestion] = useState<QuizQuestion | null>(null);
   const [results, setResults] = useState<QuizResults | null>(null);
   const [loading, setLoading] = useState(false);
@@ -105,6 +114,15 @@ export default function QuizScreen(): React.ReactElement {
 
       if (response.type === "question") {
         setCurrentQuestion(response);
+        // Track the question and its options for AI analysis
+        setQuestionsAsked((prev) => [
+          ...prev,
+          {
+            questionNumber: response.questionNumber,
+            question: response.question,
+            options: response.options.map((o) => o.label),
+          },
+        ]);
         setMessages((prev) => [
           ...prev,
           { id: `q-${response.questionNumber}-${Date.now()}`, role: "ai", content: response.question },
@@ -112,6 +130,22 @@ export default function QuizScreen(): React.ReactElement {
       } else {
         setCurrentQuestion(null);
         setResults(response);
+        
+        // Build complete quiz session with questions and answers
+        const questionsWithAnswers: QuestionWithAnswer[] = questionsAsked.map((q, idx) => ({
+          questionNumber: q.questionNumber,
+          question: q.question,
+          selectedOption: nextAnswers[idx] || "",
+          allOptions: q.options,
+        }));
+        
+        // Save complete session
+        await saveQuizSession({
+          questionsWithAnswers,
+          results: response,
+          completedAt: new Date().toISOString(),
+        });
+        
         setMessages((prev) => [
           ...prev,
           {
@@ -165,6 +199,7 @@ export default function QuizScreen(): React.ReactElement {
             if (isResults) {
               setResults(null);
               setAnswers([]);
+              setQuestionsAsked([]);
               setCurrentQuestion(null);
               setMessages([WELCOME_MESSAGE]);
               loadNext([]);

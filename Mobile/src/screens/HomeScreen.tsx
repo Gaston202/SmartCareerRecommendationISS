@@ -379,6 +379,8 @@ export default function HomeScreen(): React.ReactElement {
         cv.storage_path,
         cv.filename
       );
+
+      queryClient.setQueryData(cvQueryKeys.analysis(cv.id), result);
       
       console.log("[HomeScreen] ✅ CV analysis completed and saved!");
       

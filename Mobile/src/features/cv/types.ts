@@ -58,6 +58,12 @@ export type CvAnalysis = {
   ats_issues: AtsIssue[];
   suggested_improvements: AtsImprovement[]; // Matches database column name
   career_suggestions: CareerSuggestion[];
+  extracted_skills?: string[];
+  extracted_interests?: string[];
+  skills_extracted?: string[];
+  interests_extracted?: string[];
+  skills?: string[];
+  interests?: string[];
   created_at: string;
 };
 

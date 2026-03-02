@@ -5,6 +5,8 @@
  */
 
 import { supabase } from "../../api/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import pako from "pako";
 import {
   buildOpenRouterHeaders,
   getOpenRouterApiKey,
@@ -31,6 +33,8 @@ interface OpenRouterAnalysis {
     match_score: number;
     reasoning?: string;
   }>;
+  extracted_skills: string[];
+  extracted_interests: string[];
 }
 
 const OPENROUTER_MAX_RETRIES_PER_MODEL = 2;
@@ -39,6 +43,16 @@ const CV_OPENROUTER_MODELS = [
   "arcee-ai/trinity-large-preview:free",
   "stepfun/step-3.5-flash:free",
 ];
+const EXTRACTED_FIELDS_CACHE_KEY_PREFIX = "cv_analysis_extracted_fields:";
+
+type CachedExtractedFields = {
+  extracted_skills: string[];
+  extracted_interests: string[];
+};
+
+function getExtractedFieldsCacheKey(cvId: string): string {
+  return `${EXTRACTED_FIELDS_CACHE_KEY_PREFIX}${cvId}`;
+}
 
 function logDebug(message: string, ...args: unknown[]) {
   if (__DEV__) {
@@ -82,6 +96,132 @@ function createRetryableParseError(message: string): Error & { status: number } 
   const error = new Error(message) as Error & { status: number };
   error.status = 503;
   return error;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!value) return [];
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? item : ""))
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function mergeExtractedFields(
+  analysis: CvAnalysis,
+  extracted: CachedExtractedFields | null
+): CvAnalysis {
+  if (!extracted) return analysis;
+
+  const hasSkills = normalizeStringArray(
+    analysis.extracted_skills ?? analysis.skills_extracted ?? analysis.skills
+  ).length > 0;
+  const hasInterests = normalizeStringArray(
+    analysis.extracted_interests ?? analysis.interests_extracted ?? analysis.interests
+  ).length > 0;
+
+  if (hasSkills && hasInterests) return analysis;
+
+  return {
+    ...analysis,
+    extracted_skills: hasSkills ? analysis.extracted_skills : extracted.extracted_skills,
+    extracted_interests: hasInterests ? analysis.extracted_interests : extracted.extracted_interests,
+  };
+}
+
+async function cacheExtractedFields(cvId: string, extracted: CachedExtractedFields): Promise<void> {
+  try {
+    await AsyncStorage.setItem(getExtractedFieldsCacheKey(cvId), JSON.stringify(extracted));
+  } catch (err) {
+    console.warn("[cv-analysis] Could not cache extracted fields locally", err);
+  }
+}
+
+export async function getCachedExtractedFields(cvId: string): Promise<CachedExtractedFields | null> {
+  try {
+    const raw = await AsyncStorage.getItem(getExtractedFieldsCacheKey(cvId));
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<CachedExtractedFields>;
+    return {
+      extracted_skills: normalizeStringArray(parsed.extracted_skills),
+      extracted_interests: normalizeStringArray(parsed.extracted_interests),
+    };
+  } catch (err) {
+    console.warn("[cv-analysis] Could not read extracted fields cache", err);
+    return null;
+  }
+}
+
+function extractSkillsAndInterestsFromText(cvText: string): {
+  extracted_skills: string[];
+  extracted_interests: string[];
+} {
+  const text = cvText.toLowerCase();
+
+  const candidateSkills = [
+    "JavaScript",
+    "TypeScript",
+    "Python",
+    "Java",
+    "React",
+    "Next.js",
+    "Node.js",
+    "Express",
+    "Django",
+    "FastAPI",
+    "PostgreSQL",
+    "MongoDB",
+    "Firebase",
+    "Docker",
+    "AWS",
+    "Supabase",
+    "Git",
+  ];
+
+  const candidateInterests = [
+    "Web Development",
+    "Full-Stack Development",
+    "Cloud Computing",
+    "Scalable Applications",
+    "System Design",
+    "Mentoring",
+    "Real-time Applications",
+    "Performance Optimization",
+  ];
+
+  const extractedSkills = candidateSkills.filter((skill) =>
+    text.includes(skill.toLowerCase())
+  );
+
+  const extractedInterests = candidateInterests.filter((interest) => {
+    const normalized = interest.toLowerCase();
+    if (normalized.includes("full-stack")) return text.includes("full-stack") || text.includes("full stack");
+    if (normalized.includes("web development")) return text.includes("web development") || text.includes("frontend") || text.includes("backend");
+    if (normalized.includes("cloud")) return text.includes("cloud") || text.includes("aws") || text.includes("gcp") || text.includes("azure");
+    if (normalized.includes("scalable")) return text.includes("scalable");
+    if (normalized.includes("system design")) return text.includes("system design") || text.includes("architecture");
+    if (normalized.includes("mentoring")) return text.includes("mentor") || text.includes("mentoring");
+    if (normalized.includes("real-time")) return text.includes("real-time") || text.includes("realtime") || text.includes("websocket");
+    if (normalized.includes("performance")) return text.includes("performance") || text.includes("optimization");
+    return text.includes(normalized);
+  });
+
+  return {
+    extracted_skills: extractedSkills,
+    extracted_interests: extractedInterests,
+  };
 }
 
 /**
@@ -211,57 +351,126 @@ async function extractTextFromPdfForAnalysis(pdfBase64: string): Promise<string>
   logDebug(`[cv-analysis] Extracting text from PDF...`);
 
   try {
-    // For demo/testing: create a mock CV text 
-    // In production, you'd use a PDF parsing library like pdfjs-dist
-    // For now, return placeholder text that represents a CV
-    const mockCVText = `
-JOHN DOE
-Email: john@example.com | Phone: (555) 123-4567 | Location: San Francisco, CA
+    const decodePdfString = (input: string): string => {
+      let s = input
+        .replace(/\\n/g, "\n")
+        .replace(/\\r/g, "\r")
+        .replace(/\\t/g, "\t")
+        .replace(/\\b/g, "\b")
+        .replace(/\\f/g, "\f")
+        .replace(/\\\(/g, "(")
+        .replace(/\\\)/g, ")")
+        .replace(/\\\\/g, "\\");
 
-PROFESSIONAL SUMMARY
-Experienced software engineer with 5+ years in full-stack web development. Strong expertise in React, Node.js, and cloud technologies. Passionate about building scalable applications.
+      s = s.replace(/\\([0-7]{1,3})/g, (_, oct) => {
+        const n = Number.parseInt(oct, 8);
+        if (Number.isNaN(n)) return "";
+        return String.fromCharCode(n);
+      });
 
-TECHNICAL SKILLS
-Languages: JavaScript, TypeScript, Python, Java
-Frontend: React, Next.js, Vue.js, HTML/CSS
-Backend: Node.js, Express, Django, FastAPI
-Databases: PostgreSQL, MongoDB, Firebase
-Tools: Git, Docker, AWS, Supabase, VS Code
+      return s;
+    };
 
-PROFESSIONAL EXPERIENCE
+    const decodeHexPdfString = (hex: string): string => {
+      const clean = hex.replace(/\s+/g, "");
+      if (!clean.length) return "";
 
-Senior Software Engineer | Tech Corp | Jan 2022 - Present
-- Led development of React application serving 100k+ users
-- Implemented real-time features using WebSocket and React hooks
-- Reduced API response time by 40% through optimization
-- Mentored junior developers on best practices
+      const normalized = clean.length % 2 === 0 ? clean : `${clean}0`;
+      const bytes: number[] = [];
+      for (let i = 0; i < normalized.length; i += 2) {
+        const parsed = Number.parseInt(normalized.slice(i, i + 2), 16);
+        if (!Number.isNaN(parsed)) bytes.push(parsed);
+      }
 
-Full Stack Developer | Web Solutions Inc | Jun 2020 - Dec 2021
-- Built CRUD applications using MERN stack
-- Designed and maintained PostgreSQL databases
-- Deployed applications to AWS and managed CI/CD pipelines
-- Improved test coverage from 40% to 85%
+      if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+        let out = "";
+        for (let i = 2; i + 1 < bytes.length; i += 2) {
+          out += String.fromCharCode((bytes[i] << 8) | bytes[i + 1]);
+        }
+        return out;
+      }
 
-Junior Developer | StartUp Labs | Jan 2019 - May 2020
-- Developed dynamic web pages using React and Vue.js
-- Fixed bugs and contributed to feature development
-- Participated in code reviews and team meetings
+      return String.fromCharCode(...bytes);
+    };
 
-EDUCATION
-Bachelor of Science in Computer Science | State University | 2019
-Relevant Coursework: Data Structures, Web Development, Database Design
+    const extractTextOperators = (content: string): string[] => {
+      const lines: string[] = [];
 
-CERTIFICATIONS
-AWS Certified Solutions Architect - Associate (2022)
-Google Cloud Professional Developer (2021)
+      const blocks = content.match(/BT[\s\S]*?ET/g) || [content];
 
-PROJECTS
-E-Commerce Platform: Built full-stack marketplace using MERN. Integrated Stripe for payments.
-Task Management App: Created React app with real-time updates using Firebase
-`;
+      for (const block of blocks) {
+        const literalMatches = block.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g);
+        for (const m of literalMatches) {
+          const decoded = decodePdfString(m[1]).trim();
+          if (decoded) lines.push(decoded);
+        }
 
-    logDebug(`[cv-analysis] ✅ PDF text extracted (${mockCVText.length} chars)`);
-    return mockCVText;
+        const arrayMatches = block.matchAll(/\[(.*?)\]\s*TJ/gs);
+        for (const m of arrayMatches) {
+          const arr = m[1];
+          const parts: string[] = [];
+          const strParts = arr.matchAll(/\(((?:\\.|[^\\)])*)\)/g);
+          for (const part of strParts) {
+            const decoded = decodePdfString(part[1]);
+            if (decoded.trim()) parts.push(decoded);
+          }
+
+          const hexParts = arr.matchAll(/<([0-9A-Fa-f\s]+)>/g);
+          for (const part of hexParts) {
+            const decoded = decodeHexPdfString(part[1]);
+            if (decoded.trim()) parts.push(decoded);
+          }
+
+          const joined = parts.join("").trim();
+          if (joined) lines.push(joined);
+        }
+
+        const hexTjMatches = block.matchAll(/<([0-9A-Fa-f\s]+)>\s*Tj/g);
+        for (const m of hexTjMatches) {
+          const decoded = decodeHexPdfString(m[1]).trim();
+          if (decoded) lines.push(decoded);
+        }
+      }
+
+      return lines;
+    };
+
+    const binary = atob(pdfBase64);
+    const extractedLines: string[] = [];
+
+    const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+    let streamMatch: RegExpExecArray | null;
+    while ((streamMatch = streamRegex.exec(binary)) !== null) {
+      const streamBody = streamMatch[1];
+      const bytes = new Uint8Array(streamBody.length);
+      for (let i = 0; i < streamBody.length; i++) {
+        bytes[i] = streamBody.charCodeAt(i) & 0xff;
+      }
+
+      try {
+        const inflated = pako.inflate(bytes, { to: "string" }) as string;
+        extractedLines.push(...extractTextOperators(inflated));
+      } catch {
+        // Stream may be uncompressed or use unsupported filter.
+      }
+    }
+
+    if (extractedLines.length === 0) {
+      extractedLines.push(...extractTextOperators(binary));
+    }
+
+    const normalizedText = extractedLines
+      .map((line) => line.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim())
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+
+    if (!normalizedText) {
+      throw new Error("No extractable text found in PDF content streams");
+    }
+
+    logDebug(`[cv-analysis] ✅ PDF text extracted (${normalizedText.length} chars)`);
+    return normalizedText;
   } catch (err) {
     console.error(`[cv-analysis] ❌ Failed to extract text:`, err);
     throw err;
@@ -274,6 +483,7 @@ Task Management App: Created React app with real-time updates using Firebase
  */
 function generateFallbackAnalysis(cvText: string): OpenRouterAnalysis {
   console.warn(`[cv-analysis] ⚠️ Generating fallback analysis (OpenRouter unavailable)`);
+  const extracted = extractSkillsAndInterestsFromText(cvText);
   
   // Simple heuristics to estimate ATS score based on CV content
   let atsScore = 65; // Base score
@@ -336,7 +546,9 @@ function generateFallbackAnalysis(cvText: string): OpenRouterAnalysis {
         match_score: 65,
         reasoning: "Shows leadership and mentoring experience in professional roles"
       }
-    ]
+    ],
+    extracted_skills: extracted.extracted_skills,
+    extracted_interests: extracted.extracted_interests,
   };
 }
 
@@ -382,7 +594,9 @@ Return ONLY valid JSON response in this exact format, no additional text:
       "match_score": 88,
       "reasoning": "Strong backend development experience with leadership proven"
     }
-  ]
+  ],
+  "extracted_skills": ["JavaScript", "React", "Node.js"],
+  "extracted_interests": ["Web Development", "Cloud Computing"]
 }`;
 
   let lastError: unknown = null;
@@ -447,13 +661,30 @@ Return ONLY valid JSON response in this exact format, no additional text:
           throw createRetryableParseError("Could not extract JSON from OpenRouter response");
         }
 
-        const analysis: OpenRouterAnalysis = JSON.parse(jsonMatch[0]);
+        const parsed = JSON.parse(jsonMatch[0]) as Partial<OpenRouterAnalysis>;
+        const analysis: OpenRouterAnalysis = {
+          ats_score: typeof parsed.ats_score === "number" ? parsed.ats_score : 60,
+          ats_issues: Array.isArray(parsed.ats_issues) ? parsed.ats_issues : [],
+          ats_suggestions: Array.isArray(parsed.ats_suggestions) ? parsed.ats_suggestions : [],
+          career_suggestions: Array.isArray(parsed.career_suggestions) ? parsed.career_suggestions : [],
+          extracted_skills: normalizeStringArray(parsed.extracted_skills),
+          extracted_interests: normalizeStringArray(parsed.extracted_interests),
+        };
+
+        if (analysis.extracted_skills.length === 0 && analysis.extracted_interests.length === 0) {
+          const extracted = extractSkillsAndInterestsFromText(cvText);
+          analysis.extracted_skills = extracted.extracted_skills;
+          analysis.extracted_interests = extracted.extracted_interests;
+        }
+
         logDebug(`[cv-analysis] ✅ Analysis parsed:`, {
           model,
           ats_score: analysis.ats_score,
           issues_count: analysis.ats_issues?.length || 0,
           suggestions_count: analysis.ats_suggestions?.length || 0,
           career_suggestions_count: analysis.career_suggestions?.length || 0,
+          extracted_skills_count: analysis.extracted_skills?.length || 0,
+          extracted_interests_count: analysis.extracted_interests?.length || 0,
         });
 
         return analysis;
@@ -517,20 +748,58 @@ async function saveAnalysisToDatabase(
   logDebug(`[cv-analysis] Saving analysis to database...`);
 
   try {
+    const insertPayload = {
+      cv_upload_id: cvId,
+      user_id: userId,
+      ats_score: analysis.ats_score,
+      ats_issues: analysis.ats_issues,
+      suggested_improvements: analysis.ats_suggestions,
+      career_suggestions: analysis.career_suggestions,
+      extracted_skills: analysis.extracted_skills,
+      extracted_interests: analysis.extracted_interests,
+    };
+
     const { data, error } = await supabase
       .from("cv_analysis")
-      .insert({
-        cv_upload_id: cvId,
-        user_id: userId,
-        ats_score: analysis.ats_score,
-        ats_issues: analysis.ats_issues,
-        suggested_improvements: analysis.ats_suggestions, // Map ats_suggestions to suggested_improvements column
-        career_suggestions: analysis.career_suggestions,
-      })
+      .insert(insertPayload)
       .select()
       .single();
 
     if (error) {
+      const message = String(error.message || "").toLowerCase();
+      const missingExtractedColumns =
+        message.includes("extracted_skills") || message.includes("extracted_interests");
+
+      if (missingExtractedColumns) {
+        console.warn(
+          `[cv-analysis] ℹ️ Extracted fields columns missing in cv_analysis table, saving without them.`
+        );
+
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from("cv_analysis")
+          .insert({
+            cv_upload_id: cvId,
+            user_id: userId,
+            ats_score: analysis.ats_score,
+            ats_issues: analysis.ats_issues,
+            suggested_improvements: analysis.ats_suggestions,
+            career_suggestions: analysis.career_suggestions,
+          })
+          .select()
+          .single();
+
+        if (fallbackError) {
+          console.error(`[cv-analysis] ❌ Database fallback save failed:`, fallbackError);
+          throw fallbackError;
+        }
+
+        return {
+          ...(fallbackData as CvAnalysis),
+          extracted_skills: analysis.extracted_skills,
+          extracted_interests: analysis.extracted_interests,
+        };
+      }
+
       console.error(`[cv-analysis] ❌ Database save failed:`, error);
       throw error;
     }
@@ -565,7 +834,8 @@ async function getExistingAnalysis(cvId: string, userId: string): Promise<CvAnal
     return null;
   }
 
-  return data as CvAnalysis;
+  const cachedExtracted = await getCachedExtractedFields(cvId);
+  return mergeExtractedFields(data as CvAnalysis, cachedExtracted);
 }
 
 /**
@@ -612,6 +882,11 @@ export async function analyzeCvWithOpenRouter(
     // Step 3: Analyze with OpenRouter
     console.log(`[cv-analysis] 🤖 Step 3: Analyzing with OpenRouter...`);
     const analysis = await analyzeWithOpenRouter(cvText, fileName);
+
+    await cacheExtractedFields(cvId, {
+      extracted_skills: analysis.extracted_skills,
+      extracted_interests: analysis.extracted_interests,
+    });
 
     // Step 4: Save to database
     console.log(`[cv-analysis] 💾 Step 4: Saving results...`);

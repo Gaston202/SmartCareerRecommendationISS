@@ -18,6 +18,8 @@ import {
   TouchableWithoutFeedback,
   Share,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useForm, Controller, FieldPath, type Control } from "react-hook-form";
 import { z } from "zod";
@@ -82,8 +84,8 @@ const COLORS = {
 const profileSchema = z.object({
   fullName: z.string().trim().min(2, "Full name must be at least 2 characters"),
   email: z.string().trim().email("Please enter a valid email"),
-  educationLevel: z.string().trim().min(2, "Education level is required"),
-  fieldOfStudy: z.string().trim().min(2, "Field of study is required"),
+  educationLevel: z.string().trim().optional().or(z.literal("")),
+  fieldOfStudy: z.string().trim().optional().or(z.literal("")),
   skills: z.string().trim().optional(),
   careerGoal: z.string().trim().optional(),
   bio: z.string().trim().max(220, "Bio is too long (max 220 chars)").optional(),
@@ -123,7 +125,7 @@ type InputConfig = {
     | "url"
     | "organization"
     | "job-title";
-  icon?: string; // ✅ icons only in Details
+  icon?: keyof typeof Ionicons.glyphMap | null; // ✅ Ionicon names
 };
 
 const INPUTS: InputConfig[] = [
@@ -134,7 +136,7 @@ const INPUTS: InputConfig[] = [
     autoCapitalize: "words",
     textContentType: "name",
     autoComplete: "name",
-    icon: "👤",
+    icon: "person-outline",
   },
   {
     name: "email",
@@ -146,67 +148,67 @@ const INPUTS: InputConfig[] = [
     helper: "Email is read-only (change it from account settings).",
     textContentType: "emailAddress",
     autoComplete: "email",
-    icon: "✉️",
+    icon: "mail-outline",
   },
   {
     name: "educationLevel",
-    label: "Education Level",
+    label: "Education Level (optional)",
     placeholder: "e.g., High School, Bachelor, Master",
     autoCapitalize: "words",
     textContentType: "none",
     autoComplete: "off",
-    icon: "🎓",
+    icon: "school-outline",
   },
   {
     name: "fieldOfStudy",
-    label: "Field of Study",
+    label: "Field of Study (optional)",
     placeholder: "e.g., Computer Science",
     autoCapitalize: "words",
     textContentType: "none",
     autoComplete: "off",
-    icon: "📚",
+    icon: "book-outline",
   },
   {
     name: "careerGoal",
-    label: "Career Goal",
+    label: "Career Goal (optional)",
     placeholder: "e.g., Cybersecurity Engineer",
     multiline: true,
     autoCapitalize: "sentences",
     textContentType: "jobTitle",
     autoComplete: "job-title",
-    icon: "🎯",
+    icon: "briefcase-outline",
   },
   {
     name: "skills",
-    label: "Skills (comma-separated)",
+    label: "Skills (optional, comma-separated)",
     placeholder: "e.g., Java, Python, React, SQL",
     multiline: true,
     autoCapitalize: "sentences",
     helper: "Tip: write skills separated by commas.",
     textContentType: "none",
     autoComplete: "off",
-    icon: "🧩",
+    icon: "sparkles-outline",
   },
   {
     name: "bio",
-    label: "Bio",
-    placeholder: "Write a short bio (max 220 chars)",
+    label: "Bio (optional, max 220 chars)",
+    placeholder: "Write a short bio",
     multiline: true,
     autoCapitalize: "sentences",
     textContentType: "none",
     autoComplete: "off",
-    icon: "📝",
+    icon: "document-text-outline",
   },
   {
     name: "photoUrl",
-    label: "Photo URL",
+    label: "Photo URL (optional)",
     placeholder: "https://...",
     keyboardType: "url",
     autoCapitalize: "none",
-    helper: "Paste an image link (works without extra libraries).",
+    helper: "Paste an image link (must be valid URL).",
     textContentType: "URL",
     autoComplete: "url",
-    icon: "🖼️",
+    icon: "image-outline",
   },
 ];
 
@@ -308,7 +310,6 @@ function normalizeList(raw?: string) {
     .slice(0, 18);
 }
 
-// ------------------- FormField -------------------
 function FormField({
   control,
   name,
@@ -340,7 +341,7 @@ function FormField({
   onSubmitEditing?: () => void;
   textContentType?: InputConfig["textContentType"];
   autoComplete?: InputConfig["autoComplete"];
-  icon?: string;
+  icon?: keyof typeof Ionicons.glyphMap | null;
 }) {
   const [focused, setFocused] = useState(false);
 
@@ -356,10 +357,17 @@ function FormField({
 
         return (
           <View style={styles.field}>
-            <Text style={styles.label}>
-              {!!icon ? <Text style={styles.labelIcon}>{icon} </Text> : null}
-              {label}
-            </Text>
+            <View style={styles.labelRow}>
+              {!!icon ? (
+                <Ionicons
+                  name={icon}
+                  size={16}
+                  color={focused && isEditable ? COLORS.primary : COLORS.sub}
+                  style={styles.labelIcon}
+                />
+              ) : null}
+              <Text style={styles.label}>{label}</Text>
+            </View>
 
             <View
               style={[
@@ -918,16 +926,15 @@ export default function ProfileScreen() {
     try {
       setSaving(true);
 
+      // ✅ Save all profile fields to database
       await updateMyUserRow({
         name: data.fullName,
-        education_level: data.educationLevel?.trim()
-          ? data.educationLevel
-          : null,
+        avatar: data.photoUrl?.trim() ? data.photoUrl : null,
+        bio: data.bio?.trim() ? data.bio : null,
+        education_level: data.educationLevel?.trim() ? data.educationLevel : null,
         field_of_study: data.fieldOfStudy?.trim() ? data.fieldOfStudy : null,
         skills: data.skills?.trim() ? data.skills : null,
         career_goal: data.careerGoal?.trim() ? data.careerGoal : null,
-        bio: data.bio?.trim() ? data.bio : null,
-        photo_url: data.photoUrl?.trim() ? data.photoUrl : null,
       });
 
       setSavedProfile(data);
@@ -1254,14 +1261,18 @@ export default function ProfileScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle="dark-content" />
-        <View style={styles.bg}>
-          <View style={styles.bgBottom} />
+        <LinearGradient
+          colors={[COLORS.bgStart, COLORS.bgEnd]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.gradientBg}
+        >
           <View style={{ padding: 16 }}>
             <Text style={{ color: COLORS.text, fontWeight: "900" }}>
               Loading profile…
             </Text>
           </View>
-        </View>
+        </LinearGradient>
       </SafeAreaView>
     );
   }
@@ -1270,9 +1281,12 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <StatusBar barStyle="dark-content" />
 
-      <View style={styles.bg}>
-        <View style={styles.bgBottom} />
-
+      <LinearGradient
+        colors={[COLORS.bgStart, COLORS.bgEnd]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.gradientBg}
+      >
         <ChangePasswordModal
           visible={changePwdOpen}
           onClose={() => setChangePwdOpen(false)}
@@ -1286,48 +1300,56 @@ export default function ProfileScreen() {
           <ScrollView
             contentContainerStyle={styles.container}
             keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            {/* Header */}
-            <View style={styles.header}>
-              <View>
-                <Text style={styles.title}>My Profile</Text>
-                <Text style={styles.subtitle}>
-                  Make your profile strong to get better recommendations.
+            {/* Header Section */}
+            <View style={styles.headerSection}>
+              <View style={styles.headerContent}>
+                <Text style={styles.pageTitle}>My Profile</Text>
+                <Text style={styles.pageSubtitle}>
+                  Complete your profile to unlock personalized career insights
                 </Text>
               </View>
 
               {!editMode ? (
-                <Pressable style={styles.btnPrimary} onPress={enterEditMode}>
-                  <Text style={styles.btnPrimaryText}>Edit</Text>
+                <Pressable style={styles.editBtn} onPress={enterEditMode}>
+                  <Ionicons name="create-outline" size={18} color="white" />
+                  <Text style={styles.editBtnText}>Edit</Text>
                 </Pressable>
               ) : (
                 <View style={styles.headerActions}>
                   <Pressable
                     style={[
-                      styles.btnPrimary,
+                      styles.saveBtn,
                       (!isDirty || !isValid || saving) && styles.btnDisabled,
                     ]}
                     disabled={!isDirty || !isValid || saving}
                     onPress={handleSubmit(onSubmit)}
                   >
-                    <Text style={styles.btnPrimaryText}>
+                    <Ionicons
+                      name="checkmark"
+                      size={16}
+                      color="white"
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text style={styles.saveBtnText}>
                       {saving ? "Saving..." : "Save"}
                     </Text>
                   </Pressable>
 
                   <Pressable
-                    style={styles.btnGhost}
+                    style={styles.cancelBtn}
                     onPress={cancelEdit}
                     disabled={saving}
                   >
-                    <Text style={styles.btnGhostText}>Cancel</Text>
+                    <Text style={styles.cancelBtnText}>Cancel</Text>
                   </Pressable>
                 </View>
               )}
             </View>
 
-            {/* Profile card */}
-            <View style={styles.card}>
+            {/* Profile Summary Card */}
+            <View style={styles.summaryCard}>
               <View style={styles.profileTop}>
                 <View style={styles.avatarWrap}>
                   {avatarUri ? (
@@ -1340,134 +1362,188 @@ export default function ProfileScreen() {
                 </View>
 
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.name}>{watched.fullName || "Your Name"}</Text>
-                  <Text style={styles.email}>{watched.email || "email@example.com"}</Text>
+                  <Text style={styles.profileName}>{watched.fullName || "Your Name"}</Text>
+                  <Text style={styles.profileEmail}>{watched.email || "email@example.com"}</Text>
 
-                  <View style={styles.progressRow}>
-                    <Text style={styles.progressText}>
-                      Profile strength:{" "}
-                      <Text style={styles.progressStrong}>
+                  {/* Profile Strength */}
+                  <View style={styles.strengthSection}>
+                    <View style={styles.strengthLabel}>
+                      <Text style={styles.strengthLabelText}>Profile strength</Text>
+                      <Text style={styles.strengthValue}>
                         {Math.round(progress * 100)}%
                       </Text>
-                    </Text>
+                    </View>
                     <ProgressBar value01={progress} />
                   </View>
                 </View>
               </View>
 
-              {/* Quick actions */}
-              <View style={styles.quickActions}>
+              {/* Profile Info Pills */}
+              <View style={styles.infoGrid}>
+                <View style={styles.infoPill}>
+                  <View style={styles.infoPillIcon}>
+                    <Ionicons name="school-outline" size={16} color={COLORS.primary} />
+                  </View>
+                  <View>
+                    <Text style={styles.infoPillLabel}>Education</Text>
+                    <Text style={styles.infoPillValue} numberOfLines={1}>
+                      {watched.educationLevel || "Not set"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoPill}>
+                  <View style={styles.infoPillIcon}>
+                    <Ionicons name="book-outline" size={16} color={COLORS.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoPillLabel}>Field of Study</Text>
+                    <Text style={styles.infoPillValue} numberOfLines={1}>
+                      {watched.fieldOfStudy || "Not set"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Quick Actions */}
+              <View style={styles.quickActionsRow}>
                 <Pressable
-                  style={[styles.actionBtn, !editMode && styles.actionBtnDisabled]}
+                  style={[styles.quickActionBtn, !editMode && styles.quickActionBtnDisabled]}
                   disabled={!editMode}
                   onPress={pickImageIfAvailable}
                 >
-                  <Text style={styles.actionBtnText}>Pick Photo</Text>
-                </Pressable>
-
-                <Pressable
-                  style={styles.actionBtnAlt}
-                  onPress={() =>
-                    Alert.alert("Feature", "Add navigation to Account Settings here.")
-                  }
-                >
-                  <Text style={styles.actionBtnAltText}>Account Settings</Text>
+                  <Ionicons
+                    name="image-outline"
+                    size={18}
+                    color={editMode ? COLORS.primary : COLORS.muted}
+                  />
+                  <Text
+                    style={[
+                      styles.quickActionText,
+                      !editMode && { color: COLORS.muted },
+                    ]}
+                  >
+                    Update Photo
+                  </Text>
                 </Pressable>
               </View>
+            </View>
 
-              {/* Pills */}
-              <View style={styles.pillsRow}>
-                <Pill label="Education" value={watched.educationLevel || "—"} />
-                <Pill label="Field" value={watched.fieldOfStudy || "—"} />
-              </View>
-
-              {/* Skills */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Top Skills</Text>
+            {/* Skills Section */}
+            {!editMode && (
+              <View style={styles.sectionCard}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="sparkles-outline" size={18} color={COLORS.primary} />
+                  <Text style={styles.sectionTitle}>Skills</Text>
+                </View>
                 {skillsList.length === 0 ? (
-                  <Text style={styles.emptyText}>Add skills to boost your profile.</Text>
+                  <View style={styles.emptySection}>
+                    <Text style={styles.emptyText}>Add skills to boost your profile</Text>
+                  </View>
                 ) : (
-                  <View style={styles.chipsRow}>
+                  <View style={styles.skillsGrid}>
                     {skillsList.map((s) => (
-                      <Chip key={s} text={s} />
+                      <View key={s} style={styles.skillTag}>
+                        <Text style={styles.skillTagText}>{s}</Text>
+                      </View>
                     ))}
                   </View>
                 )}
               </View>
-            </View>
+            )}
 
-            {/* Details card (icons ONLY here) */}
-            <View style={[styles.card, { backgroundColor: COLORS.card2 }]}>
-              <View style={styles.detailsHeader}>
-                <Text style={styles.sectionTitle}>Details</Text>
+            {/* Form Section */}
+            <View style={styles.formCard}>
+              <View style={styles.sectionHeader}>
+                <Ionicons
+                  name={editMode ? "create-outline" : "information-outline"}
+                  size={18}
+                  color={COLORS.primary}
+                />
+                <Text style={styles.sectionTitle}>Profile Details</Text>
                 {!editMode ? (
-                  <View style={styles.detailsHintPill}>
-                    <Text style={styles.detailsHintText}>🔒 View mode</Text>
+                  <View style={styles.viewModeBadge}>
+                    <Ionicons name="lock-closed-outline" size={12} color={COLORS.muted} />
+                    <Text style={styles.viewModeBadgeText}>View</Text>
                   </View>
                 ) : (
-                  <View style={[styles.detailsHintPill, styles.detailsHintPillEdit]}>
-                    <Text style={[styles.detailsHintText, { color: COLORS.primaryDark }]}>
-                      ✍️ Edit mode
-                    </Text>
+                  <View style={styles.editModeBadge}>
+                    <Ionicons name="pencil-outline" size={12} color={COLORS.primary} />
+                    <Text style={styles.editModeBadgeText}>Edit</Text>
                   </View>
                 )}
               </View>
 
-              {INPUTS.map((cfg) => (
-                <FormField
-                  key={cfg.name}
-                  control={control}
-                  name={cfg.name}
-                  label={cfg.label}
-                  placeholder={cfg.placeholder}
-                  editable={editMode}
-                  readOnly={cfg.readOnly}
-                  multiline={cfg.multiline}
-                  keyboardType={cfg.keyboardType}
-                  autoCapitalize={cfg.autoCapitalize}
-                  helper={cfg.helper}
-                  textContentType={cfg.textContentType}
-                  autoComplete={cfg.autoComplete}
-                  icon={cfg.icon}
-                  inputRef={(ref) => (inputRefs.current[cfg.name] = ref)}
-                  onSubmitEditing={cfg.multiline ? undefined : () => focusNext(cfg.name)}
-                />
-              ))}
+              <View style={styles.formFields}>
+                {INPUTS.map((cfg) => (
+                  <FormField
+                    key={cfg.name}
+                    control={control}
+                    name={cfg.name}
+                    label={cfg.label}
+                    placeholder={cfg.placeholder}
+                    editable={editMode}
+                    readOnly={cfg.readOnly}
+                    multiline={cfg.multiline}
+                    keyboardType={cfg.keyboardType}
+                    autoCapitalize={cfg.autoCapitalize}
+                    helper={cfg.helper}
+                    textContentType={cfg.textContentType}
+                    autoComplete={cfg.autoComplete}
+                    icon={cfg.icon}
+                    inputRef={(ref) => (inputRefs.current[cfg.name] = ref)}
+                    onSubmitEditing={cfg.multiline ? undefined : () => focusNext(cfg.name)}
+                  />
+                ))}
+              </View>
             </View>
 
-            {/* More */}
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>More</Text>
+            {/* Actions Section */}
+            <View style={styles.actionsCard}>
+              <Text style={styles.sectionTitle}>Account</Text>
 
-              <Pressable style={styles.rowBtn} onPress={() => setChangePwdOpen(true)}>
-                <Text style={styles.rowBtnText}>🔒 Change Password</Text>
-                <Text style={styles.rowBtnRight}>›</Text>
+              <Pressable style={styles.actionRow} onPress={() => setChangePwdOpen(true)}>
+                <View style={styles.actionRowLeft}>
+                  <Ionicons name="lock-closed-outline" size={18} color={COLORS.primary} />
+                  <Text style={styles.actionRowText}>Change Password</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.sub} />
               </Pressable>
 
               <Pressable
-                style={styles.rowBtn}
+                style={styles.actionRow}
                 onPress={exportProfilePdf}
                 disabled={exporting}
               >
-                <Text style={styles.rowBtnText}>
-                  📤 Export Profile {exporting ? " (working…)" : ""}
-                </Text>
-                <Text style={styles.rowBtnRight}>›</Text>
+                <View style={styles.actionRowLeft}>
+                  <Ionicons name="download-outline" size={18} color={COLORS.primary} />
+                  <Text style={styles.actionRowText}>
+                    Export Profile {exporting ? " (working…)" : ""}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.sub} />
               </Pressable>
 
               <Pressable
-                style={[styles.rowBtn, { borderBottomWidth: 0 }]}
+                style={[styles.actionRow, { borderBottomWidth: 0 }]}
                 onPress={() => handleLogout()}
               >
-                <Text style={[styles.rowBtnText, { color: COLORS.danger }]}>🚪 Log Out</Text>
-                <Text style={[styles.rowBtnRight, { color: COLORS.danger }]}>›</Text>
+                <View style={styles.actionRowLeft}>
+                  <Ionicons
+                    name="log-out-outline"
+                    size={18}
+                    color={COLORS.danger}
+                  />
+                  <Text style={[styles.actionRowText, { color: COLORS.danger }]}>Log Out</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.danger} />
               </Pressable>
             </View>
 
-            <View style={{ height: 18 }} />
+            <View style={{ height: 28 }} />
           </ScrollView>
         </KeyboardAvoidingView>
-      </View>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -1476,19 +1552,447 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bgStart },
 
-  // ✅ Home-like background (no extra libs)
-  bg: { flex: 1, backgroundColor: COLORS.bgStart },
-  bgBottom: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: "55%",
-    backgroundColor: COLORS.bgEnd,
-  },
+  // ✅ Gradient background like HomeScreen
+  gradientBg: { flex: 1 },
 
   container: { padding: 16, paddingBottom: 28 },
 
+  // ============ Header Section ============
+  headerSection: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 20,
+  },
+  headerContent: { flex: 1 },
+  pageTitle: {
+    marginTop: 12,
+    fontSize: 32,
+    fontWeight: "900",
+    color: COLORS.text,
+    letterSpacing: -0.5,
+  },
+  pageSubtitle: {
+    marginTop: 8,
+    fontSize: 13.5,
+    color: COLORS.sub,
+    lineHeight: 18,
+  },
+
+  editBtn: {
+    marginTop: 12,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.25)",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  editBtnText: {
+    color: "white",
+    fontWeight: "900",
+    fontSize: 13.5,
+  },
+
+  headerActions: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "flex-start",
+    marginTop: 12,
+  },
+  saveBtn: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.25)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    minHeight: 44,
+  },
+  saveBtnText: {
+    color: "white",
+    fontWeight: "900",
+    fontSize: 13.5,
+  },
+  cancelBtn: {
+    backgroundColor: "rgba(255,255,255,0.75)",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  cancelBtnText: {
+    color: COLORS.text,
+    fontWeight: "900",
+    fontSize: 13.5,
+  },
+  btnDisabled: { opacity: 0.55 },
+
+  // ============ Summary Card ============
+  summaryCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
+  },
+
+  profileTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 16,
+  },
+
+  avatarWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 20,
+    backgroundColor: "rgba(124,77,255,0.12)",
+    borderWidth: 1.5,
+    borderColor: "rgba(124,77,255,0.2)",
+    overflow: "hidden",
+    flexShrink: 0,
+  },
+  avatarImg: { width: "100%", height: "100%" },
+  avatarFallback: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(124,77,255,0.14)",
+  },
+  avatarInitials: {
+    color: COLORS.primaryDark,
+    fontWeight: "900",
+    fontSize: 24,
+  },
+
+  profileName: {
+    color: COLORS.text,
+    fontWeight: "900",
+    fontSize: 18,
+    letterSpacing: -0.3,
+  },
+  profileEmail: {
+    color: COLORS.sub,
+    marginTop: 4,
+    fontSize: 13,
+  },
+
+  strengthSection: {
+    marginTop: 10,
+    gap: 6,
+  },
+  strengthLabel: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+  },
+  strengthLabelText: {
+    color: COLORS.sub,
+    fontSize: 12.5,
+    fontWeight: "800",
+  },
+  strengthValue: {
+    color: COLORS.primaryDark,
+    fontWeight: "900",
+    fontSize: 14,
+  },
+
+  progressTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(31,41,55,0.08)",
+    borderWidth: 0.5,
+    borderColor: COLORS.border,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: COLORS.primary,
+  },
+
+  // ============ Info Grid ============
+  infoGrid: {
+    flexDirection: "column",
+    gap: 10,
+    marginBottom: 14,
+  },
+  infoPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(124,77,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.12)",
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
+  },
+  infoPillIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "rgba(124,77,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  infoPillLabel: {
+    color: COLORS.sub,
+    fontSize: 11.5,
+    fontWeight: "800",
+  },
+  infoPillValue: {
+    color: COLORS.text,
+    fontSize: 13.5,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+
+  // ============ Quick Actions ============
+  quickActionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(0,0,0,0.04)",
+    paddingTop: 14,
+  },
+  quickActionBtn: {
+    flex: 1,
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    backgroundColor: "rgba(124,77,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.15)",
+    borderRadius: 14,
+  },
+  quickActionBtnDisabled: {
+    opacity: 0.5,
+    backgroundColor: "rgba(107,114,128,0.06)",
+    borderColor: COLORS.border,
+  },
+  quickActionText: {
+    color: COLORS.primary,
+    fontWeight: "900",
+    fontSize: 13,
+  },
+
+  // ============ Section Card ============
+  sectionCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
+  },
+
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 14,
+  },
+  sectionTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: "900",
+    letterSpacing: -0.2,
+  },
+
+  viewModeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginLeft: "auto",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: "rgba(107,114,128,0.10)",
+    borderWidth: 0.5,
+    borderColor: "rgba(107,114,128,0.15)",
+  },
+  viewModeBadgeText: {
+    color: COLORS.sub,
+    fontWeight: "900",
+    fontSize: 11,
+  },
+
+  editModeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginLeft: "auto",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: "rgba(124,77,255,0.12)",
+    borderWidth: 0.5,
+    borderColor: "rgba(124,77,255,0.2)",
+  },
+  editModeBadgeText: {
+    color: COLORS.primary,
+    fontWeight: "900",
+    fontSize: 11,
+  },
+
+  // ============ Skills ============
+  skillsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  skillTag: {
+    backgroundColor: "rgba(124,77,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.22)",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
+  skillTagText: {
+    color: COLORS.primaryDark,
+    fontWeight: "900",
+    fontSize: 12,
+  },
+
+  emptySection: {
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  emptyText: {
+    color: COLORS.sub,
+    fontSize: 13,
+  },
+
+  // ============ Form Card ============
+  formCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
+  },
+
+  formFields: {
+    gap: 2,
+  },
+
+  field: {
+    marginTop: 14,
+    paddingBottom: 2,
+  },
+  labelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  label: {
+    color: COLORS.sub,
+    fontSize: 12.5,
+    fontWeight: "900",
+    letterSpacing: 0.2,
+  },
+  labelIcon: { marginRight: 2 },
+
+  inputShell: {
+    backgroundColor: COLORS.inputBg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    overflow: "hidden",
+  },
+  inputShellFocused: {
+    borderColor: "rgba(124,77,255,0.35)",
+    backgroundColor: "rgba(255,255,255,0.95)",
+  },
+  inputShellDisabled: { backgroundColor: "rgba(255,255,255,0.75)" },
+  inputShellBlurred: {
+    backgroundColor: "rgba(234,234,242,0.6)",
+    borderColor: "rgba(239,239,241,0.8)",
+  },
+  inputShellError: { borderColor: "rgba(220,38,38,0.45)" },
+  inputShellMultiline: { paddingVertical: 4 },
+
+  input: {
+    paddingVertical: 12,
+    color: COLORS.text,
+    fontSize: 15.5,
+    fontWeight: "500",
+  },
+  inputMultiline: {
+    minHeight: 88,
+    textAlignVertical: "top",
+  },
+  inputBlurredText: { opacity: 0.55, letterSpacing: 0.4 },
+  inputDisabledText: { color: COLORS.text },
+
+  helper: {
+    marginTop: 6,
+    color: COLORS.muted,
+    fontSize: 12,
+  },
+  errorText: {
+    marginTop: 6,
+    color: COLORS.danger,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  // ============ Actions Card ============
+  actionsCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 18,
+    padding: 16,
+  },
+
+  actionRow: {
+    marginTop: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0,0,0,0.04)",
+  },
+  actionRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  actionRowText: {
+    color: COLORS.text,
+    fontWeight: "900",
+    fontSize: 14,
+  },
+
+  // ============ Old Styles (kept for compatibility) ============
   header: {
     paddingVertical: 10,
     paddingHorizontal: 0,
@@ -1497,13 +2001,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 1,
   },
-  headerActions: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-    marginRight: 10,
-  },
-
   title: {
     marginTop: 22,
     fontSize: 28,
@@ -1511,30 +2008,12 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     letterSpacing: 0.2,
   },
-  subtitle: { marginTop: 6, color: COLORS.sub, fontSize: 13, maxWidth: 260 },
-
-  btnPrimary: {
-    marginTop: 22,
-    backgroundColor: COLORS.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(124,77,255,0.22)",
+  subtitle: {
+    marginTop: 6,
+    color: COLORS.sub,
+    fontSize: 13,
+    maxWidth: 260,
   },
-  btnPrimaryText: { color: "white", fontWeight: "900" },
-
-  btnGhost: {
-    marginTop: 22,
-    backgroundColor: "rgba(255,255,255,0.55)",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  btnGhostText: { color: COLORS.text, fontWeight: "900" },
-  btnDisabled: { opacity: 0.55 },
 
   card: {
     backgroundColor: COLORS.surface,
@@ -1545,42 +2024,12 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
-  profileTop: { flexDirection: "row", alignItems: "center", gap: 14 },
-
-  avatarWrap: {
-    width: 76,
-    height: 76,
-    borderRadius: 20,
-    backgroundColor: "rgba(124,77,255,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(124,77,255,0.18)",
-    overflow: "hidden",
-  },
-  avatarImg: { width: "100%", height: "100%" },
-  avatarFallback: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(124,77,255,0.16)",
-  },
-  avatarInitials: { color: COLORS.primaryDark, fontWeight: "900", fontSize: 22 },
-
   name: { color: COLORS.text, fontWeight: "900", fontSize: 18 },
   email: { color: COLORS.sub, marginTop: 2, fontSize: 12.5 },
 
   progressRow: { marginTop: 10, gap: 8 },
   progressText: { color: COLORS.sub, fontSize: 12.5 },
   progressStrong: { color: COLORS.primaryDark, fontWeight: "900" },
-
-  progressTrack: {
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: "rgba(31,41,55,0.08)",
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    overflow: "hidden",
-  },
-  progressFill: { height: "100%", borderRadius: 999, backgroundColor: COLORS.primary },
 
   quickActions: { marginTop: 12, flexDirection: "row", gap: 10 },
 
@@ -1625,9 +2074,6 @@ const styles = StyleSheet.create({
   },
 
   section: { marginTop: 14 },
-  sectionTitle: { color: COLORS.text, fontSize: 15, fontWeight: "900" },
-  emptyText: { marginTop: 8, color: COLORS.sub, fontSize: 12.5 },
-
   chipsRow: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     backgroundColor: COLORS.chipBg,
@@ -1658,34 +2104,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(124,77,255,0.22)",
   },
   detailsHintText: { color: COLORS.sub, fontWeight: "900", fontSize: 12 },
-
-  field: { marginTop: 12 },
-  label: { color: COLORS.sub, fontSize: 12.5, fontWeight: "900", marginBottom: 8 },
-  labelIcon: { fontSize: 12.5 },
-
-  inputShell: {
-    backgroundColor: COLORS.inputBg,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-  },
-  inputShellFocused: { borderColor: "rgba(124,77,255,0.35)" },
-  inputShellDisabled: { backgroundColor: "rgba(255,255,255,0.75)" },
-  inputShellBlurred: {
-    backgroundColor: "rgba(234,234,242,0.80)",
-    borderColor: "rgba(239,239,241,0.9)",
-  },
-  inputShellError: { borderColor: "rgba(220,38,38,0.45)" },
-  inputShellMultiline: { paddingVertical: 4 },
-
-  input: { paddingVertical: 11, color: COLORS.text, fontSize: 15.5 },
-  inputMultiline: { minHeight: 88, textAlignVertical: "top" },
-  inputBlurredText: { opacity: 0.55, letterSpacing: 0.4 },
-  inputDisabledText: { color: COLORS.text },
-
-  helper: { marginTop: 6, color: COLORS.muted, fontSize: 12 },
-  errorText: { marginTop: 6, color: COLORS.danger, fontSize: 12, fontWeight: "900" },
 
   rowBtn: {
     marginTop: 10,

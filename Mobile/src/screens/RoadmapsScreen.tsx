@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,10 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useCareersWithSkills } from "../features/careers";
+import { useMatchedCareers } from "../features/careers/useMatchedCareers";
 import type { CareerWithSkills } from "../features/careers";
+import { useCvAnalysis } from "../features/cv/hooks";
+import { getQuizQuestionsWithAnswers } from "../features/quiz/storage";
 import { homeColors } from "./homeTheme";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -34,13 +37,32 @@ const IMPORTANCE_COLORS: Record<string, string> = {
 
 export default function RoadmapsScreen(): React.ReactElement {
   const { data: careers, isLoading, error } = useCareersWithSkills();
+  const { data: matchedCareers, isLoading: matchedLoading } = useMatchedCareers();
+  const { data: cvAnalysis, isLoading: cvLoading } = useCvAnalysis();
   const [expandedCareer, setExpandedCareer] = useState<string | null>(null);
+  const [hasQuizData, setHasQuizData] = useState(false);
+  const [checkingRequirements, setCheckingRequirements] = useState(true);
+
+  // Check if all requirements are met
+  useEffect(() => {
+    checkRequirements();
+  }, [cvAnalysis]);
+
+  const checkRequirements = async () => {
+    setCheckingRequirements(true);
+    const quizData = await getQuizQuestionsWithAnswers();
+    setHasQuizData(quizData && quizData.length > 0);
+    setCheckingRequirements(false);
+  };
+
+  const hasCvAnalysis = cvAnalysis && cvAnalysis.id;
+  const allRequirementsMet = hasCvAnalysis && hasQuizData;
 
   const toggleCareer = (careerId: string) => {
     setExpandedCareer(expandedCareer === careerId ? null : careerId);
   };
 
-  if (isLoading) {
+  if (isLoading || matchedLoading) {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={homeColors.primary} />
@@ -87,6 +109,62 @@ export default function RoadmapsScreen(): React.ReactElement {
           </Text>
         </View>
 
+        {/* Requirements Check Message */}
+        {!checkingRequirements && !allRequirementsMet && (
+          <View style={styles.requirementsCard}>
+            <View style={styles.requirementsHeader}>
+              <Ionicons name="information-circle-outline" size={24} color={homeColors.primary} />
+              <Text style={styles.requirementsTitle}>Complete to See Your Top Matches</Text>
+            </View>
+            <View style={styles.requirementsList}>
+              <RequirementItem
+                icon="help-circle-outline"
+                label="Take the Career Quiz"
+                completed={hasQuizData}
+              />
+              <RequirementItem
+                icon="document-outline"
+                label="Upload & Analyze Your CV"
+                completed={!!hasCvAnalysis}
+              />
+            </View>
+            <Text style={styles.requirementsMessage}>
+              Once you complete both steps, we'll show you your personalized top 5 career matches based on AI analysis.
+            </Text>
+          </View>
+        )}
+
+        {/* Matched Careers Section */}
+        {allRequirementsMet && matchedCareers && matchedCareers.length > 0 && (
+          <View style={styles.matchedSection}>
+            <View style={styles.matchedHeader}>
+              <Ionicons name="star" size={20} color={homeColors.primary} />
+              <Text style={styles.matchedTitle}>Top Matches For You</Text>
+            </View>
+            <Text style={styles.matchedSubtitle}>
+              Based on your quiz and CV analysis
+            </Text>
+            <View style={styles.matchedCareers}>
+              {matchedCareers.map((match) => (
+                <MatchedCareerCard
+                  key={match.career.id}
+                  match={match}
+                  isExpanded={expandedCareer === match.career.id}
+                  onToggle={() => toggleCareer(match.career.id)}
+                />
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Careers List Header */}
+        <View style={[styles.header, matchedCareers?.length > 0 && { marginTop: 16 }]}>
+          <Text style={styles.title}>All Career Roadmaps</Text>
+          <Text style={styles.subtitle}>
+            Explore {careers.length} career paths with required skills
+          </Text>
+        </View>
+
         {/* Careers List */}
         <View style={styles.careersList}>
           {careers.map((career) => (
@@ -99,6 +177,86 @@ export default function RoadmapsScreen(): React.ReactElement {
           ))}
         </View>
       </ScrollView>
+    </View>
+  );
+}
+
+interface MatchedCareerCardProps {
+  match: any;
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+function MatchedCareerCard({ match, isExpanded, onToggle }: MatchedCareerCardProps) {
+  const career = match.career;
+  const categoryColor = CATEGORY_COLORS[career.category] || homeColors.textMuted;
+
+  return (
+    <View style={styles.matchedCareerCard}>
+      <Pressable
+        style={({ pressed }) => [styles.matchedCareerHeader, pressed && styles.pressed]}
+        onPress={onToggle}
+      >
+        <View style={styles.matchedCareerContent}>
+          <View style={styles.matchedCareerTitleRow}>
+            <Text style={styles.matchedCareerTitle}>{career.title}</Text>
+            <View style={[styles.scoreBadge, { backgroundColor: getScoreColor(match.score) + "20" }]}>
+              <Text style={[styles.scoreBadgeText, { color: getScoreColor(match.score) }]}>
+                {match.score}% match
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.matchedCareerDescription} numberOfLines={isExpanded ? undefined : 2}>
+            {career.description}
+          </Text>
+          {match.matchReasons.length > 0 && (
+            <View style={styles.reasonsWrap}>
+              {match.matchReasons.map((reason: string, idx: number) => (
+                <Text key={idx} style={styles.reasonText}>
+                  • {reason}
+                </Text>
+              ))}
+            </View>
+          )}
+        </View>
+        <Ionicons
+          name={isExpanded ? "chevron-up" : "chevron-down"}
+          size={20}
+          color={homeColors.textMuted}
+        />
+      </Pressable>
+    </View>
+  );
+}
+
+function getScoreColor(score: number): string {
+  if (score >= 80) return "#10B981";
+  if (score >= 60) return "#F59E0B";
+  return "#EF4444";
+}
+
+interface RequirementItemProps {
+  icon: string;
+  label: string;
+  completed: boolean;
+}
+
+function RequirementItem({ icon, label, completed }: RequirementItemProps) {
+  return (
+    <View style={styles.requirementItem}>
+      <View style={styles.requirementIcon}>
+        <Ionicons
+          name={icon as any}
+          size={18}
+          color={completed ? homeColors.accentGreen : homeColors.textMuted}
+        />
+      </View>
+      <Text style={[styles.requirementLabel, !completed && { color: homeColors.textMuted }]}>
+        {label}
+      </Text>
+      {completed && (
+        <Ionicons name="checkmark-circle" size={20} color={homeColors.accentGreen} />
+      )}
     </View>
   );
 }
@@ -435,6 +593,140 @@ const styles = StyleSheet.create({
   legendText: {
     fontSize: 12,
     color: homeColors.textMuted,
+  },
+
+  // Matched Careers Section
+  matchedSection: {
+    marginBottom: 24,
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: homeColors.primary + "30",
+    padding: 16,
+    gap: 12,
+  },
+  matchedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  matchedTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: homeColors.textDark,
+  },
+  matchedSubtitle: {
+    fontSize: 13,
+    color: homeColors.textMuted,
+    marginBottom: 4,
+  },
+  matchedCareers: {
+    gap: 10,
+  },
+  matchedCareerCard: {
+    backgroundColor: homeColors.backgroundStart,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    overflow: "hidden",
+  },
+  matchedCareerHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 12,
+    gap: 10,
+  },
+  matchedCareerContent: {
+    flex: 1,
+    gap: 8,
+  },
+  matchedCareerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  matchedCareerTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "700",
+    color: homeColors.textDark,
+  },
+  scoreBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+  },
+  scoreBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  matchedCareerDescription: {
+    fontSize: 13,
+    color: homeColors.textMuted,
+    lineHeight: 18,
+  },
+  reasonsWrap: {
+    gap: 4,
+    marginTop: 4,
+  },
+  reasonText: {
+    fontSize: 12,
+    color: homeColors.primary,
+    fontWeight: "500",
+  },
+
+  // Requirements Check Card
+  requirementsCard: {
+    marginBottom: 24,
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: homeColors.primary + "30",
+    padding: 16,
+    gap: 12,
+  },
+  requirementsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  requirementsTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: homeColors.textDark,
+    flex: 1,
+  },
+  requirementsList: {
+    gap: 10,
+    paddingVertical: 8,
+  },
+  requirementItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 4,
+  },
+  requirementIcon: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  requirementLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: homeColors.textDark,
+    flex: 1,
+  },
+  requirementsMessage: {
+    fontSize: 13,
+    color: homeColors.textMuted,
+    lineHeight: 18,
+    fontStyle: "italic",
+    paddingTop: 4,
   },
 
   // No Skills

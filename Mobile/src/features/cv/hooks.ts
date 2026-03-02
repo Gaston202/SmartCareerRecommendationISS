@@ -6,6 +6,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../../api/supabase";
 import type { UserSkill, CvAnalysis, CvUpload, SkillsUpdatePayload } from "./types";
+import { getCachedExtractedFields } from "./cv-analysis.service";
 
 // Query keys
 export const cvQueryKeys = {
@@ -148,7 +149,35 @@ export function useCvAnalysis() {
         .single();
 
       if (error && error.code !== "PGRST116") throw error;
-      return (data as CvAnalysis) || null;
+
+      const analysis = (data as CvAnalysis) || null;
+      if (!analysis) return null;
+
+      const cachedExtracted = await getCachedExtractedFields(latestUpload.id);
+      if (!cachedExtracted) return analysis;
+
+      const hasSkills =
+        (analysis.extracted_skills && analysis.extracted_skills.length > 0) ||
+        (analysis.skills_extracted && analysis.skills_extracted.length > 0) ||
+        (analysis.skills && analysis.skills.length > 0);
+      const hasInterests =
+        (analysis.extracted_interests && analysis.extracted_interests.length > 0) ||
+        (analysis.interests_extracted && analysis.interests_extracted.length > 0) ||
+        (analysis.interests && analysis.interests.length > 0);
+
+      if (hasSkills && hasInterests) {
+        return analysis;
+      }
+
+      return {
+        ...analysis,
+        extracted_skills: hasSkills
+          ? analysis.extracted_skills
+          : cachedExtracted.extracted_skills,
+        extracted_interests: hasInterests
+          ? analysis.extracted_interests
+          : cachedExtracted.extracted_interests,
+      };
     },
     enabled: !!latestUpload,
     // ⭐ Client-side analysis is now synchronous, so normal caching works
@@ -229,17 +258,44 @@ export function useDeleteCv() {
 
       if (!userId) throw new Error("Not logged in");
 
-      // 1. Delete file from storage
-      const { error: storageError } = await supabase.storage
-        .from("cvs_debug")
-        .remove([cvUpload.storage_path]);
+      // 1. Get cv_analysis records associated with this CV
+      const { data: cvAnalyses, error: analysisQueryError } = await supabase
+        .from("cv_analysis")
+        .select("id")
+        .eq("cv_upload_id", cvUpload.id)
+        .eq("user_id", userId);
 
-      if (storageError) {
-        console.warn("Storage delete warning:", storageError);
-        // Continue anyway - file might not exist
+      if (analysisQueryError) {
+        console.warn("Error querying cv_analysis:", analysisQueryError);
       }
 
-      // 2. Delete CV record (will cascade delete cv_analysis due to FK)
+      // 2. Delete career_match_results that reference these cv_analysis records
+      if (cvAnalyses && cvAnalyses.length > 0) {
+        const analysisIds = cvAnalyses.map((a) => a.id);
+        const { error: matchResultsError } = await supabase
+          .from("career_match_results")
+          .delete()
+          .in("cv_analysis_id", analysisIds);
+
+        if (matchResultsError) {
+          console.warn("Error deleting career_match_results:", matchResultsError);
+          // Continue anyway to try cleaning up other records
+        }
+      }
+
+      // 3. Delete cv_analysis records
+      const { error: analysisError } = await supabase
+        .from("cv_analysis")
+        .delete()
+        .eq("cv_upload_id", cvUpload.id)
+        .eq("user_id", userId);
+
+      if (analysisError) {
+        console.warn("Error deleting cv_analysis:", analysisError);
+        // Continue to try deleting the CV record
+      }
+
+      // 4. Delete CV record
       const { error: dbError } = await supabase
         .from("cvs")
         .delete()
@@ -247,6 +303,16 @@ export function useDeleteCv() {
         .eq("user_id", userId);
 
       if (dbError) throw dbError;
+
+      // 5. Delete file from storage (do this last so if DB fails, file remains)
+      const { error: storageError } = await supabase.storage
+        .from("cvs_debug")
+        .remove([cvUpload.storage_path]);
+
+      if (storageError) {
+        console.warn("Storage delete warning:", storageError);
+        // This is non-critical - file might not exist
+      }
 
       return { success: true };
     },

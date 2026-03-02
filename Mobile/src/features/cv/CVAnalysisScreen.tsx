@@ -27,14 +27,34 @@ type RawImprovement = {
   example?: string;
 };
 
-type RawCareer = {
-  title?: string;
-  why?: string;
-  reasoning?: string;
-  match_score?: number;
-  missing_skills?: string[];
-  learning_plan?: string[];
-};
+function normalizeListValue(value: unknown): string[] {
+  if (!value) return [];
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          const maybeNamed = item as { name?: unknown; title?: unknown; value?: unknown };
+          if (typeof maybeNamed.name === "string") return maybeNamed.name;
+          if (typeof maybeNamed.title === "string") return maybeNamed.title;
+          if (typeof maybeNamed.value === "string") return maybeNamed.value;
+        }
+        return "";
+      })
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
 
 function getSeverityColor(severity: string) {
   if (severity === "critical" || severity === "high") return "#DC2626";
@@ -59,20 +79,10 @@ function getIssueDescription(issue: RawIssue): string {
   return issue.fix?.trim() || issue.description?.trim() || "No additional details provided.";
 }
 
-function getCareerReason(career: RawCareer): string {
-  return career.why?.trim() || career.reasoning?.trim() || "This path aligns with your profile.";
-}
-
 function getScoreLabel(score: number): string {
   if (score >= 80) return "Excellent";
   if (score >= 60) return "Good";
   return "Needs improvement";
-}
-
-function getScoreColor(score: number): string {
-  if (score >= 80) return "#059669";
-  if (score >= 60) return "#D97706";
-  return "#DC2626";
 }
 
 export function CVAnalysisScreen() {
@@ -119,7 +129,12 @@ export function CVAnalysisScreen() {
 
   const issues = (analysis.ats_issues ?? []) as RawIssue[];
   const improvements = (analysis.suggested_improvements ?? []) as RawImprovement[];
-  const careers = (analysis.career_suggestions ?? []) as RawCareer[];
+  const extractedSkills = normalizeListValue(
+    analysis.extracted_skills ?? analysis.skills_extracted ?? analysis.skills
+  );
+  const extractedInterests = normalizeListValue(
+    analysis.extracted_interests ?? analysis.interests_extracted ?? analysis.interests
+  );
 
   return (
     <View style={styles.container}>
@@ -171,12 +186,6 @@ export function CVAnalysisScreen() {
             value={String(improvements.length)}
             color={homeColors.primary}
           />
-          <StatCard
-            icon="briefcase-outline"
-            label="Careers"
-            value={String(careers.length)}
-            color={homeColors.accentTeal}
-          />
         </View>
 
         <Section title="ATS Issues" icon="warning-outline">
@@ -222,13 +231,47 @@ export function CVAnalysisScreen() {
           )}
         </Section>
 
-        <Section title="Suggested Career Paths" icon="compass-outline">
-          {careers.length === 0 ? (
-            <EmptyState text="No career recommendations returned yet." />
+        <Section title="Extracted Skills & Interests" icon="albums-outline">
+          {extractedSkills.length === 0 && extractedInterests.length === 0 ? (
+            <EmptyState text="No extracted skills or interests found in this analysis." />
           ) : (
-            careers.map((career, idx) => (
-              <CareerCard key={`${career.title || "career"}-${idx}`} career={career} />
-            ))
+            <View style={styles.extractedGrid}>
+              <View style={styles.extractedCard}>
+                <View style={styles.extractedHeaderRow}>
+                  <Ionicons name="flash-outline" size={16} color={homeColors.primary} />
+                  <Text style={styles.extractedTitle}>Skills</Text>
+                </View>
+                {extractedSkills.length === 0 ? (
+                  <Text style={styles.extractedEmptyText}>No skills extracted.</Text>
+                ) : (
+                  <View style={styles.tagWrap}>
+                    {extractedSkills.map((skill, idx) => (
+                      <View key={`extracted-skill-${idx}`} style={styles.tagChip}>
+                        <Text style={styles.tagChipText}>{skill}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.extractedCard}>
+                <View style={styles.extractedHeaderRow}>
+                  <Ionicons name="heart-outline" size={16} color={homeColors.accentTeal} />
+                  <Text style={styles.extractedTitle}>Interests</Text>
+                </View>
+                {extractedInterests.length === 0 ? (
+                  <Text style={styles.extractedEmptyText}>No interests extracted.</Text>
+                ) : (
+                  <View style={styles.tagWrap}>
+                    {extractedInterests.map((interest, idx) => (
+                      <View key={`extracted-interest-${idx}`} style={styles.tagChip}>
+                        <Text style={styles.tagChipText}>{interest}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </View>
           )}
         </Section>
       </ScrollView>
@@ -274,55 +317,7 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function CareerCard({ career }: { career: RawCareer }) {
-  const [expanded, setExpanded] = React.useState(false);
-  const match = typeof career.match_score === "number" ? Math.max(0, Math.min(100, career.match_score)) : null;
-  const reason = getCareerReason(career);
 
-  return (
-    <Pressable onPress={() => setExpanded((prev) => !prev)} style={styles.itemCard}>
-      <View style={styles.itemHeaderRow}>
-        <Text style={styles.itemTitle}>{career.title || "Career Recommendation"}</Text>
-        <View style={styles.careerRightWrap}>
-          {match !== null && (
-            <View style={[styles.badge, { backgroundColor: `${getScoreColor(match)}22`, borderColor: `${getScoreColor(match)}55` }]}>
-              <Text style={[styles.badgeText, { color: getScoreColor(match) }]}>{match}% Match</Text>
-            </View>
-          )}
-          <Ionicons
-            name={expanded ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={homeColors.textMuted}
-          />
-        </View>
-      </View>
-
-      <Text style={styles.itemDescription}>{reason}</Text>
-
-      {expanded && (
-        <View style={styles.expandedWrap}>
-          {!!career.missing_skills?.length && (
-            <View style={styles.expandedBlock}>
-              <Text style={styles.expandedTitle}>Missing skills</Text>
-              {career.missing_skills.map((skill, idx) => (
-                <Text key={`missing-skill-${idx}`} style={styles.expandedItem}>• {skill}</Text>
-              ))}
-            </View>
-          )}
-
-          {!!career.learning_plan?.length && (
-            <View style={styles.expandedBlock}>
-              <Text style={styles.expandedTitle}>Learning plan</Text>
-              {career.learning_plan.map((step, idx) => (
-                <Text key={`learning-step-${idx}`} style={styles.expandedItem}>• {step}</Text>
-              ))}
-            </View>
-          )}
-        </View>
-      )}
-    </Pressable>
-  );
-}
 
 const styles = StyleSheet.create({
   container: {
@@ -565,29 +560,47 @@ const styles = StyleSheet.create({
     color: homeColors.textMuted,
     fontSize: 14,
   },
-  careerRightWrap: {
+  extractedGrid: {
+    gap: 10,
+  },
+  extractedCard: {
+    backgroundColor: homeColors.cardBg,
+    borderColor: homeColors.cardBorder,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    gap: 10,
+  },
+  extractedHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  expandedWrap: {
-    marginTop: 2,
-    gap: 8,
-  },
-  expandedBlock: {
-    backgroundColor: homeColors.backgroundMuted,
-    borderRadius: 10,
-    padding: 10,
-    gap: 4,
-  },
-  expandedTitle: {
-    fontSize: 12,
+  extractedTitle: {
+    fontSize: 15,
     fontWeight: "700",
     color: homeColors.textDark,
   },
-  expandedItem: {
+  extractedEmptyText: {
     fontSize: 13,
     color: homeColors.textMuted,
-    lineHeight: 18,
+  },
+  tagWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  tagChip: {
+    borderRadius: 999,
+    backgroundColor: homeColors.backgroundMuted,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  tagChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: homeColors.textDark,
   },
 });

@@ -16,6 +16,13 @@ export interface QuizQuestion {
   options: QuizOption[];
 }
 
+export interface QuestionWithAnswer {
+  questionNumber: number;
+  question: string;
+  selectedOption: string;
+  allOptions: string[];
+}
+
 export interface CareerRecommendation {
   title: string;
   description: string;
@@ -26,6 +33,12 @@ export interface CareerRecommendation {
 export interface QuizResults {
   type: 'results';
   careers: CareerRecommendation[];
+}
+
+export interface QuizSession {
+  questionsWithAnswers: QuestionWithAnswer[];
+  results: QuizResults;
+  completedAt: string;
 }
 
 export type QuizNextResponse = QuizQuestion | QuizResults;
