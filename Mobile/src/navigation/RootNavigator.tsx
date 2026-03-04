@@ -15,6 +15,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import HomeScreen from '../screens/HomeScreen';
 import RoadmapsScreen from '../screens/RoadmapsScreen';
 import QuizScreen from '../screens/QuizScreen';
+import CareerRoadmapScreen from '../screens/CareerRoadmapScreen';
 import { SkillsReviewScreen, CVAnalysisScreen } from '../features/cv';
 import { MentorsListScreen } from '../screens/mentors/MentorsListScreen';
 import { MentorDetailScreen } from '../screens/mentors/MentorDetailScreen';
@@ -33,6 +34,13 @@ type HomeStackParamList = {
   Quiz: undefined;
   SkillsReview: undefined;
   CVAnalysis: undefined;
+  CareerRoadmap: {
+    roadmapId?: string;
+    careerTitle: string;
+    careerDescription: string;
+    matchPercent?: number;
+    tags?: string[];
+  };
 };
 
 type MentorsStackParamList = {
@@ -58,6 +66,7 @@ function HomeStackNavigator(): React.ReactElement {
       <HomeStack.Screen name="Quiz" component={QuizScreen} />
       <HomeStack.Screen name="SkillsReview" component={SkillsReviewScreen} />
       <HomeStack.Screen name="CVAnalysis" component={CVAnalysisScreen} />
+      <HomeStack.Screen name="CareerRoadmap" component={CareerRoadmapScreen} />
     </HomeStack.Navigator>
   );
 }

@@ -18,6 +18,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../../auth/AuthProvider';
 import { authColors } from './authTheme';
+import * as DocumentPicker from 'expo-document-picker';
+import { supabase } from '../../api/supabase';
 
 type AuthStackParamList = {
   Welcome: undefined;
@@ -42,6 +44,10 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
   const { signUp, state } = useAuth();
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [isMentor, setIsMentor] = useState(false);
+  const [mentorSpecialty, setMentorSpecialty] = useState('');
+  const [mentorCompany, setMentorCompany] = useState('');
+  const [mentorCvPath, setMentorCvPath] = useState<string | null>(null);
 
   const float1 = useRef(new Animated.Value(0)).current;
   const float2 = useRef(new Animated.Value(0)).current;
@@ -84,6 +90,10 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
       await signUp(data.email.trim(), data.password, {
         fullName: data.fullName?.trim(),
         phone: data.phone?.trim() || undefined,
+        role: isMentor ? 'mentor' : 'user',
+        mentorSpecialty: isMentor ? mentorSpecialty.trim() || undefined : undefined,
+        mentorCompany: isMentor ? mentorCompany.trim() || undefined : undefined,
+        mentorCvUrl: isMentor ? mentorCvPath || undefined : undefined,
       });
       navigation.navigate('Login');
     } catch (error: unknown) {
@@ -119,7 +129,47 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
             <Text style={styles.title}>Create your account</Text>
             <Text style={styles.subtitle}>Start your career journey today</Text>
 
-            {/* Upload placeholder - non-functional for now */}
+            {/* Role toggle */}
+            <View style={styles.roleToggleRow}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.roleToggleBtn,
+                  !isMentor && styles.roleToggleBtnActive,
+                  pressed && styles.roleTogglePressed,
+                ]}
+                onPress={() => setIsMentor(false)}
+                disabled={busy}
+              >
+                <Text
+                  style={[
+                    styles.roleToggleText,
+                    !isMentor && styles.roleToggleTextActive,
+                  ]}
+                >
+                  Student
+                </Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.roleToggleBtn,
+                  isMentor && styles.roleToggleBtnActive,
+                  pressed && styles.roleTogglePressed,
+                ]}
+                onPress={() => setIsMentor(true)}
+                disabled={busy}
+              >
+                <Text
+                  style={[
+                    styles.roleToggleText,
+                    isMentor && styles.roleToggleTextActive,
+                  ]}
+                >
+                  Mentor
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Upload placeholder - can be used for avatar later */}
             <Pressable style={styles.uploadArea}>
               <Ionicons name="camera-outline" size={28} color={authColors.textMuted} />
               <Text style={styles.uploadText}>Upload</Text>
@@ -235,6 +285,98 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
               ) : null}
             </View>
 
+            {/* Mentor-only fields */}
+            {isMentor && (
+              <>
+                <View style={styles.fieldWrap}>
+                  <Text style={styles.label}>Speciality</Text>
+                  <View style={styles.inputWrap}>
+                    <Ionicons
+                      name="briefcase-outline"
+                      size={20}
+                      color={authColors.textMuted}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. AI/Machine Learning"
+                      placeholderTextColor={authColors.textMuted}
+                      value={mentorSpecialty}
+                      onChangeText={setMentorSpecialty}
+                      editable={!busy}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.fieldWrap}>
+                  <Text style={styles.label}>Where do you work currently?</Text>
+                  <View style={styles.inputWrap}>
+                    <Ionicons
+                      name="business-outline"
+                      size={20}
+                      color={authColors.textMuted}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Company or organization"
+                      placeholderTextColor={authColors.textMuted}
+                      value={mentorCompany}
+                      onChangeText={setMentorCompany}
+                      editable={!busy}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.fieldWrap}>
+                  <Text style={styles.label}>Attach your CV (PDF)</Text>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.inputWrap,
+                      styles.cvUploadRow,
+                      pressed && styles.buttonPressed,
+                    ]}
+                    disabled={busy}
+                    onPress={async () => {
+                      try {
+                        const result = await DocumentPicker.getDocumentAsync({
+                          type: 'application/pdf',
+                          multiple: false,
+                          copyToCacheDirectory: true,
+                        });
+                        if (result.canceled) return;
+                        const file = result.assets[0];
+                        const path = `mentor-cvs/${Date.now()}-${file.name}`;
+                        const { error } = await supabase.storage
+                          .from('mentor_cvs')
+                          .upload(path, {
+                            uri: file.uri,
+                            name: file.name,
+                            type: file.mimeType || 'application/pdf',
+                          } as any);
+                        if (error) {
+                          console.warn('[SignupScreen] CV upload failed', error);
+                          return;
+                        }
+                        setMentorCvPath(path);
+                      } catch (err) {
+                        console.warn('[SignupScreen] CV pick error', err);
+                      }
+                    }}
+                  >
+                    <Text style={styles.cvUploadText}>
+                      {mentorCvPath ? 'CV attached' : 'Tap to upload CV'}
+                    </Text>
+                    <Ionicons
+                      name="cloud-upload-outline"
+                      size={20}
+                      color={authColors.textMuted}
+                    />
+                  </Pressable>
+                </View>
+              </>
+            )}
+
             <Pressable
               onPress={handleSubmit(onSubmit)}
               disabled={busy}
@@ -341,6 +483,33 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
+  roleToggleRow: {
+    flexDirection: 'row',
+    borderRadius: 999,
+    backgroundColor: '#ffffff40',
+    padding: 2,
+    marginBottom: 20,
+  },
+  roleToggleBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 999,
+    alignItems: 'center',
+  },
+  roleToggleBtnActive: {
+    backgroundColor: '#fff',
+  },
+  roleTogglePressed: {
+    opacity: 0.9,
+  },
+  roleToggleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: authColors.textDark,
+  },
+  roleToggleTextActive: {
+    color: authColors.primary,
+  },
   uploadArea: {
     alignSelf: 'center',
     width: 88,
@@ -410,5 +579,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
     paddingHorizontal: 8,
+  },
+  cvUploadRow: {
+    justifyContent: 'space-between',
+  },
+  cvUploadText: {
+    flex: 1,
+    fontSize: 14,
+    color: authColors.textMuted,
+    marginRight: 8,
   },
 });

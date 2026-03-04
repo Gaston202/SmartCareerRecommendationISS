@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../api/supabase';
-import type { AuthContextValue, AuthSession, AuthState, AuthUser } from './authTypes';
+import type {
+  AuthContextValue,
+  AuthSession,
+  AuthState,
+  AuthUser,
+  SignUpMetadata,
+} from './authTypes';
 
 // Auth is connected to Supabase: signIn/signUp/signOut use supabase.auth.
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -90,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           );
         }
       },
-      signUp: async (email, password, metadata) => {
+      signUp: async (email, password, metadata?: SignUpMetadata) => {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
@@ -101,14 +107,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error) throw new Error(error.message);
         // Insert into public.users to match your database schema (id, email, name, role, status, phone)
         if (data.user) {
+          const role = metadata?.role ?? 'user';
+
           await supabase.from('users').insert({
             id: data.user.id,
             email: data.user.email ?? email,
             name: metadata?.fullName ?? null,
-            role: 'user',
+            role,
             status: 'active',
             phone: metadata?.phone ?? null,
           });
+
+          if (role === 'mentor') {
+            const mentorInsert = {
+              user_id: data.user.id,
+              name: metadata?.fullName ?? (data.user.email ?? email),
+              email: data.user.email ?? email,
+              company: metadata?.mentorCompany ?? null,
+              role: metadata?.mentorSpecialty ?? null,
+              cv_url: metadata?.mentorCvUrl ?? null,
+            };
+
+            const { error: mentorError } = await supabase.from('mentors').insert(mentorInsert);
+            if (mentorError) {
+              console.warn('[AuthProvider] Failed to create mentor profile', mentorError);
+            }
+          }
         }
       },
       signOut: async () => {

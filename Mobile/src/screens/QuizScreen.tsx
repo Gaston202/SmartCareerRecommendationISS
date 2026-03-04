@@ -30,6 +30,13 @@ type HomeStackParamList = {
   Quiz: undefined;
   SkillsReview: undefined;
   CVAnalysis: undefined;
+  CareerRoadmap: {
+    roadmapId?: string;
+    careerTitle: string;
+    careerDescription: string;
+    matchPercent?: number;
+    tags?: string[];
+  };
 };
 
 type QuizScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'Quiz'>;
@@ -297,7 +304,18 @@ export default function QuizScreen(): React.ReactElement {
           {isResults && results && (
             <View style={styles.resultsBlock}>
               {results.careers.map((career, i) => (
-                <CareerCard key={i} career={career} />
+                <CareerCard
+                  key={i}
+                  career={career}
+                  onGenerateRoadmap={() =>
+                    navigation.navigate("CareerRoadmap", {
+                      careerTitle: career.title,
+                      careerDescription: career.description,
+                      matchPercent: career.matchPercent,
+                      tags: career.tags,
+                    })
+                  }
+                />
               ))}
             </View>
           )}
@@ -357,13 +375,24 @@ export default function QuizScreen(): React.ReactElement {
   );
 }
 
-function CareerCard({ career }: { career: CareerRecommendation }) {
+function CareerCard({
+  career,
+  onGenerateRoadmap,
+}: {
+  career: CareerRecommendation;
+  onGenerateRoadmap: () => void;
+}) {
   const isHigh = career.matchPercent >= 88;
   return (
     <View style={styles.careerCard}>
       <View style={styles.careerCardHeader}>
         <Text style={styles.careerTitle}>{career.title}</Text>
-        <View style={[styles.matchPill, isHigh ? styles.matchPillGreen : styles.matchPillOrange]}>
+        <View
+          style={[
+            styles.matchPill,
+            isHigh ? styles.matchPillGreen : styles.matchPillOrange,
+          ]}
+        >
           <Text style={styles.matchPillText}>{career.matchPercent}% match</Text>
         </View>
       </View>
@@ -375,6 +404,13 @@ function CareerCard({ career }: { career: CareerRecommendation }) {
           </View>
         ))}
       </View>
+      <Pressable
+        style={({ pressed }) => [styles.roadmapBtn, pressed && styles.pressed]}
+        onPress={onGenerateRoadmap}
+      >
+        <Ionicons name="map" size={16} color="#fff" />
+        <Text style={styles.roadmapBtnText}>Generate roadmap</Text>
+      </Pressable>
     </View>
   );
 }
@@ -674,5 +710,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: homeColors.primary,
+  },
+  roadmapBtn: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: homeColors.primary,
+  },
+  roadmapBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#fff",
   },
 });

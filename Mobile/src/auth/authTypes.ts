@@ -25,6 +25,10 @@ export interface AuthState {
 export interface SignUpMetadata {
   fullName?: string;
   phone?: string;
+  role?: 'user' | 'mentor';
+  mentorSpecialty?: string;
+  mentorCompany?: string;
+  mentorCvUrl?: string;
 }
 
 export interface AuthContextValue {

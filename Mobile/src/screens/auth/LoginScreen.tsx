@@ -401,6 +401,7 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [fpOpen, setFpOpen] = useState(false);
+  const [isMentorLogin, setIsMentorLogin] = useState(false);
 
   // Floating animation values for background shapes
   const float1 = useRef(new Animated.Value(0)).current;
@@ -585,6 +586,20 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
                 <Ionicons name="arrow-forward" size={20} color="#fff" />
               </LinearGradient>
             </Pressable>
+
+            <View style={styles.roleHintRow}>
+              <Pressable
+                disabled={busy}
+                onPress={() => setIsMentorLogin((v) => !v)}
+                hitSlop={8}
+              >
+                <Text style={styles.roleHintText}>
+                  {isMentorLogin
+                    ? 'Logging in as Mentor (based on your account role)'
+                    : 'Are you a mentor? Tap here to switch focus.'}
+                </Text>
+              </Pressable>
+            </View>
 
             <View style={styles.orRow}>
               <View style={styles.orLine} />
@@ -779,4 +794,13 @@ const styles = StyleSheet.create({
   signupPrompt: { fontSize: 14, color: colors.textDark },
   signupLink: { fontSize: 14, color: colors.link, fontWeight: '600' },
   terms: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: 20, paddingHorizontal: 8 },
+  roleHintRow: {
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  roleHintText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
 });

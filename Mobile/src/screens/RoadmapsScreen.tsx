@@ -8,12 +8,16 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCareersWithSkills } from "../features/careers";
 import { useMatchedCareers } from "../features/careers/useMatchedCareers";
 import type { CareerWithSkills } from "../features/careers";
 import { useCvAnalysis } from "../features/cv/hooks";
 import { getQuizQuestionsWithAnswers } from "../features/quiz/storage";
 import { homeColors } from "./homeTheme";
+import { getSavedRoadmaps } from "../features/roadmaps/storage";
+import type { SavedRoadmap } from "../features/roadmaps/types";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Technology: homeColors.primary,
@@ -36,17 +40,41 @@ const IMPORTANCE_COLORS: Record<string, string> = {
 };
 
 export default function RoadmapsScreen(): React.ReactElement {
+  const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const { data: careers, isLoading, error } = useCareersWithSkills();
   const { data: matchedCareers, isLoading: matchedLoading } = useMatchedCareers();
   const { data: cvAnalysis, isLoading: cvLoading } = useCvAnalysis();
   const [expandedCareer, setExpandedCareer] = useState<string | null>(null);
   const [hasQuizData, setHasQuizData] = useState(false);
   const [checkingRequirements, setCheckingRequirements] = useState(true);
+  const [savedRoadmaps, setSavedRoadmaps] = useState<SavedRoadmap[]>([]);
 
   // Check if all requirements are met
   useEffect(() => {
     checkRequirements();
   }, [cvAnalysis]);
+
+  // Reload saved roadmaps whenever this screen gains focus
+  useFocusEffect(
+    React.useCallback(() => {
+      let isActive = true;
+      (async () => {
+        const roadmaps = await getSavedRoadmaps();
+        if (!isActive) return;
+        // Newest first
+        setSavedRoadmaps(
+          [...roadmaps].sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          ),
+        );
+      })();
+      return () => {
+        isActive = false;
+      };
+    }, []),
+  );
 
   const checkRequirements = async () => {
     setCheckingRequirements(true);
@@ -95,7 +123,7 @@ export default function RoadmapsScreen(): React.ReactElement {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -134,6 +162,94 @@ export default function RoadmapsScreen(): React.ReactElement {
           </View>
         )}
 
+        {/* Saved roadmaps for this user (before Top Matches section) */}
+        {savedRoadmaps.length > 0 && (
+          <View style={styles.savedSection}>
+            <View style={styles.savedHeader}>
+              <Ionicons name="bookmark" size={20} color={homeColors.primary} />
+              <Text style={styles.savedTitle}>Your saved roadmaps</Text>
+            </View>
+            <Text style={styles.savedSubtitle}>
+              Revisit AI-generated roadmaps from your quiz results.
+            </Text>
+            <View style={styles.savedList}>
+              {savedRoadmaps.map((roadmap) => {
+                const isHigh =
+                  typeof roadmap.matchPercent === "number" &&
+                  roadmap.matchPercent >= 88;
+                return (
+                  <View key={roadmap.id} style={styles.savedCard}>
+                    <View style={styles.savedCardHeader}>
+                      <Text style={styles.savedCardTitle}>
+                        {roadmap.careerTitle}
+                      </Text>
+                      {typeof roadmap.matchPercent === "number" && (
+                        <View
+                          style={[
+                            styles.savedMatchPill,
+                            isHigh
+                              ? styles.savedMatchPillGreen
+                              : styles.savedMatchPillOrange,
+                          ]}
+                        >
+                          <Text style={styles.savedMatchText}>
+                            {roadmap.matchPercent}% match
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.savedCardDesc} numberOfLines={2}>
+                      {roadmap.careerDescription}
+                    </Text>
+                    {roadmap.tags && roadmap.tags.length > 0 && (
+                      <View style={styles.savedTagsRow}>
+                        {roadmap.tags.map((tag) => (
+                          <View key={tag} style={styles.savedTagChip}>
+                            <Text style={styles.savedTagText}>{tag}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    <View style={styles.savedMetaRow}>
+                      <View style={styles.savedMetaItem}>
+                        <Ionicons
+                          name="time-outline"
+                          size={14}
+                          color={homeColors.textMuted}
+                        />
+                        <Text style={styles.savedMetaText}>
+                          {new Date(roadmap.createdAt).toLocaleDateString()}
+                        </Text>
+                      </View>
+                    </View>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.savedViewBtn,
+                        pressed && styles.pressed,
+                      ]}
+                      onPress={() =>
+                        navigation.navigate("Home", {
+                          screen: "CareerRoadmap",
+                          params: {
+                            roadmapId: roadmap.id,
+                            careerTitle: roadmap.careerTitle,
+                            careerDescription: roadmap.careerDescription,
+                            matchPercent: roadmap.matchPercent,
+                            tags: roadmap.tags,
+                          },
+                        })
+                      }
+                    >
+                      <Ionicons name="map" size={16} color="#fff" />
+                      <Text style={styles.savedViewBtnText}>View roadmap</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
         {/* Matched Careers Section */}
         {allRequirementsMet && matchedCareers && matchedCareers.length > 0 && (
           <View style={styles.matchedSection}>
@@ -145,37 +261,50 @@ export default function RoadmapsScreen(): React.ReactElement {
               Based on your quiz and CV analysis
             </Text>
             <View style={styles.matchedCareers}>
-              {matchedCareers.map((match) => (
-                <MatchedCareerCard
-                  key={match.career.id}
-                  match={match}
-                  isExpanded={expandedCareer === match.career.id}
-                  onToggle={() => toggleCareer(match.career.id)}
-                />
-              ))}
+              {matchedCareers.map((match) => {
+                const savedForCareer =
+                  savedRoadmaps.find(
+                    (r) =>
+                      r.careerTitle.toLocaleLowerCase() ===
+                      String(match.career.title).toLocaleLowerCase(),
+                  ) || null;
+                return (
+                  <MatchedCareerCard
+                    key={match.career.id}
+                    match={match}
+                    isExpanded={expandedCareer === match.career.id}
+                    onToggle={() => toggleCareer(match.career.id)}
+                    savedRoadmap={savedForCareer}
+                    onGenerateOrViewRoadmap={() => {
+                      if (savedForCareer) {
+                        navigation.navigate("Home", {
+                          screen: "CareerRoadmap",
+                          params: {
+                            roadmapId: savedForCareer.id,
+                            careerTitle: savedForCareer.careerTitle,
+                            careerDescription: savedForCareer.careerDescription,
+                            matchPercent: savedForCareer.matchPercent,
+                            tags: savedForCareer.tags,
+                          },
+                        });
+                      } else {
+                        navigation.navigate("Home", {
+                          screen: "CareerRoadmap",
+                          params: {
+                            careerTitle: match.career.title,
+                            careerDescription: match.career.description,
+                            matchPercent: match.score,
+                            tags: (match.career as any).tags,
+                          },
+                        });
+                      }
+                    }}
+                  />
+                );
+              })}
             </View>
           </View>
         )}
-
-        {/* Careers List Header */}
-        <View style={[styles.header, matchedCareers?.length > 0 && { marginTop: 16 }]}>
-          <Text style={styles.title}>All Career Roadmaps</Text>
-          <Text style={styles.subtitle}>
-            Explore {careers.length} career paths with required skills
-          </Text>
-        </View>
-
-        {/* Careers List */}
-        <View style={styles.careersList}>
-          {careers.map((career) => (
-            <CareerCard
-              key={career.id}
-              career={career}
-              isExpanded={expandedCareer === career.id}
-              onToggle={() => toggleCareer(career.id)}
-            />
-          ))}
-        </View>
       </ScrollView>
     </View>
   );
@@ -185,9 +314,17 @@ interface MatchedCareerCardProps {
   match: any;
   isExpanded: boolean;
   onToggle: () => void;
+  savedRoadmap?: SavedRoadmap | null;
+  onGenerateOrViewRoadmap: () => void;
 }
 
-function MatchedCareerCard({ match, isExpanded, onToggle }: MatchedCareerCardProps) {
+function MatchedCareerCard({
+  match,
+  isExpanded,
+  onToggle,
+  savedRoadmap,
+  onGenerateOrViewRoadmap,
+}: MatchedCareerCardProps) {
   const career = match.career;
   const categoryColor = CATEGORY_COLORS[career.category] || homeColors.textMuted;
 
@@ -224,6 +361,17 @@ function MatchedCareerCard({ match, isExpanded, onToggle }: MatchedCareerCardPro
           size={20}
           color={homeColors.textMuted}
         />
+      </Pressable>
+
+      {/* Generate or view roadmap button */}
+      <Pressable
+        style={({ pressed }) => [styles.matchedRoadmapBtn, pressed && styles.pressed]}
+        onPress={onGenerateOrViewRoadmap}
+      >
+        <Ionicons name="map" size={16} color="#fff" />
+        <Text style={styles.matchedRoadmapBtnText}>
+          {savedRoadmap ? "View roadmap" : "Generate roadmap"}
+        </Text>
       </Pressable>
     </View>
   );
@@ -630,6 +778,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
     overflow: "hidden",
+    paddingBottom: 8,
   },
   matchedCareerHeader: {
     flexDirection: "row",
@@ -676,6 +825,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: homeColors.primary,
     fontWeight: "500",
+  },
+
+  matchedRoadmapBtn: {
+    marginHorizontal: 12,
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: homeColors.primary,
+  },
+  matchedRoadmapBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#fff",
   },
 
   // Requirements Check Card
@@ -742,5 +908,120 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: homeColors.textMuted,
     fontStyle: "italic",
+  },
+
+  // Saved roadmaps section (card style similar to quiz results)
+  savedSection: {
+    marginBottom: 24,
+  },
+  savedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  savedTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: homeColors.textDark,
+  },
+  savedSubtitle: {
+    fontSize: 13,
+    color: homeColors.textMuted,
+    marginBottom: 10,
+  },
+  savedList: {
+    gap: 12,
+  },
+  savedCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  savedCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 8,
+  },
+  savedCardTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: homeColors.textDark,
+    flex: 1,
+  },
+  savedMatchPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  savedMatchPillGreen: {
+    backgroundColor: "#DCFCE7",
+  },
+  savedMatchPillOrange: {
+    backgroundColor: "#FFEDD5",
+  },
+  savedMatchText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: homeColors.textDark,
+  },
+  savedCardDesc: {
+    fontSize: 14,
+    color: homeColors.textMuted,
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  savedTagsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 8,
+  },
+  savedTagChip: {
+    backgroundColor: homeColors.primary + "20",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  savedTagText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: homeColors.primary,
+  },
+  savedMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  savedMetaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  savedMetaText: {
+    fontSize: 12,
+    color: homeColors.textMuted,
+  },
+  savedViewBtn: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: homeColors.primary,
+  },
+  savedViewBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#fff",
   },
 });
