@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGroupChat, useChatMessages } from '../../features/mentors/hooks';
 import { useAuth } from '../../auth/AuthProvider';
 import { homeColors } from '../homeTheme';
@@ -33,6 +34,7 @@ export function GroupChatScreen() {
   const route = useRoute();
   const navigation = useNavigation<GroupChatScreenNavigationProp>();
   const { chatId } = route.params as { chatId: string };
+  const insets = useSafeAreaInsets();
   const { state } = useAuth();
   const user = state.user;
 
@@ -98,7 +100,7 @@ export function GroupChatScreen() {
         style={[styles.messageRow, isCurrentUser ? styles.messageRowRight : styles.messageRowLeft]}
       >
         {!isCurrentUser && (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.avatarContainer}
             onPress={() => {
               navigation.navigate('MentorDetail', { userId: message.sender_id });
@@ -129,7 +131,7 @@ export function GroupChatScreen() {
             ]}
           >
             {!isCurrentUser && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => {
                   navigation.navigate('MentorDetail', { userId: message.sender_id });
                 }}
@@ -167,7 +169,7 @@ export function GroupChatScreen() {
         colors={[homeColors.primary, homeColors.primaryDark]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.header}
+        style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}
       >
         <View style={styles.headerContent}>
           <Ionicons name="chatbubbles" size={24} color="#fff" style={styles.headerIcon} />
@@ -228,8 +230,8 @@ export function GroupChatScreen() {
             activeOpacity={0.8}
           >
             <LinearGradient
-              colors={messageText.trim() && !sending 
-                ? [homeColors.primary, homeColors.primaryDark] 
+              colors={messageText.trim() && !sending
+                ? [homeColors.primary, homeColors.primaryDark]
                 : ['#d1d5db', '#9ca3af']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}

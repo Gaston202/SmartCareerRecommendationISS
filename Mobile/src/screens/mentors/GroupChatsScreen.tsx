@@ -13,6 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGroupChats } from '../../features/mentors/hooks';
 import { GroupChat } from '../../types/mentor';
 import { homeColors } from '../homeTheme';
@@ -39,6 +40,7 @@ const specialties = [
 
 export function GroupChatsScreen() {
   const navigation = useNavigation<GroupChatsScreenNavigationProp>();
+  const insets = useSafeAreaInsets();
   const [selectedSpecialty, setSelectedSpecialty] = useState<string | undefined>();
 
   const { chats, loading, error, refetch } = useGroupChats(selectedSpecialty);
@@ -112,7 +114,7 @@ export function GroupChatsScreen() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} />}
       >
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
           <Ionicons name="chatbubbles" size={32} color={homeColors.primary} />
           <Text style={styles.headerTitle}>Group Chats</Text>
           <Text style={styles.headerSubtitle}>Connect with peers and mentors</Text>

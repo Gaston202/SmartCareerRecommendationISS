@@ -21,6 +21,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
+    const fetchFullUser = async (baseUser: any): Promise<AuthUser | null> => {
+      if (!baseUser) return null;
+      let role: 'user' | 'mentor' = 'user';
+      let mentorSpecialty: string | undefined = undefined;
+
+      try {
+        const { data: userData } = await supabase.from('users').select('role').eq('id', baseUser.id).maybeSingle();
+        if (userData?.role === 'mentor') {
+          role = 'mentor';
+          const { data: mentorData } = await supabase.from('mentors').select('role').eq('user_id', baseUser.id).maybeSingle();
+          if (mentorData?.role) {
+            mentorSpecialty = mentorData.role;
+          }
+        }
+      } catch (e) {
+        console.warn('Error fetching full user role:', e);
+      }
+
+      return {
+        id: baseUser.id,
+        email: baseUser.email ?? null,
+        role,
+        mentorSpecialty,
+      };
+    };
+
     const init = async () => {
       const { data, error } = await supabase.auth.getSession();
       if (!mounted) return;
@@ -29,40 +55,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const session = data.session
         ? ({
-            access_token: data.session.access_token,
-            refresh_token: data.session.refresh_token,
-            expires_in: data.session.expires_in,
-            expires_at: data.session.expires_at,
-            token_type: data.session.token_type,
-          } as AuthSession)
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+          expires_in: data.session.expires_in,
+          expires_at: data.session.expires_at,
+          token_type: data.session.token_type,
+        } as AuthSession)
         : null;
 
-      const user: AuthUser | null = data.session?.user
-        ? { id: data.session.user.id, email: data.session.user.email ?? null }
-        : null;
+      const user = await fetchFullUser(data.session?.user);
 
+      if (!mounted) return;
       setState({ session, user, isLoading: false });
     };
 
     init();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
 
       const sessionData: AuthSession | null = session
         ? ({
-            access_token: session.access_token,
-            refresh_token: session.refresh_token,
-            expires_in: session.expires_in,
-            expires_at: session.expires_at,
-            token_type: session.token_type,
-          } as AuthSession)
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+          expires_in: session.expires_in,
+          expires_at: session.expires_at,
+          token_type: session.token_type,
+        } as AuthSession)
         : null;
 
-      const user: AuthUser | null = session?.user
-        ? { id: session.user.id, email: session.user.email ?? null }
-        : null;
+      const user = await fetchFullUser(session?.user);
 
+      if (!mounted) return;
       setState({ session: sessionData, user, isLoading: false });
     });
 
@@ -133,6 +157,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               console.warn('[AuthProvider] Failed to create mentor profile', mentorError);
             }
           }
+
+          // Force an update to the auth state if they were automatically logged in by supabase
+          setState((prev) => {
+            if (prev.user && prev.user.id === data.user.id) {
+              return { ...prev, user: { ...prev.user, role: role as any, mentorSpecialty: metadata?.mentorSpecialty } };
+            }
+            return prev;
+          });
         }
       },
       signOut: async () => {

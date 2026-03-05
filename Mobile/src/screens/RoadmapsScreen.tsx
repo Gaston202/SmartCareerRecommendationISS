@@ -18,6 +18,7 @@ import { getQuizQuestionsWithAnswers } from "../features/quiz/storage";
 import { homeColors } from "./homeTheme";
 import { getSavedRoadmaps } from "../features/roadmaps/storage";
 import type { SavedRoadmap } from "../features/roadmaps/types";
+import { useAuth } from "../auth/AuthProvider";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Technology: homeColors.primary,
@@ -49,6 +50,7 @@ export default function RoadmapsScreen(): React.ReactElement {
   const [hasQuizData, setHasQuizData] = useState(false);
   const [checkingRequirements, setCheckingRequirements] = useState(true);
   const [savedRoadmaps, setSavedRoadmaps] = useState<SavedRoadmap[]>([]);
+  const { state } = useAuth();
 
   // Check if all requirements are met
   useEffect(() => {
@@ -60,7 +62,8 @@ export default function RoadmapsScreen(): React.ReactElement {
     React.useCallback(() => {
       let isActive = true;
       (async () => {
-        const roadmaps = await getSavedRoadmaps();
+        if (!state.user?.id) return;
+        const roadmaps = await getSavedRoadmaps(state.user.id);
         if (!isActive) return;
         // Newest first
         setSavedRoadmaps(
@@ -73,7 +76,7 @@ export default function RoadmapsScreen(): React.ReactElement {
       return () => {
         isActive = false;
       };
-    }, []),
+    }, [state.user?.id]),
   );
 
   const checkRequirements = async () => {

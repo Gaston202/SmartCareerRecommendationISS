@@ -19,6 +19,7 @@ import {
   findRoadmapByCareerTitle,
 } from "../features/roadmaps/storage";
 import { generateCareerRoadmap } from "../features/roadmaps/ai-roadmap.service";
+import { useAuth } from "../auth/AuthProvider";
 
 type HomeStackParamList = {
   HomeMain: undefined;
@@ -49,6 +50,7 @@ export default function CareerRoadmapScreen(): React.ReactElement {
   const [roadmap, setRoadmap] = useState<SavedRoadmap | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { state } = useAuth();
 
   const hasRoadmap = !!roadmap;
 
@@ -64,16 +66,17 @@ export default function CareerRoadmapScreen(): React.ReactElement {
   }, []);
 
   const loadInitialRoadmap = async () => {
+    if (!state.user?.id) return;
     try {
       if (params.roadmapId) {
-        const existing = await getRoadmapById(params.roadmapId);
+        const existing = await getRoadmapById(state.user.id, params.roadmapId);
         if (existing) {
           setRoadmap(existing);
           return;
         }
       }
 
-      const existingForCareer = await findRoadmapByCareerTitle(params.careerTitle);
+      const existingForCareer = await findRoadmapByCareerTitle(state.user.id, params.careerTitle);
       if (existingForCareer) {
         setRoadmap(existingForCareer);
       }
@@ -102,10 +105,10 @@ export default function CareerRoadmapScreen(): React.ReactElement {
   };
 
   const handleSave = async () => {
-    if (!roadmap) return;
+    if (!roadmap || !state.user?.id) return;
     setSaving(true);
     try {
-      await saveRoadmap(roadmap);
+      await saveRoadmap(state.user.id, roadmap);
       Alert.alert("Saved", "This career roadmap has been saved to your Roadmaps tab.");
       // After saving, take user back to the Roadmaps tab
       (navigation as any).navigate("Roadmaps");

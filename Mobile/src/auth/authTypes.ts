@@ -14,6 +14,8 @@ export interface AuthSession {
 export interface AuthUser {
   id: string;
   email: string | null;
+  role?: 'user' | 'mentor';
+  mentorSpecialty?: string;
 }
 
 export interface AuthState {
