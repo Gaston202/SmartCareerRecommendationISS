@@ -1,0 +1,9 @@
+# Core dependencies
+fastapi
+uvicorn[standard]
+
+# JobSpy - using version that's compatible with numpy 2.x
+python-jobspy
+
+# Note: numpy>=2.0 is already in your environment.
+# If you encounter issues, try: pip install "numpy<2.0" for maximum compatibility
