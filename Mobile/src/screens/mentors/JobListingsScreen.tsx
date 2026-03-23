@@ -22,6 +22,8 @@ import { useJobListings } from '../../features/jobs/hooks';
 import { JobFilters, JobListing } from '../../types/job';
 
 const ALL_SITES = ['indeed', 'linkedin', 'zip_recruiter', 'glassdoor', 'google', 'bayt', 'naukri'];
+// Default to only reliable sites
+const DEFAULT_SITES = ['indeed', 'linkedin'];
 const SITE_LABELS: Record<string, string> = {
   indeed: 'Indeed',
   linkedin: 'LinkedIn',
@@ -37,11 +39,11 @@ export function JobListingsScreen() {
   const insets = useSafeAreaInsets();
   const specialty = state.user?.mentorSpecialty || 'General';
 
-  // Filter state
+  // Filter state - default to Indeed and LinkedIn only (most reliable)
   const [filters, setFilters] = useState<JobFilters>({
     search: '',
     location: '',
-    siteNames: [...ALL_SITES],
+    siteNames: ['indeed', 'linkedin'], // DEFAULT_SITES
     jobType: undefined,
     isRemoteOnly: false,
     resultsWanted: 20,
@@ -51,16 +53,22 @@ export function JobListingsScreen() {
   // UI state
   const [showFilters, setShowFilters] = useState(false);
   const [jobTypeError, setJobTypeError] = useState<string | null>(null);
+  const [filtersApplied, setFiltersApplied] = useState(false);
 
   // Fetch jobs with useJobListings hook
   const { jobs, loading, error, refetch } = useJobListings(filters);
 
-  // Handler: Update filter
+  // Handler: Update filter (for non-search filters that require Apply button)
+  // Search filter uses debounced auto-fetch (via hook), so we mark others as needing Apply
   const updateFilter = useCallback(<K extends keyof JobFilters>(
     key: K,
     value: JobFilters[K]
   ) => {
     setFilters(prev => ({ ...prev, [key]: value }));
+    // For non-search filters, we'll require Apply button
+    if (key !== 'search') {
+      setFiltersApplied(false);
+    }
   }, []);
 
   // Handler: Toggle site selection
@@ -85,12 +93,13 @@ export function JobListingsScreen() {
     setFilters({
       search: '',
       location: '',
-      siteNames: [...ALL_SITES],
+      siteNames: ['indeed', 'linkedin'],
       jobType: undefined,
       isRemoteOnly: false,
       resultsWanted: 20,
       hoursOld: 168,
     });
+    setFiltersApplied(false);
   }, []);
 
   // Handler: Open job URL
@@ -99,6 +108,13 @@ export function JobListingsScreen() {
       console.error('Failed to open URL:', err);
       alert('Unable to open job link.');
     });
+  }, []);
+
+  // Handler: Apply filters from modal
+  const handleApplyFilters = useCallback(() => {
+    setFiltersApplied(true);
+    setShowFilters(false);
+    // The useJobListings hook will automatically refetch when filters change
   }, []);
 
   // Format salary display
@@ -176,21 +192,48 @@ export function JobListingsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: homeColors.backgroundStart }]}>
-      {/* Header */}
+      {/* Header with Search */}
       <View style={[styles.headerRow, { paddingTop: Math.max(insets.top, 20), backgroundColor: '#fff' }]}>
-        <View style={{ flex: 1 }}>
+        <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>Job Listings</Text>
           <Text style={styles.headerSubtitle}>
             Opportunities for <Text style={{ fontWeight: '700', color: homeColors.primary }}>{specialty}</Text>
           </Text>
-          {filters.search || filters.location || filters.siteNames?.length !== ALL_SITES.length || filters.isRemoteOnly || filters.jobType ? (
-            <Text style={styles.activeFiltersText}>
-              {`${jobs.length} job${jobs.length !== 1 ? 's' : ''} found`}
-            </Text>
-          ) : null}
+
+          {/* Search bar */}
+          <View style={styles.searchContainer}>
+            <Ionicons name="search-outline" size={20} color={homeColors.textMuted} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search jobs, companies, keywords..."
+              value={filters.search}
+              onChangeText={text => updateFilter('search', text)}
+              placeholderTextColor={homeColors.textMuted}
+              returnKeyType="search"
+            />
+            {filters.search ? (
+              <Pressable onPress={() => updateFilter('search', '')}>
+                <Ionicons name="close-circle" size={20} color={homeColors.textMuted} />
+              </Pressable>
+            ) : null}
+          </View>
+
+          {/* Results count or filter indicator */}
+          <View style={styles.headerFooter}>
+            {jobs.length > 0 && (
+              <Text style={styles.resultsText}>{jobs.length} jobs found</Text>
+            )}
+            {filtersApplied && (
+              <View style={styles.filtersAppliedBadge}>
+                <Text style={styles.filtersAppliedText}>Filters applied</Text>
+              </View>
+            )}
+          </View>
         </View>
+
+        {/* Filter button */}
         <Pressable
-          style={[styles.filterBtn, (filters.search || filters.location || filters.siteNames?.length !== ALL_SITES.length || filters.isRemoteOnly || filters.jobType) && styles.filterBtnActive]}
+          style={[styles.filterBtn, filtersApplied && styles.filterBtnActive]}
           onPress={() => setShowFilters(true)}
         >
           <Ionicons name="options" size={24} color={homeColors.primary} />
@@ -259,17 +302,6 @@ export function JobListingsScreen() {
                 </View>
 
                 <ScrollView contentContainerStyle={styles.modalBody} showsVerticalScrollIndicator={false}>
-                  {/* Search */}
-                  <View style={styles.fieldGroup}>
-                    <Text style={styles.fieldLabel}>Keywords</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="e.g. software engineer"
-                      value={filters.search}
-                      onChangeText={text => updateFilter('search', text)}
-                    />
-                  </View>
-
                   {/* Location */}
                   <View style={styles.fieldGroup}>
                     <Text style={styles.fieldLabel}>Location</Text>
@@ -371,7 +403,7 @@ export function JobListingsScreen() {
                   </Pressable>
                   <Pressable
                     style={[styles.applyFiltersBtn, { backgroundColor: homeColors.primary }]}
-                    onPress={() => setShowFilters(false)}
+                    onPress={handleApplyFilters}
                   >
                     <Text style={styles.applyFiltersBtnText}>Apply Filters</Text>
                   </Pressable>
@@ -392,11 +424,16 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: homeColors.cardBorder,
+    backgroundColor: '#fff',
+  },
+  headerContent: {
+    flex: 1,
+    marginRight: 12,
   },
   headerTitle: {
     fontSize: 24,
@@ -407,12 +444,61 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 14,
     color: homeColors.textMuted,
+    marginBottom: 12,
   },
-  activeFiltersText: {
-    fontSize: 12,
-    color: homeColors.primary,
-    marginTop: 4,
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: homeColors.backgroundStart,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    marginBottom: 8,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 16,
+    color: homeColors.textDark,
+    padding: 0,
+  },
+  headerFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  resultsText: {
+    fontSize: 13,
+    color: homeColors.textMuted,
     fontWeight: '500',
+  },
+  filtersAppliedBadge: {
+    backgroundColor: homeColors.accentGreen + '20',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  filtersAppliedText: {
+    fontSize: 11,
+    color: homeColors.accentGreen,
+    fontWeight: '600',
+  },
+  filterBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: homeColors.backgroundStart,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    marginTop: 4,
+  },
+  filterBtnActive: {
+    backgroundColor: homeColors.primary + '15',
+    borderColor: homeColors.primary,
   },
   filterBtn: {
     width: 44,

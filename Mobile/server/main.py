@@ -6,7 +6,7 @@ from typing import List, Optional
 import asyncio
 import json
 import math
-import pandas
+import pandas as pd
 import numpy as np
 
 app = FastAPI(title="Job Spy API", version="1.0.0")
@@ -22,6 +22,8 @@ app.add_middleware(
 
 # Job boards supported by JobSpy
 ALLOWED_SITES = ["indeed", "linkedin", "zip_recruiter", "glassdoor", "google", "bayt", "naukri"]
+# Default sites (most reliable): Indeed and LinkedIn only
+DEFAULT_SITES = ["indeed", "linkedin"]
 
 # Job type mapping (JobSpy expects these exact values)
 JOB_TYPE_MAP = {
@@ -48,13 +50,17 @@ async def get_jobs(
     """
     try:
         # Validate site_name if provided
-        sites = site_name if site_name else ALLOWED_SITES
+        sites = site_name if site_name else DEFAULT_SITES
         invalid_sites = [s for s in sites if s not in ALLOWED_SITES]
         if invalid_sites:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid site_name values: {invalid_sites}. Allowed: {ALLOWED_SITES}"
             )
+
+        # Naukri and Bayt require a search term - filter them out if search is empty
+        if not search or not search.strip():
+            sites = [s for s in sites if s not in ('naukri', 'bayt')]
 
         # Build Google search term if location is provided
         google_search_term = None
@@ -63,6 +69,15 @@ async def get_jobs(
 
         # JobSpy runs synchronously, so we run it in a thread pool to avoid blocking
         loop = asyncio.get_event_loop()
+
+        # Indeed limitation: can only use ONE filter from {hours_old, job_type/is_remote, easy_apply}
+        # To avoid errors, we fetch without job_type/is_remote filters and apply them client-side
+        # Only pass hours_old if indeed is NOT in sites OR if job_type/is_remote are not being used
+        scrape_hours_old = hours_old
+        if 'indeed' in sites and (job_type or is_remote is not None):
+            # Indeed can't handle both hours_old and job_type/is_remote together
+            scrape_hours_old = None
+
         jobs = await loop.run_in_executor(
             None,
             lambda: scrape_jobs(
@@ -71,7 +86,7 @@ async def get_jobs(
                 google_search_term=google_search_term,
                 location=location if location else None,
                 results_wanted=results_wanted,
-                hours_old=hours_old,
+                hours_old=scrape_hours_old,
                 country_indeed='USA' if 'indeed' in sites else None,
                 # Note: linkedIn fetch description is slower, enable if needed
                 # linkedin_fetch_description=True,
@@ -84,8 +99,28 @@ async def get_jobs(
 
         # Convert DataFrame to JSON using pandas' built-in NaN handling
         # pandas automatically converts NaN and NaT to null in JSON
-        jobs_json = jobs.to_json(orient='records', date_format='iso', default_handler=str)
-        jobs_list = json.loads(jobs_json)
+        try:
+            jobs_json = jobs.to_json(orient='records', date_format='iso', default_handler=str)
+            jobs_list = json.loads(jobs_json)
+        except Exception as e:
+            # If to_json fails, manually convert with sanitization
+            jobs_list = []
+            for _, row in jobs.iterrows():
+                job_dict = {}
+                for col in jobs.columns:
+                    val = row[col]
+                    if pd.isna(val):
+                        job_dict[col] = None
+                    elif isinstance(val, (float, np.floating)) and (math.isnan(val) or math.isinf(val)):
+                        job_dict[col] = None
+                    elif hasattr(val, 'isoformat'):
+                        try:
+                            job_dict[col] = val.isoformat()
+                        except:
+                            job_dict[col] = str(val)
+                    else:
+                        job_dict[col] = val
+                jobs_list.append(job_dict)
 
         # Filter by job_type if provided
         if job_type and job_type in JOB_TYPE_MAP:
