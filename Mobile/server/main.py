@@ -78,19 +78,21 @@ async def get_jobs(
             # Indeed can't handle both hours_old and job_type/is_remote together
             scrape_hours_old = None
 
+        # Build kwargs for scrape_jobs, only adding country_indeed if Indeed is in sites
+        scrape_kwargs = {
+            'site_name': sites,
+            'search_term': search if search else None,
+            'google_search_term': google_search_term,
+            'location': location if location else None,
+            'results_wanted': results_wanted,
+            'hours_old': scrape_hours_old,
+        }
+        if 'indeed' in sites or 'glassdoor' in sites:
+            scrape_kwargs['country_indeed'] = 'USA'
+
         jobs = await loop.run_in_executor(
             None,
-            lambda: scrape_jobs(
-                site_name=sites,
-                search_term=search if search else None,
-                google_search_term=google_search_term,
-                location=location if location else None,
-                results_wanted=results_wanted,
-                hours_old=scrape_hours_old,
-                country_indeed='USA' if 'indeed' in sites else None,
-                # Note: linkedIn fetch description is slower, enable if needed
-                # linkedin_fetch_description=True,
-            )
+            lambda: scrape_jobs(**scrape_kwargs)
         )
 
         # Convert DataFrame to list of dicts
