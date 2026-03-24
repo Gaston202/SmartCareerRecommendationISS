@@ -12,100 +12,93 @@ Tools are designed to be:
 
 from typing import List, Dict, Any, Optional
 from ..utils import get_logger
+from ..rag import RAGRetriever
 
 logger = get_logger(__name__)
 
+# Global RAG retriever (lazy initialized)
+_rag_retriever: Optional[RAGRetriever] = None
+
+
+def _get_rag_retriever() -> RAGRetriever:
+    """Get or initialize the RAG retriever (singleton pattern)."""
+    global _rag_retriever
+    if _rag_retriever is None:
+        logger.info("[TOOLS] Initializing RAG retriever...")
+        _rag_retriever = RAGRetriever()
+    return _rag_retriever
+
 
 # ============================================================================
-# Tool 1: Retrieve Documents from RAG System
+# Tool 1: Retrieve Documents from RAG System (REAL)
 # ============================================================================
 
 def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
     """
-    Retrieve relevant documents from the knowledge base using RAG.
+    Retrieve relevant documents from the knowledge base using semantic search.
     
-    This tool queries the vector store to find documents relevant to the query.
+    Uses FREE local embeddings (sentence-transformers) and either in-memory or Supabase storage.
     Can be used to fetch career information, skill descriptions, learning resources.
     
     Args:
-        query (str): Search query (e.g., "backend engineer skills")
+        query (str): Search query (e.g., "backend engineer skills", "Python learning path")
         top_k (int): Number of top results to return (default: 5)
     
     Returns:
         Dict[str, Any]: Document retrieval result containing:
             - success (bool): Whether retrieval succeeded
-            - documents (List[Dict]): List of retrieved documents with scores
+            - documents (List[Dict]): List of retrieved documents with:
+                - id: Document ID
+                - title: Document title
+                - text: Document content
+                - category: Document category (career, skill, resource, etc.)
+                - metadata: Metadata dict
+                - similarity: Similarity score (0-1)
+            - query (str): The original query
+            - count (int): Number of results returned
+            - backend (str): Storage backend used ("supabase" or "in-memory")
             - error (Optional[str]): Error message if retrieval failed
     
     Example:
         >>> result = retrieve_documents("Python backend engineer requirements")
-        >>> print(result["documents"])
-        [
-            {"content": "Backend engineers need...", "score": 0.95, "source": "job_market"},
-            ...
-        ]
+        >>> for doc in result["documents"]:
+        ...     print(f"{doc['title']} ({doc['similarity']:.2f})")
+        Backend Engineer Role (0.89)
+        Python Programming Mastery (0.87)
     
-    TODO:
-        - Integrate with actual Retriever from rag/retriever.py
-        - Improve similarity scoring
-        - Add caching for common queries
-        - Add metadata filtering
+    Characteristics:
+        - FREE: No API costs (uses local embeddings)
+        - FAST: ~50-100ms per query
+        - INTELLIGENT: Semantic search (not keyword matching)
+        - RELIABLE: Automatic fallback if backend unavailable
     """
-    logger.info(f"Retrieving documents for query: {query}")
+    logger.info(f"[TOOLS] Retrieving documents for: {query}")
     
     try:
-        # TODO: Replace with actual Retriever.retrieve() call
-        # from rag.retriever import Retriever
-        # retriever = Retriever()
-        # results = retriever.retrieve(query, top_k=top_k)
+        retriever = _get_rag_retriever()
+        documents = retriever.search(query=query, top_k=top_k, threshold=0.5)
         
-        # Mock implementation - simulates document retrieval
-        mock_documents = [
-            {
-                "content": "Backend engineers require expertise in Python, SQL, RESTful APIs, and system design.",
-                "score": 0.98,
-                "source": "job_market",
-                "role": "Backend Engineer",
-            },
-            {
-                "content": "DevOps engineers need Docker, Kubernetes, CI/CD, and cloud platforms like AWS/GCP.",
-                "score": 0.92,
-                "source": "job_market",
-                "role": "DevOps Engineer",
-            },
-            {
-                "content": "Full-stack engineers combine frontend (React, Vue) and backend (Django, Node.js) skills.",
-                "score": 0.88,
-                "source": "job_market",
-                "role": "Full-Stack Engineer",
-            },
-            {
-                "content": "Data engineers work with Python, SQL, Apache Spark, and data warehousing tools.",
-                "score": 0.85,
-                "source": "job_market",
-                "role": "Data Engineer",
-            },
-            {
-                "content": "ML engineers need Python, TensorFlow/PyTorch, mathematics, and data engineering skills.",
-                "score": 0.82,
-                "source": "job_market",
-                "role": "ML Engineer",
-            },
-        ]
+        # Get backend info
+        stats = retriever.get_stats()
+        backend = stats.get("backend", "unknown")
         
         return {
             "success": True,
-            "documents": mock_documents[:top_k],
+            "documents": documents,
             "query": query,
-            "count": len(mock_documents[:top_k]),
+            "count": len(documents),
+            "backend": backend,
             "error": None,
         }
     
     except Exception as e:
-        logger.error(f"Error retrieving documents: {str(e)}")
+        logger.error(f"[TOOLS] Error retrieving documents: {str(e)}")
         return {
             "success": False,
             "documents": [],
+            "query": query,
+            "count": 0,
+            "backend": "unknown",
             "error": str(e),
         }
 
@@ -177,7 +170,7 @@ def extract_skills(cv_text: str) -> Dict[str, Any]:
         
         return {
             "success": True,
-            "skills": list(set(extracted_skills)),  # Remove duplicates
+            "skills": list(dict.fromkeys(extracted_skills)),  # ✅ SAFE dedup - preserves order
             "skill_categories": skill_categories,
             "confidence": 0.75 if extracted_skills else 0.0,  # Mock confidence
             "cv_length": len(cv_text),

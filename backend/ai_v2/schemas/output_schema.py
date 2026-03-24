@@ -16,6 +16,7 @@ class AgentType(str, Enum):
     CAREER = "career_agent"
     GAP = "gap_agent"
     ROADMAP = "roadmap_agent"
+    EXPLANATION = "explanation_agent"  # NEXT PHASE
 
 
 class CareerRecommendation(BaseModel):

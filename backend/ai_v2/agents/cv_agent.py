@@ -9,6 +9,7 @@ import re
 
 from ..schemas import AgentOutput, AgentType
 from ..services import LLMService
+from ..services.fallback_utils import safe_extract_strings
 from .base_agent import BaseAgent
 
 
@@ -141,7 +142,9 @@ class CVAgent(BaseAgent):
             if skill in cv_lower:
                 skills.append(skill.title())
         
-        return list(set(skills))  # Remove duplicates
+        # ✅ SAFE deduplication: Use dict.fromkeys() instead of set() to preserve order
+        # This avoids issues if dicts/objects accidentally get in the list
+        return list(dict.fromkeys(skills))
 
     def _extract_experience(self, cv_text: str) -> List[Dict[str, Any]]:
         """
@@ -322,6 +325,7 @@ class CVAgent(BaseAgent):
         """
         Use LLM to extract skills from CV text.
         Falls back to regex-based extraction if LLM fails.
+        Safely handles dict/object responses from LLM by converting to strings.
         """
         try:
             # Use LLM to help identify skills
@@ -335,7 +339,13 @@ class CVAgent(BaseAgent):
             # Extract skills from LLM response
             gap_analysis = llm_result.get("gap_analysis", [])
             if gap_analysis:
-                return gap_analysis[:10]  # Return top 10 identified skills
+                # SAFE: Use safe_extract_strings to handle dicts/objects in gap_analysis
+                # This prevents "cannot use 'dict' as a set element" errors
+                skills_safe = safe_extract_strings(gap_analysis, fallback=[])
+                self._log_execution(
+                    f"LLM extracted {len(skills_safe)} skills from gap_analysis"
+                )
+                return skills_safe[:10]  # Return top 10 identified skills (all guaranteed strings)
             
             return self._extract_skills(cv_text)
         except Exception as e:

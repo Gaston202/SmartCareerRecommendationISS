@@ -1,28 +1,48 @@
 """
-LLM Service for AI v2 module.
+LLM Service for AI v2 module - REFACTORED.
 
 Provides unified interface to LLM providers (OpenAI, Anthropic, etc.)
-with fallback to mock implementations for testing.
+with explicit error handling, centralized fallback logic, and clear logging.
+
+Error Handling Strategy:
+    - Specific error categorization (quota, network, parse, etc.)
+    - Centralized fallback for all methods
+    - Clear logging to distinguish: REAL_LLM vs FALLBACK_MOCK vs TOOL_PIPELINE
+    - Graceful degradation without breaking the pipeline
+    
+Fallback Behavior:
+    API errors → Mock implementations with explicit logging
+    Parse errors → Fallback template data
+    All failures preserve schema consistency
 """
 
 from typing import Optional, List, Dict, Any
 import json
 from ..config import config
 from ..utils import get_logger
+from .fallback_utils import (
+    categorize_llm_error,
+    LLMErrorType,
+    LLMError,
+    safe_parse_json,
+    create_fallback_career_recommendation,
+    create_fallback_gap_analysis,
+    create_fallback_roadmap,
+)
 
 logger = get_logger(__name__)
 
 
 class LLMService:
     """
-    Service for interacting with LLM providers.
+    Service for interacting with LLM providers with comprehensive error handling.
     
     Features:
-        - OpenAI GPT-4/GPT-3.5 support
-        - Mock implementations for testing (when API key missing)
-        - Structured output with JSON parsing
-        - Comprehensive error handling
-        - Request/response logging
+        - OpenAI GPT-4/GPT-3.5 support with explicit error classification
+        - Graceful fallback to mock implementations on API failures
+        - Structured output with JSON parsing and validation
+        - Clear logging: [REAL_LLM], [FALLBACK_MOCK], [TOOL_PIPELINE]
+        - All methods return consistent schema regardless of source
     
     Usage:
         >>> llm = LLMService()
@@ -30,31 +50,52 @@ class LLMService:
         ...     user_profile=profile,
         ...     user_skills=skills
         ... )
+        >>> # Works same way whether via real API, fallback mock, or error
     
-    TODO:
-        - Add streaming support for long-running tasks
-        - Add retry logic with exponential backoff
-        - Add token counting for cost estimation
-        - Support for Anthropic Claude
-        - Local LLM support (LLaMA, etc.)
+    Status:
+        - ✓ OpenAI integration with error handling
+        - ✓ Centralized mock implementations
+        - ✓ Safe fallback on any failure
+        - TODO: Streaming support for long responses
+        - TODO: Retry logic with exponential backoff
+        - TODO: Token counting for cost estimation
+        - TODO: Support for Anthropic Claude
+        - TODO: OpenAI tool/function calling (next phase)
     """
     
     def __init__(self):
-        """Initialize LLM service."""
+        """Initialize LLM service with API client and error handling."""
         self.logger = get_logger(__name__)
         self.use_mock = not config.OPENAI_API_KEY
+        self.client = None
         
+        # Try to initialize OpenAI client
         if not self.use_mock:
             try:
                 import openai
-                openai.api_key = config.OPENAI_API_KEY
                 self.client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
-                self.logger.info("✓ OpenAI LLM initialized")
+                self.logger.info("✓ [REAL_LLM] OpenAI client initialized - ready for API calls")
             except ImportError:
-                self.logger.warning("OpenAI library not installed, using mock mode")
+                self.logger.warning(
+                    "[FALLBACK_MOCK] OpenAI library not installed, "
+                    "will use mock implementations"
+                )
+                self.use_mock = True
+            except Exception as e:
+                self.logger.error(
+                    f"[FALLBACK_MOCK] Failed to initialize OpenAI client: {e}, "
+                    "will use mock implementations"
+                )
                 self.use_mock = True
         else:
-            self.logger.warning("OPENAI_API_KEY not set, using mock LLM implementations")
+            self.logger.warning(
+                "[FALLBACK_MOCK] OPENAI_API_KEY not configured, "
+                "using mock LLM implementations for testing/development"
+            )
+    
+    # ========================================================================
+    # Public API Methods
+    # ========================================================================
     
     def generate_recommendations(
         self,
@@ -62,58 +103,86 @@ class LLMService:
         user_skills: List[str],
         job_market_data: Optional[List[str]] = None,
         count: int = 3,
+        rag_context: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Generate career recommendations using LLM.
+        Generate career recommendations using LLM, optionally grounded in RAG context.
         
         Args:
             user_profile (Dict): User profile with experience, education, etc.
             user_skills (List[str]): User's current skills
             job_market_data (Optional[List[str]]): Market trends
             count (int): Number of recommendations to generate
+            rag_context (Optional[str]): Retrieved documents context from RAG system
         
         Returns:
-            Dict with recommended_careers, confidence_scores, etc.
+            Dict with:
+            - success (bool): Whether generation succeeded
+            - recommended_careers (List[Dict]): Career recommendations with roles, skills, confidence
+            - confidence_score (float): Overall confidence 0-1
+            - reasoning (str): Why these careers were recommended
+            - source (str): "real_llm", "fallback_mock", or "parse_error"
+        
+        Example:
+            >>> result = llm.generate_recommendations(
+            ...     user_profile={"experience_level": "mid"},
+            ...     user_skills=["Python", "SQL"],
+            ...     count=3,
+            ...     rag_context="Backend engineers typically require Python, PostgreSQL, Docker..."
+            ... )
+            >>> print(f"Got {len(result['recommended_careers'])} recommendations")
         """
         if self.use_mock:
             return self._mock_generate_recommendations(user_profile, user_skills, count)
         
         try:
+            self.logger.debug("[REAL_LLM] Calling OpenAI for career recommendations")
+            
             prompt = self._build_recommendation_prompt(
-                user_profile, user_skills, job_market_data, count
+                user_profile, user_skills, job_market_data, count, rag_context
             )
             
-            response = self.client.chat.completions.create(
-                model=config.LLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=1000,
+            response = self._safe_api_call(
+                lambda: self.client.chat.completions.create(
+                    model=config.LLM_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                    max_tokens=1000,
+                )
             )
             
-            result = response.choices[0].message.content
-            self.logger.info(f"✓ Generated {count} career recommendations via OpenAI")
+            if response is None:
+                # API call failed, use fallback
+                return self._mock_generate_recommendations(user_profile, user_skills, count)
+            
+            result_text = response.choices[0].message.content
+            self.logger.info(f"[REAL_LLM] ✓ Generated {count} recommendations from OpenAI")
             
             # Parse JSON response
-            try:
-                parsed = json.loads(result)
-                return {
-                    "success": True,
-                    "recommended_careers": parsed.get("recommended_careers", parsed.get("careers", [])),
-                    "confidence_score": parsed.get("confidence_score", parsed.get("confidence", 0.75)),
-                    "reasoning": parsed.get("reasoning", ""),
-                }
-            except json.JSONDecodeError:
-                # Fallback if response isn't valid JSON
-                self.logger.warning("Failed to parse JSON, attempting text extraction")
-                return {
-                    "success": True,
-                    "recommended_careers": self._extract_careers_from_text(result),
-                    "confidence_score": 0.7,
-                    "raw_response": result,
-                }
+            parsed = safe_parse_json(result_text)
+            
+            if not parsed:
+                self.logger.warning(
+                    "[FALLBACK_MOCK] Failed to parse OpenAI JSON response, "
+                    "using career template instead"
+                )
+                return self._create_parse_error_fallback(
+                    "recommendations", user_profile, user_skills, count
+                )
+            
+            return {
+                "success": True,
+                "recommended_careers": parsed.get("recommended_careers", []),
+                "confidence_score": parsed.get("confidence_score", 0.75),
+                "reasoning": parsed.get("reasoning", "Generated by OpenAI"),
+                "source": "real_llm",
+            }
         
         except Exception as e:
-            self.logger.error(f"LLM error: {str(e)}")
+            self.logger.error(
+                f"[FALLBACK_MOCK] Unexpected error in generate_recommendations: {e}. "
+                f"Falling back to mock implementation."
+            )
             return self._mock_generate_recommendations(user_profile, user_skills, count)
     
     def analyze_skill_gaps(
@@ -131,7 +200,13 @@ class LLMService:
             required_skills (List[str]): Skills required for role
         
         Returns:
-            Dict with gap analysis, priorities, timeline
+            Dict with:
+            - success (bool): Analysis succeeded
+            - gap_analysis (List[str]): Skills to learn
+            - priority_gaps (List[str]): High-priority skills
+            - timeline_months (int): Estimated learning time
+            - recommendations (List[str]): Learning recommendations
+            - source (str): Source of analysis
         """
         if self.use_mock:
             return self._mock_analyze_skill_gaps(
@@ -139,40 +214,54 @@ class LLMService:
             )
         
         try:
+            self.logger.debug(f"[REAL_LLM] Analyzing skill gaps for {target_role}")
+            
             prompt = self._build_gap_analysis_prompt(
                 current_skills, target_role, required_skills
             )
             
-            response = self.client.chat.completions.create(
-                model=config.LLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=1500,
+            response = self._safe_api_call(
+                lambda: self.client.chat.completions.create(
+                    model=config.LLM_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                    max_tokens=1500,
+                )
             )
             
-            result = response.choices[0].message.content
-            self.logger.info(f"✓ Analyzed skill gaps for {target_role} via OpenAI")
+            if response is None:
+                return self._mock_analyze_skill_gaps(
+                    current_skills, target_role, required_skills
+                )
             
-            try:
-                parsed = json.loads(result)
-                return {
-                    "success": True,
-                    "gap_analysis": parsed.get("analysis", []),
-                    "priority_gaps": parsed.get("priorities", []),
-                    "timeline_months": parsed.get("timeline", 6),
-                    "recommendations": parsed.get("recommendations", []),
-                }
-            except json.JSONDecodeError:
-                return {
-                    "success": True,
-                    "raw_analysis": result,
-                    "gap_analysis": self._extract_gaps_from_text(
-                        current_skills, required_skills
-                    ),
-                }
+            result_text = response.choices[0].message.content
+            self.logger.info(f"[REAL_LLM] ✓ Analyzed gaps for {target_role}")
+            
+            parsed = safe_parse_json(result_text)
+            
+            if not parsed:
+                self.logger.warning(
+                    f"[FALLBACK_MOCK] Failed to parse gap analysis for {target_role}, "
+                    "using template"
+                )
+                return self._create_parse_error_fallback(
+                    "gap_analysis", current_skills, target_role, required_skills
+                )
+            
+            return {
+                "success": True,
+                "gap_analysis": parsed.get("gap_analysis", []),
+                "priority_gaps": parsed.get("priority_gaps", []),
+                "timeline_months": parsed.get("timeline_months", 6),
+                "recommendations": parsed.get("recommendations", []),
+                "source": "real_llm",
+            }
         
         except Exception as e:
-            self.logger.error(f"LLM error in gap analysis: {str(e)}")
+            self.logger.error(
+                f"[FALLBACK_MOCK] Unexpected error in analyze_skill_gaps: {e}. "
+                f"Falling back to mock."
+            )
             return self._mock_analyze_skill_gaps(
                 current_skills, target_role, required_skills
             )
@@ -192,7 +281,13 @@ class LLMService:
             current_experience (str): Current experience level
         
         Returns:
-            Dict with phases, timeline, resources, milestones
+            Dict with:
+            - success (bool): Roadmap generated
+            - phases (List[Dict]): Learning phases with skills and timeline
+            - total_months (int): Total learning time
+            - resources (List[str]): Learning resources
+            - milestones (List[str]): Key milestones
+            - source (str): Source of roadmap
         """
         if self.use_mock:
             return self._mock_generate_roadmap(
@@ -200,44 +295,185 @@ class LLMService:
             )
         
         try:
+            self.logger.debug(f"[REAL_LLM] Generating roadmap for {target_role}")
+            
             prompt = self._build_roadmap_prompt(
                 target_role, missing_skills, current_experience
             )
             
-            response = self.client.chat.completions.create(
-                model=config.LLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=2000,
+            response = self._safe_api_call(
+                lambda: self.client.chat.completions.create(
+                    model=config.LLM_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                    max_tokens=2000,
+                )
             )
             
-            result = response.choices[0].message.content
-            self.logger.info(f"✓ Generated learning roadmap for {target_role} via OpenAI")
+            if response is None:
+                return self._mock_generate_roadmap(
+                    target_role, missing_skills, current_experience
+                )
             
-            try:
-                parsed = json.loads(result)
-                return {
-                    "success": True,
-                    "phases": parsed.get("phases", []),
-                    "total_months": parsed.get("total_months", 12),
-                    "resources": parsed.get("resources", []),
-                    "milestones": parsed.get("milestones", []),
-                }
-            except json.JSONDecodeError:
-                return {
-                    "success": True,
-                    "raw_roadmap": result,
-                    "phases": self._extract_phases_from_text(missing_skills),
-                }
+            result_text = response.choices[0].message.content
+            self.logger.info(f"[REAL_LLM] ✓ Generated roadmap for {target_role}")
+            
+            parsed = safe_parse_json(result_text)
+            
+            if not parsed:
+                self.logger.warning(
+                    f"[FALLBACK_MOCK] Failed to parse roadmap for {target_role}, "
+                    "using template"
+                )
+                return self._create_parse_error_fallback(
+                    "roadmap", target_role, missing_skills, current_experience
+                )
+            
+            return {
+                "success": True,
+                "phases": parsed.get("phases", []),
+                "total_months": parsed.get("total_months", 12),
+                "resources": parsed.get("resources", []),
+                "milestones": parsed.get("milestones", []),
+                "source": "real_llm",
+            }
         
         except Exception as e:
-            self.logger.error(f"LLM error in roadmap generation: {str(e)}")
+            self.logger.error(
+                f"[FALLBACK_MOCK] Unexpected error in generate_learning_roadmap: {e}. "
+                f"Falling back to mock."
+            )
             return self._mock_generate_roadmap(
                 target_role, missing_skills, current_experience
             )
     
     # ========================================================================
-    # Mock Implementations (for testing without API)
+    # Error Handling & Safe API Calls
+    # ========================================================================
+    
+    def _safe_api_call(self, api_call_func):
+        """
+        Execute API call with comprehensive error handling.
+        
+        Args:
+            api_call_func: Callable that makes the API call
+        
+        Returns:
+            API response or None if error occurred (will trigger fallback)
+        """
+        try:
+            return api_call_func()
+        except Exception as e:
+            llm_error = categorize_llm_error(e)
+            
+            # Log with categorized error type
+            if llm_error.error_type == LLMErrorType.QUOTA_EXCEEDED:
+                self.logger.error(
+                    f"[FALLBACK_MOCK] API QUOTA EXCEEDED (429). "
+                    f"Account has insufficient credits/quota. Will use mock data. "
+                    f"Error: {llm_error}"
+                )
+                self.use_mock = True  # Switch to mock mode
+            
+            elif llm_error.error_type == LLMErrorType.RATE_LIMIT:
+                self.logger.warning(
+                    f"[FALLBACK_MOCK] API RATE LIMITED (429). "
+                    f"Too many requests. Falling back to mock. Error: {llm_error}"
+                )
+            
+            elif llm_error.error_type == LLMErrorType.API_KEY_INVALID:
+                self.logger.error(
+                    f"[FALLBACK_MOCK] Invalid API key (401). Check OPENAI_API_KEY. "
+                    f"Using mock data. Error: {llm_error}"
+                )
+                self.use_mock = True
+            
+            elif llm_error.error_type == LLMErrorType.MODEL_NOT_FOUND:
+                self.logger.error(
+                    f"[FALLBACK_MOCK] Model '{config.LLM_MODEL}' not found (404). "
+                    f"Using mock data. Error: {llm_error}"
+                )
+                self.use_mock = True
+            
+            elif llm_error.error_type == LLMErrorType.CONTEXT_LENGTH:
+                self.logger.warning(
+                    f"[FALLBACK_MOCK] Request exceeds context length. "
+                    f"Using mock data. Error: {llm_error}"
+                )
+            
+            elif llm_error.error_type == LLMErrorType.TIMEOUT:
+                self.logger.warning(
+                    f"[FALLBACK_MOCK] API call timed out. Using mock data. "
+                    f"Error: {llm_error}"
+                )
+            
+            elif llm_error.error_type == LLMErrorType.NETWORK_ERROR:
+                self.logger.warning(
+                    f"[FALLBACK_MOCK] Network error connecting to API. "
+                    f"Using mock data. Error: {llm_error}"
+                )
+            
+            else:
+                self.logger.error(
+                    f"[FALLBACK_MOCK] Unexpected API error: {llm_error}. "
+                    f"Using mock data."
+                )
+            
+            return None  # Signal caller to use fallback
+    
+    def _create_parse_error_fallback(
+        self,
+        method_type: str,
+        *args,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """
+        Create fallback data when JSON parsing fails after successful API call.
+        
+        Args:
+            method_type: "recommendations", "gap_analysis", or "roadmap"
+            *args: Arguments to the original method
+        
+        Returns:
+            Valid fallback response matching expected schema
+        """
+        if method_type == "recommendations":
+            user_profile, user_skills, count = args
+            fallback = {
+                "success": True,
+                "recommended_careers": [
+                    create_fallback_career_recommendation(
+                        role=role,
+                        confidence=0.65 - (i * 0.1),
+                    )
+                    for i, role in enumerate(["Backend Engineer", "Full-Stack Developer", "Data Engineer"][:count])
+                ],
+                "confidence_score": 0.65,
+                "reasoning": "Generated from fallback template (parse error)",
+                "source": "parse_error_fallback",
+            }
+        
+        elif method_type == "gap_analysis":
+            current_skills, target_role, required_skills = args
+            fallback = create_fallback_gap_analysis(
+                current_skills, required_skills, target_role
+            )
+            fallback["source"] = "parse_error_fallback"
+        
+        elif method_type == "roadmap":
+            target_role, missing_skills, current_experience = args
+            fallback = create_fallback_roadmap(
+                target_role, missing_skills, current_experience
+            )
+            fallback["source"] = "parse_error_fallback"
+        
+        else:
+            fallback = {"success": False, "error": f"Unknown method type: {method_type}"}
+        
+        return fallback
+    
+    # ========================================================================
+    # Mock Implementations (centralized fallback)
     # ========================================================================
     
     def _mock_generate_recommendations(
@@ -246,45 +482,53 @@ class LLMService:
         user_skills: List[str],
         count: int,
     ) -> Dict[str, Any]:
-        """Mock implementation of career recommendation with required skills."""
-        self.logger.info(f"[MOCK] Generating {count} career recommendations")
+        """Mock implementation of career recommendations."""
+        self.logger.info(
+            f"[FALLBACK_MOCK] Generating {count} career recommendations "
+            f"(mock template)"
+        )
         
         career_profiles = [
             {
                 "role": "Backend Engineer",
                 "confidence": 0.92,
                 "required_skills": ["Python", "SQL", "Docker", "REST APIs", "System Design"],
+                "reasoning": "Strong match for backend development with system design focus",
             },
             {
-                "role": "Full-Stack Developer", 
+                "role": "Full-Stack Developer",
                 "confidence": 0.85,
                 "required_skills": ["JavaScript", "React", "Node.js", "SQL", "HTML/CSS"],
+                "reasoning": "Good fit for end-to-end development across stack",
             },
             {
                 "role": "DevOps Engineer",
                 "confidence": 0.78,
                 "required_skills": ["Docker", "Kubernetes", "CI/CD", "AWS", "Linux"],
+                "reasoning": "Suitable for infrastructure and deployment focus",
             },
             {
                 "role": "Data Engineer",
                 "confidence": 0.75,
                 "required_skills": ["Python", "SQL", "Spark", "Data Pipelines", "ETL"],
+                "reasoning": "Match for data processing and pipeline work",
             },
             {
                 "role": "ML Engineer",
                 "confidence": 0.72,
                 "required_skills": ["Python", "TensorFlow", "PyTorch", "Statistics", "Data Science"],
+                "reasoning": "Potential for machine learning specialization",
             },
         ]
         
-        # Select top count recommendations
         recommended = career_profiles[:count]
         
         return {
             "success": True,
             "recommended_careers": recommended,
             "confidence_score": 0.75,
-            "reasoning": f"Based on {len(user_skills)} identified skills and experience level",
+            "reasoning": f"Mock recommendations based on {len(user_skills)} identified skills",
+            "source": "fallback_mock",
         }
     
     def _mock_analyze_skill_gaps(
@@ -294,9 +538,14 @@ class LLMService:
         required_skills: List[str],
     ) -> Dict[str, Any]:
         """Mock implementation of skill gap analysis."""
-        self.logger.info(f"[MOCK] Analyzing gaps for {target_role}")
+        self.logger.info(
+            f"[FALLBACK_MOCK] Analyzing skill gaps for {target_role} (mock template)"
+        )
         
-        gaps = [s for s in required_skills if s.lower() not in [c.lower() for c in current_skills]]
+        gaps = [
+            s for s in required_skills
+            if s.lower() not in [c.lower() for c in current_skills]
+        ]
         
         return {
             "success": True,
@@ -304,6 +553,7 @@ class LLMService:
             "priority_gaps": gaps[:3],
             "timeline_months": 6,
             "recommendations": [f"Learn {skill}" for skill in gaps[:3]],
+            "source": "fallback_mock",
         }
     
     def _mock_generate_roadmap(
@@ -313,7 +563,10 @@ class LLMService:
         current_experience: str,
     ) -> Dict[str, Any]:
         """Mock implementation of roadmap generation."""
-        self.logger.info(f"[MOCK] Generating roadmap for {target_role} ({current_experience} level)")
+        self.logger.info(
+            f"[FALLBACK_MOCK] Generating roadmap for {target_role} "
+            f"({current_experience} level, mock template)"
+        )
         
         phases = [
             {
@@ -321,18 +574,21 @@ class LLMService:
                 "title": "Foundation",
                 "duration_months": 2,
                 "skills": missing_skills[:2],
+                "resources": ["Udemy", "Official Docs"],
             },
             {
                 "phase": 2,
                 "title": "Intermediate",
                 "duration_months": 3,
                 "skills": missing_skills[2:4],
+                "resources": ["Advanced Courses", "Projects"],
             },
             {
                 "phase": 3,
                 "title": "Advanced",
                 "duration_months": 3,
                 "skills": missing_skills[4:],
+                "resources": ["Research Papers", "Production Work"],
             },
         ]
         
@@ -342,10 +598,11 @@ class LLMService:
             "total_months": 8,
             "resources": ["Udemy", "Coursera", "Documentation"],
             "milestones": ["Complete Phase 1", "Build Project", "Complete Phase 3"],
+            "source": "fallback_mock",
         }
     
     # ========================================================================
-    # Prompt Builders
+    # Prompt Building
     # ========================================================================
     
     def _build_recommendation_prompt(
@@ -354,8 +611,18 @@ class LLMService:
         user_skills: List[str],
         job_market_data: Optional[List[str]],
         count: int,
+        rag_context: Optional[str] = None,
     ) -> str:
-        """Build prompt for career recommendations with required skills."""
+        """Build prompt for career recommendations with required skills, optionally grounded in RAG context."""
+        rag_section = ""
+        if rag_context:
+            rag_section = f"""
+INDUSTRY KNOWLEDGE BASE (from career knowledge database):
+{rag_context}
+
+Use this knowledge base to ground your recommendations in real market data and requirements.
+"""
+        
         return f"""
 You are an expert career advisor analyzing a professional's background to recommend suitable career paths.
 
@@ -364,6 +631,7 @@ USER PROFILE:
 - Education: {user_profile.get('education', 'Bachelor')}
 - Current Skills: {', '.join(user_skills) if user_skills else 'Not specified'}
 - Preferences: {user_profile.get('preferences', {{}})}
+{rag_section}
 
 TASK:
 1. Analyze the user's profile and skills carefully
@@ -480,33 +748,4 @@ Return ONLY valid JSON:
     "resources": ["Udemy", "Coursera", "YouTube"]
 }}
         """
-    
-    # ========================================================================
-    # Helper Methods
-    # ========================================================================
-    
-    def _extract_careers_from_text(self, text: str) -> List[str]:
-        """Extract career names from unstructured text."""
-        # Simple fallback parsing
-        return ["Backend Engineer", "Full-Stack Developer", "DevOps Engineer"]
-    
-    def _extract_gaps_from_text(
-        self, current: List[str], required: List[str]
-    ) -> List[str]:
-        """Extract gaps from unstructured text."""
-        return [s for s in required if s not in current][:5]
-    
-    def _extract_phases_from_text(self, skills: List[str]) -> List[Dict[str, Any]]:
-        """Extract phases from unstructured text."""
-        num_phases = (len(skills) + 1) // 2
-        phases = []
-        
-        for i in range(num_phases):
-            phases.append({
-                "phase": i + 1,
-                "title": f"Phase {i + 1}",
-                "duration_months": 3,
-                "skills": skills[i*2:(i+1)*2],
-            })
-        
-        return phases
+

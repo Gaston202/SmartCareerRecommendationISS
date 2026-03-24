@@ -10,6 +10,7 @@ from .cv_agent import CVAgent
 from .career_agent import CareerAgent
 from .gap_agent import GapAgent
 from .roadmap_agent import RoadmapAgent
+from .explanation_agent import ExplanationAgent
 
 __all__ = [
     "BaseAgent",
@@ -18,4 +19,5 @@ __all__ = [
     "CareerAgent",
     "GapAgent",
     "RoadmapAgent",
+    "ExplanationAgent",
 ]

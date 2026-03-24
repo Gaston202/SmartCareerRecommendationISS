@@ -105,6 +105,7 @@ class RoadmapAgent(BaseAgent):
                 "success_criteria": llm_result.get("success_criteria", []),
                 "milestones": llm_result.get("milestones", []),
                 "resources": llm_result.get("resources", []),
+                "llm_source": llm_result.get("source", "unknown"),  # Track pipeline source
             }
             
             self._log_execution(

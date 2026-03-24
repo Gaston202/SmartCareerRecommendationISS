@@ -22,6 +22,7 @@ from .agents import (
     CareerAgent,
     GapAgent,
     RoadmapAgent,
+    ExplanationAgent,
 )
 from .tools import get_tool, list_tools, call_tool
 from .utils import get_logger
@@ -46,6 +47,7 @@ class PipelineOrchestrator:
         3. CareerAgent: Generate career recommendations
         4. GapAgent: Analyze skill gaps for each career
         5. RoadmapAgent: Generate learning roadmap
+        6. ExplanationAgent: Generate explanations for why careers match
     
     TODO:
         - Implement retry logic for failed agents
@@ -66,6 +68,7 @@ class PipelineOrchestrator:
         self.career_agent = CareerAgent()
         self.gap_agent = GapAgent()
         self.roadmap_agent = RoadmapAgent()
+        self.explanation_agent = ExplanationAgent()
         
         self.agent_outputs: Dict[str, AgentOutput] = {}
         
@@ -211,6 +214,36 @@ class PipelineOrchestrator:
                 )
                 self.agent_outputs["roadmap"] = roadmap_output
                 self.logger.info("  → Roadmap generated successfully")
+            
+            # Stage 6: Explanation Generation (explain why careers match)
+            if config.ENABLE_EXPLANATION_AGENT:
+                self.logger.info("Stage 6: Running Explanation Agent")
+                
+                # Get first (best) career recommendation for explanation
+                career_data = self.agent_outputs.get("career", AgentOutput(agent_type=AgentType.CAREER, success=False, data={})).data or {}
+                career_recs = career_data.get("recommended_careers", [])
+                primary_career = career_recs[0] if career_recs else None
+                
+                if primary_career:
+                    # Get skills data
+                    user_skills = career_data.get("user_skills", [])
+                    required_skills = primary_career.get("required_skills", [])
+                    
+                    explain_input = self._prepare_agent_input(
+                        pipeline_input,
+                        self.agent_outputs,
+                    )
+                    explain_input["career_recommendation"] = primary_career
+                    explain_input["user_skills"] = user_skills
+                    explain_input["required_skills"] = required_skills
+                    explain_input["user_profile"] = pipeline_input.get("user_profile")
+                    
+                    explanation_output = self._run_agent(
+                        self.explanation_agent,
+                        explain_input,
+                    )
+                    self.agent_outputs["explanation"] = explanation_output
+                    self.logger.info("  → Career explanation generated")
             
             # Aggregate results
             final_output = self._aggregate_results(user_id)

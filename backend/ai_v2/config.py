@@ -27,22 +27,57 @@ class AIConfig:
 
     # API and External Services
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
     
     # TODO: Add other LLM providers when implemented
     # ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
     # LLAMA_MODEL_PATH: Optional[str] = os.getenv("LLAMA_MODEL_PATH")
 
-    # Vector Store and RAG
-    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-    # TODO: Configure vector store backend (Pinecone, Weaviate, Milvus, etc.)
-    # VECTOR_STORE_TYPE: str = os.getenv("VECTOR_STORE_TYPE", "pinecone")
+    # ========================================================================
+    # Embedding Configuration (FREE local embeddings via sentence-transformers)
+    # ========================================================================
+    
+    # Provider: "local" (sentence-transformers) or "openai" (requires API key)
+    # Recommendation: Use "local" for free/unlimited embeddings
+    EMBEDDING_PROVIDER: str = os.getenv("EMBEDDING_PROVIDER", "local")
+    
+    # Model name for local embeddings (sentence-transformers models)
+    # all-MiniLM-L6-v2: 384-dim, fast, good quality
+    # all-mpnet-base-v2: 768-dim, better quality, slower
+    # distiluse-base-multilingual-cased-v2: Multilingual support
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+    
+    # ========================================================================
+    # Supabase Configuration (pgvector for semantic search)
+    # ========================================================================
+    
+    SUPABASE_URL: Optional[str] = os.getenv("SUPABASE_URL")
+    SUPABASE_ANON_KEY: Optional[str] = os.getenv("SUPABASE_ANON_KEY")
+    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    
+    # Use old key name for backwards compatibility
+    SUPABASE_KEY: Optional[str] = SUPABASE_ANON_KEY or os.getenv("SUPABASE_KEY")
+    
+    # Enable Supabase pgvector backend for RAG (requires SUPABASE_URL + keys)
+    # If disabled, falls back to in-memory retriever
+    USE_SUPABASE_RAG: bool = os.getenv("USE_SUPABASE_RAG", "false").lower() == "true"
+    
+    # ========================================================================
+    # RAG Configuration
+    # ========================================================================
+    
+    ENABLE_RAG: bool = os.getenv("ENABLE_RAG", "true").lower() == "true"
+    
+    # Supabase table name for documents
+    SUPABASE_DOCUMENTS_TABLE: str = os.getenv("SUPABASE_DOCUMENTS_TABLE", "career_documents")
+    
+    # TODO: Configure alternative vector store backends (Pinecone, Weaviate, Milvus, FAISS)
+    # VECTOR_STORE_TYPE: str = os.getenv("VECTOR_STORE_TYPE", "supabase")
     # VECTOR_STORE_HOST: Optional[str] = os.getenv("VECTOR_STORE_HOST")
     # VECTOR_STORE_API_KEY: Optional[str] = os.getenv("VECTOR_STORE_API_KEY")
 
     # Database
-    # TODO: Configure when integrating with backend database
-    # DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
+    DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
 
     # Pipeline Settings
     MAX_AGENTS: int = int(os.getenv("MAX_AGENTS", "5"))
@@ -58,6 +93,10 @@ class AIConfig:
     ENABLE_CAREER_AGENT: bool = os.getenv("ENABLE_CAREER_AGENT", "true").lower() == "true"
     ENABLE_GAP_AGENT: bool = os.getenv("ENABLE_GAP_AGENT", "true").lower() == "true"
     ENABLE_ROADMAP_AGENT: bool = os.getenv("ENABLE_ROADMAP_AGENT", "true").lower() == "true"
+    ENABLE_EXPLANATION_AGENT: bool = os.getenv("ENABLE_EXPLANATION_AGENT", "true").lower() == "true"
+    
+    # Advanced Features (Phase 2)
+    ENABLE_TOOL_CALLING: bool = os.getenv("ENABLE_TOOL_CALLING", "false").lower() == "true"
 
     @classmethod
     def validate(cls) -> bool:

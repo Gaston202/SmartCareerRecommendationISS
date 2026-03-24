@@ -109,6 +109,7 @@ class GapAgent(BaseAgent):
                 "timeline_months": llm_result.get("timeline_months", 6),
                 "recommendations": llm_result.get("recommendations", []),
                 "gap_percentage": gap_analysis.gap_percentage,
+                "llm_source": llm_result.get("source", "unknown"),  # Track pipeline source
             }
             
             self._log_execution(
