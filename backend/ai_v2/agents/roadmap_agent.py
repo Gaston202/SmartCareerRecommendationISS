@@ -7,6 +7,7 @@ Generates personalized career roadmaps.
 from typing import Any, Dict
 
 from ..schemas import AgentOutput, AgentType, RoadmapStep
+from ..services import LLMService
 from .base_agent import BaseAgent
 
 
@@ -36,72 +37,79 @@ class RoadmapAgent(BaseAgent):
             agent_type=AgentType.ROADMAP,
             name="Roadmap Generator",
         )
+        self.llm = LLMService()
 
     def run(self, input_data: Dict[str, Any]) -> AgentOutput:
         """
-        Generate career roadmap.
+        Generate career roadmap using LLM.
         
         Args:
-            input_data (Dict[str, Any]): Input containing skill gaps and target career
+            input_data (Dict[str, Any]): Must contain:
+                - target_role: Target job role
+                - missing_skills: Skills to learn
+                - experience_level: Current experience level
         
         Returns:
-            AgentOutput: Career roadmap
+            AgentOutput: Career roadmap with phased learning steps
         
         Example:
             >>> agent = RoadmapAgent()
-            >>> result = agent.run({"gaps": gaps, "target_role": role})
+            >>> result = agent.run({
+            ...     "target_role": "Backend Engineer",
+            ...     "missing_skills": ["Docker", "System Design"],
+            ...     "experience_level": "intermediate"
+            ... })
         """
         try:
-            self._log_execution("Starting roadmap generation")
+            self._log_execution("Starting roadmap generation with LLM")
 
             target_role = input_data.get("target_role", "Backend Engineer")
+            missing_skills = input_data.get("missing_skills", [])
+            experience_level = input_data.get("experience_level", "intermediate")
             
-            # TODO: Implement actual roadmap generation logic
-            # 1. Order skill gaps by priority and dependencies
-            # 2. Create phases with associated skills
-            # 3. Estimate duration for each phase
-            # 4. Query RAG for resources per skill
-            # 5. Define milestones (projects, certifications, etc.)
-
-            roadmap_steps = [
-                RoadmapStep(
-                    phase=1,
-                    title="Foundation: Core Python & SQL",
-                    duration_months=2,
-                    skills_to_learn=["Advanced Python", "SQL"],
-                    resources=["Leetcode", "DataCamp"],
-                    milestones=["Complete 50 LeetCode problems", "Build simple CRUD app"],
-                ),
-                RoadmapStep(
-                    phase=2,
-                    title="Containerization & DevOps Basics",
-                    duration_months=1,
-                    skills_to_learn=["Docker", "Basic Kubernetes"],
-                    resources=["Docker Documentation", "KodeKloud"],
-                    milestones=["Containerize 3 applications", "Deploy to cloud"],
-                ),
-                RoadmapStep(
-                    phase=3,
-                    title="System Design & Distributed Systems",
-                    duration_months=3,
-                    skills_to_learn=["System Design", "Distributed Systems"],
-                    resources=["System Design Primer", "YouTube channels"],
-                    milestones=["Design 2 systems", "Ace system design interview"],
-                ),
-            ]
-
+            if not missing_skills:
+                raise ValueError("missing_skills is required for roadmap generation")
+            
+            # Use LLM to generate roadmap
+            llm_result = self.llm.generate_learning_roadmap(
+                target_role=target_role,
+                missing_skills=missing_skills,
+                current_experience=experience_level,
+            )
+            
+            if not llm_result.get("success"):
+                raise ValueError("LLM failed to generate roadmap")
+            
+            # Extract phases and create RoadmapStep objects
+            roadmap_steps = []
+            phases = llm_result.get("phases", [])
+            
+            for idx, phase in enumerate(phases[:5], 1):  # Limit to 5 phases
+                step = RoadmapStep(
+                    phase=idx,
+                    title=phase.get("title", f"Phase {idx}"),
+                    duration_months=phase.get("duration_months", 1),
+                    skills_to_learn=phase.get("skills", []),
+                    resources=phase.get("resources", []),
+                    milestones=phase.get("milestones", []),
+                )
+                roadmap_steps.append(step)
+            
+            # Calculate total duration
+            total_months = sum(step.duration_months for step in roadmap_steps)
+            
             roadmap_data = {
                 "target_role": target_role,
-                "total_roadmap_months": 6,
+                "total_roadmap_months": total_months,
                 "phases": [step.dict() for step in roadmap_steps],
-                "success_criteria": [
-                    "Master system design concepts",
-                    "Build 3+ production-grade projects",
-                    "Pass technical interviews",
-                ],
+                "success_criteria": llm_result.get("success_criteria", []),
+                "milestones": llm_result.get("milestones", []),
+                "resources": llm_result.get("resources", []),
             }
-
-            self._log_execution("Roadmap generation completed successfully")
+            
+            self._log_execution(
+                f"Roadmap generation completed - {len(roadmap_steps)} phases created"
+            )
 
             return self._create_output(
                 success=True,

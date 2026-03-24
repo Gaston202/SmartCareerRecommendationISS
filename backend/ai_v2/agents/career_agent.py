@@ -2,11 +2,13 @@
 Career Agent for AI v2 module.
 
 Recommends suitable career paths based on user profile and market data.
+Uses LLM for intelligent recommendation generation.
 """
 
 from typing import Any, Dict
 
 from ..schemas import AgentOutput, AgentType
+from ..services import LLMService
 from .base_agent import BaseAgent
 
 
@@ -15,16 +17,20 @@ class CareerAgent(BaseAgent):
     Agent responsible for career recommendation.
     
     Purpose:
-        - Query job market data using RAG
+        - Use LLM to generate personalized career recommendations
         - Match user skills with career opportunities
         - Score and rank career options
         - Consider user preferences and constraints
         - Provide detailed career information
     
+    LLM Integration:
+        - Uses OpenAI GPT-4 for recommendations (with mock fallback)
+        - Generates structured career suggestions
+        - Includes match scores and market data
+    
     TODO:
         - Build job market knowledge base (RAG)
-        - Implement skill-to-career matching algorithm
-        - Add market demand scoring
+        - Add market demand scoring  
         - Filter careers by user preferences
         - Query salary and growth trends
         - EXPERIMENTAL: Multi-agent debate for career consensus
@@ -36,58 +42,74 @@ class CareerAgent(BaseAgent):
             agent_type=AgentType.CAREER,
             name="Career Recommender",
         )
+        self.llm = LLMService()
 
     def run(self, input_data: Dict[str, Any]) -> AgentOutput:
         """
-        Generate career recommendations.
+        Generate career recommendations using LLM.
         
         Args:
-            input_data (Dict[str, Any]): Input containing profile and skill data
+            input_data (Dict[str, Any]): Must contain:
+                - user_profile: UserProfile object
+                - (optional) cv_data: CV analysis results
+                - (optional) preferences: Career preferences
         
         Returns:
-            AgentOutput: Career recommendations
+            AgentOutput: Career recommendations with match scores
         
         Example:
             >>> agent = CareerAgent()
-            >>> result = agent.run({"skills": skills, "preferences": prefs})
+            >>> result = agent.run({"user_profile": profile})
+            >>> print(result.data["recommended_careers"])
         """
         try:
-            self._log_execution("Starting career recommendation")
+            self._log_execution("Starting career recommendation with LLM")
 
-            # TODO: Implement actual career recommendation logic
-            # 1. Query RAG system for job market data
-            # 2. Match user skills to career requirements
-            # 3. Score careers by skill match and market demand
-            # 4. Rank careers by predicted success probability
-            # 5. Filter by user preferences
-
+            user_profile = input_data.get("user_profile")
+            cv_data = input_data.get("cv_data", {})
+            preferences = input_data.get("preferences", {})
+            
+            if not user_profile:
+                raise ValueError("user_profile is required")
+            
+            # Extract skills from profile and CV
+            user_skills = user_profile.current_skills or []
+            cv_skills = cv_data.get("skills_extracted", [])
+            all_skills = list(set(user_skills + cv_skills))
+            
+            # Get market data (for future RAG integration)
+            job_market_data = input_data.get("job_market_data")
+            
+            # Use LLM to generate recommendations
+            llm_result = self.llm.generate_recommendations(
+                user_profile={
+                    "experience_level": user_profile.experience_level,
+                    "education": user_profile.education,
+                    "preferences": preferences,
+                },
+                user_skills=all_skills,
+                job_market_data=job_market_data,
+                count=3,  # Generate 3 recommendations
+            )
+            
+            if not llm_result.get("success"):
+                raise ValueError("LLM failed to generate recommendations")
+            
+            # Structure career recommendations
+            recommended_careers = llm_result.get("recommended_careers", [])
+            
             career_recommendations = {
-                "recommended_careers": [
-                    {
-                        "role": "Backend Engineer",
-                        "match_score": 0.85,
-                        "market_demand": "high",
-                        "salary_range": "$100k-$150k",
-                        "required_skills": ["Python", "databases", "system design"],
-                        "growth_trajectory": "strong",
-                    },
-                    {
-                        "role": "DevOps Engineer",
-                        "match_score": 0.72,
-                        "market_demand": "high",
-                        "salary_range": "$110k-$160k",
-                        "required_skills": ["Linux", "Docker", "Kubernetes"],
-                        "growth_trajectory": "strong",
-                    },
-                ],
-                "primary_recommendation": "Backend Engineer",
-                "confidence_score": 0.85,
-                # TODO: Add reasoning from LLM
-                "reasoning": "",
+                "recommended_careers": recommended_careers,
+                "primary_recommendation": recommended_careers[0] if recommended_careers else None,
+                "confidence_score": llm_result.get("confidence_score", 0.75),
+                "reasoning": llm_result.get("reasoning", "Generated by AI"),
+                "user_skills": all_skills,
             }
-
-            self._log_execution("Career recommendation completed successfully")
-
+            
+            self._log_execution(
+                f"Career recommendation completed - {len(recommended_careers)} careers recommended"
+            )
+            
             return self._create_output(
                 success=True,
                 data=career_recommendations,

@@ -6,6 +6,16 @@ Central place for environment variables, constants, and settings.
 
 import os
 from typing import Optional
+from pathlib import Path
+
+# Load .env file if it exists
+try:
+    from dotenv import load_dotenv
+    env_file = Path(__file__).parent.parent.parent / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+except ImportError:
+    pass  # dotenv not installed, use environment variables only
 
 
 class AIConfig:

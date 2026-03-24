@@ -78,6 +78,13 @@ class PipelineOrchestrator:
         """
         Execute the complete recommendation pipeline.
         
+        Pipeline Data Flow:
+            1. ProfileAgent: Analyze user profile
+            2. CVAgent: Extract skills from CV
+            3. CareerAgent: Get required_skills for recommended careers
+            4. GapAgent: Compare skills vs required_skills → missing_skills
+            5. RoadmapAgent: Generate learning path for missing_skills
+        
         Args:
             pipeline_input (Dict[str, Any]): Input dict containing:
                 - user_profile: UserProfile object
@@ -100,9 +107,6 @@ class PipelineOrchestrator:
             
             user_id = pipeline_input["user_profile"].user_id
             
-            # TODO: Add timeout wrapping per agent
-            # TODO: Add retry logic for transient failures
-            
             # Stage 1: Profile Analysis
             if config.ENABLE_PROFILE_AGENT:
                 self.logger.info("Stage 1: Running Profile Agent")
@@ -112,7 +116,8 @@ class PipelineOrchestrator:
                 )
                 self.agent_outputs["profile"] = profile_output
             
-            # Stage 2: CV Analysis
+            # Stage 2: CV Analysis (extract skills)
+            cv_skills = []
             if config.ENABLE_CV_AGENT and pipeline_input.get("cv_text"):
                 self.logger.info("Stage 2: Running CV Agent")
                 cv_output = self._run_agent(
@@ -120,8 +125,14 @@ class PipelineOrchestrator:
                     pipeline_input,
                 )
                 self.agent_outputs["cv"] = cv_output
+                
+                # Extract skills from CV
+                cv_data = cv_output.data or {}
+                cv_skills = cv_data.get("skills_extracted", [])
+                self.logger.info(f"  → Extracted {len(cv_skills)} skills from CV")
             
-            # Stage 3: Career Recommendation
+            # Stage 3: Career Recommendation (get required_skills)
+            required_skills = []
             if config.ENABLE_CAREER_AGENT:
                 self.logger.info("Stage 3: Running Career Agent")
                 career_input = self._prepare_agent_input(
@@ -133,32 +144,73 @@ class PipelineOrchestrator:
                     career_input,
                 )
                 self.agent_outputs["career"] = career_output
+                
+                # Extract required_skills from career recommendations
+                career_data = career_output.data or {}
+                careers = career_data.get("recommended_careers", [])
+                if careers and isinstance(careers[0], dict):
+                    required_skills = careers[0].get("required_skills", [])
+                self.logger.info(f"  → Identified {len(required_skills)} required skills")
             
-            # Stage 4: Gap Analysis
+            # Stage 4: Gap Analysis (compare CV skills vs required_skills)
+            missing_skills = []
             if config.ENABLE_GAP_AGENT:
                 self.logger.info("Stage 4: Running Gap Agent")
+                
+                # Build gap input with CV skills and required skills
                 gap_input = self._prepare_agent_input(
                     pipeline_input,
                     self.agent_outputs,
                 )
+                gap_input["current_skills"] = cv_skills or pipeline_input.get("user_profile").current_skills
+                gap_input["required_skills"] = required_skills
+                
                 gap_output = self._run_agent(
                     self.gap_agent,
                     gap_input,
                 )
                 self.agent_outputs["gap"] = gap_output
+                
+                # Extract missing_skills from gap analysis
+                gap_data = gap_output.data or {}
+                
+                # Use priority_gaps directly as missing_skills (skills to learn)
+                missing_skills = gap_data.get("priority_gaps", [])
+                
+                # If priority_gaps not available, extract from gap_items
+                if not missing_skills:
+                    gap_analysis = gap_data.get("gaps", [])
+                    if gap_analysis and isinstance(gap_analysis[0], dict):
+                        gap_items = gap_analysis[0].get("gap_items", [])
+                        missing_skills = [item["skill"] if isinstance(item, dict) else item for item in gap_items]
+                
+                self.logger.info(f"  → Identified {len(missing_skills)} skill gaps")
             
-            # Stage 5: Roadmap Generation
+            # Stage 5: Roadmap Generation (create learning path for missing skills)
             if config.ENABLE_ROADMAP_AGENT:
                 self.logger.info("Stage 5: Running Roadmap Agent")
+                
+                # Build roadmap input with missing skills
                 roadmap_input = self._prepare_agent_input(
                     pipeline_input,
                     self.agent_outputs,
                 )
+                roadmap_input["missing_skills"] = missing_skills
+                
+                # Get target role from preferences or use default
+                preferences = pipeline_input.get("preferences", {}) or {}
+                preferred_roles = preferences.get("preferred_roles", [])
+                roadmap_input["target_role"] = (
+                    preferred_roles[0] if preferred_roles else "Backend Engineer"
+                )
+                roadmap_input["experience_level"] = pipeline_input.get("user_profile").experience_level
+                
                 roadmap_output = self._run_agent(
                     self.roadmap_agent,
                     roadmap_input,
                 )
                 self.agent_outputs["roadmap"] = roadmap_output
+                self.logger.info("  → Roadmap generated successfully")
             
             # Aggregate results
             final_output = self._aggregate_results(user_id)

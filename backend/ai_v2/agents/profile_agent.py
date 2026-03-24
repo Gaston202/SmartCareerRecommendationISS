@@ -7,6 +7,7 @@ Analyzes user profile to extract skills, experience, and preferences.
 from typing import Any, Dict
 
 from ..schemas import AgentOutput, AgentType
+from ..services import LLMService
 from .base_agent import BaseAgent
 
 
@@ -33,44 +34,51 @@ class ProfileAgent(BaseAgent):
             agent_type=AgentType.PROFILE,
             name="Profile Analyzer",
         )
+        self.llm = LLMService()
 
     def run(self, input_data: Dict[str, Any]) -> AgentOutput:
         """
-        Analyze user profile.
+        Analyze user profile using LLM.
         
         Args:
             input_data (Dict[str, Any]): Must contain 'user_profile' key with UserProfile object
         
         Returns:
-            AgentOutput: Profile analysis result
+            AgentOutput: Profile analysis result with skill categorization and insights
         
         Example:
             >>> agent = ProfileAgent()
             >>> result = agent.run({"user_profile": user_profile})
         """
         try:
-            self._log_execution("Starting profile analysis")
-
-            # TODO: Implement actual profile analysis logic
-            # 1. Extract skills from user_profile
-            # 2. Categorize by proficiency level
-            # 3. Identify career preferences
-            # 4. Validate against job market data
+            self._log_execution("Starting profile analysis with LLM")
 
             user_profile = input_data.get("user_profile")
             if not user_profile:
                 raise ValueError("user_profile is required in input_data")
 
-            # Mock implementation for now
+            # Extract preferences (separate from user_profile data)
+            preferences = input_data.get("preferences", {}) or {}
+            preferred_roles = preferences.get("preferred_roles", [])
+            target_role = preferred_roles[0] if preferred_roles else "General Professional"
+
+            # Use LLM to analyze and categorize skills
+            llm_result = self.llm.analyze_skill_gaps(
+                current_skills=user_profile.current_skills,
+                target_role=target_role,
+                required_skills=user_profile.current_skills,  # For context
+            )
+
+            # Extract insights from LLM analysis
             profile_insights = {
                 "skills_extracted": user_profile.current_skills,
-                "skill_categories": {
-                    "technical": user_profile.current_skills,  # TODO: Categorize properly
-                    "soft_skills": [],  # TODO: Extract from CV or profile
-                },
-                "experience_years": 2,  # TODO: Calculate from profile data
+                "skill_categories": self._categorize_skills(user_profile.current_skills),
+                "experience_years": user_profile.experience_level,
                 "career_stage": user_profile.experience_level,
-                "market_demand": "high",  # TODO: Query job market data
+                "preferred_roles": target_role,
+                "market_demand": "high" if len(user_profile.current_skills) >= 3 else "medium",
+                "profile_completeness": self._calculate_completeness(user_profile, preferences),
+                "llm_insights": llm_result.get("recommendations", []),
             }
 
             self._log_execution("Profile analysis completed successfully")
@@ -86,3 +94,45 @@ class ProfileAgent(BaseAgent):
                 success=False,
                 error=str(e),
             )
+    
+    def _categorize_skills(self, skills: list) -> Dict[str, list]:
+        """Categorize skills by type."""
+        technical_skills = []
+        soft_skills = []
+        
+        technical_keywords = ["python", "java", "javascript", "sql", "react", "docker", "aws", "kubernetes"]
+        
+        for skill in skills:
+            if any(tech.lower() in skill.lower() for tech in technical_keywords):
+                technical_skills.append(skill)
+            else:
+                soft_skills.append(skill)
+        
+        return {
+            "technical": technical_skills if technical_skills else skills[:len(skills)//2] or skills,
+            "soft_skills": soft_skills if soft_skills else [],
+        }
+    
+    def _calculate_completeness(self, user_profile, preferences: dict = None) -> float:
+        """Calculate profile completeness percentage."""
+        if preferences is None:
+            preferences = {}
+        
+        score = 0.0
+        if user_profile.current_skills:
+            score += 25
+        
+        # Check if user has preferred roles in preferences
+        preferred_roles = preferences.get("preferred_roles", [])
+        if preferred_roles:
+            score += 25
+        
+        # Check experience level (no years_of_experience attribute)
+        if user_profile.experience_level:
+            score += 25
+        
+        # Check education
+        if user_profile.education:
+            score += 25
+        
+        return score
