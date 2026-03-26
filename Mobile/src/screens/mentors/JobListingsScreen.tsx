@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthProvider';
 import { homeColors } from '../homeTheme';
 import { useJobListings } from '../../features/jobs/hooks';
-import { JobFilters, JobListing } from '../../types/job';
+import { JobFilters, JobListing, JobEnrichedDetails } from '../../types/job';
+import { fetchJobDetails, extractJobInfo } from '../../api/jobDetails';
 
 const ALL_SITES = ['indeed', 'linkedin', 'zip_recruiter', 'glassdoor', 'google', 'bayt', 'naukri'];
 // Default to only reliable sites
@@ -54,6 +55,11 @@ export function JobListingsScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const [jobTypeError, setJobTypeError] = useState<string | null>(null);
   const [filtersApplied, setFiltersApplied] = useState(false);
+
+  // Expandable card state
+  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+  const [jobDetailsCache, setJobDetailsCache] = useState<Record<string, JobEnrichedDetails>>({});
+  const [loadingDetails, setLoadingDetails] = useState<Set<string>>(new Set());
 
   // Fetch jobs with useJobListings hook
   const { jobs, loading, error, refetch } = useJobListings(filters);
@@ -117,6 +123,117 @@ export function JobListingsScreen() {
     // The useJobListings hook will automatically refetch when filters change
   }, []);
 
+  // Handler: Toggle job card expansion
+  const toggleJobExpansion = useCallback(async (job: JobListing) => {
+    const jobId = job.id;
+    const isExpanded = expandedJobs.has(jobId);
+
+    if (isExpanded) {
+      // Collapse
+      setExpandedJobs(prev => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+    } else {
+      // Expand
+      setExpandedJobs(prev => {
+        const next = new Set(prev);
+        next.add(jobId);
+        return next;
+      });
+
+      // If already cached, nothing to do
+      if (jobDetailsCache[jobId]) {
+        return;
+      }
+
+      // Check if the job listing already has sufficient data
+      // JobSpy provides description and sometimes salary - use them!
+      const hasDescription = job.description && job.description.length > 100;
+      const hasSkills = job.skills && job.skills.length > 0;
+
+      if (hasDescription) {
+        // If we already have skills, use directly. Otherwise, use LLM to extract skills.
+        if (hasSkills) {
+          setJobDetailsCache(prev => ({
+            ...prev,
+            [jobId]: {
+              description: job.description,
+              skills: job.skills || [],
+              salary: job.salary,
+            },
+          }));
+          return;
+        } else {
+          // Use LLM to extract skills from the description
+          setLoadingDetails(prev => {
+            const next = new Set(prev);
+            next.add(jobId);
+            return next;
+          });
+
+          try {
+            const extracted = await extractJobInfo(job.description, job.salary_range);
+            setJobDetailsCache(prev => ({
+              ...prev,
+              [jobId]: {
+                description: job.description,
+                skills: extracted.skills || [],
+                salary: extracted.salary || job.salary,
+              },
+            }));
+          } catch (error) {
+            console.error('Failed to extract job info with LLM:', error);
+            // Fall back to just description, no skills
+            setJobDetailsCache(prev => ({
+              ...prev,
+              [jobId]: {
+                description: job.description,
+                skills: [],
+                salary: job.salary,
+              },
+            }));
+          } finally {
+            setLoadingDetails(prev => {
+              const next = new Set(prev);
+              next.delete(jobId);
+              return next;
+            });
+          }
+          return;
+        }
+      }
+
+      // Only fetch detailed scraped info if the listing lacks description entirely
+      setLoadingDetails(prev => {
+        const next = new Set(prev);
+        next.add(jobId);
+        return next;
+      });
+
+      try {
+        const details = await fetchJobDetails(job.job_url);
+        setJobDetailsCache(prev => ({
+          ...prev,
+          [jobId]: details,
+        }));
+      } catch (error) {
+        console.error('Failed to fetch job details:', error);
+        setJobDetailsCache(prev => ({
+          ...prev,
+          [jobId]: {},
+        }));
+      } finally {
+        setLoadingDetails(prev => {
+          const next = new Set(prev);
+          next.remove(jobId);
+          return next;
+        });
+      }
+    }
+  }, [expandedJobs, jobDetailsCache]);
+
   // Format salary display
   const formatSalary = (job: JobListing): string => {
     if (job.salary_range) return job.salary_range;
@@ -124,68 +241,144 @@ export function JobListingsScreen() {
       const { min_amount, max_amount, currency, interval } = job.salary;
       if (min_amount && max_amount) {
         const cur = currency || '$';
-        const minK = min_amount >= 1000 ? `${(min_amount/1000).toFixed(0)}k` : min_amount.toString();
-        const maxK = max_amount >= 1000 ? `${(max_amount/1000).toFixed(0)}k` : max_amount.toString();
+        const minK = min_amount >= 1000 ? `${Math.round(min_amount/1000)}k` : min_amount.toLocaleString();
+        const maxK = max_amount >= 1000 ? `${Math.round(max_amount/1000)}k` : max_amount.toLocaleString();
         return `${cur}${minK} - ${cur}${maxK}${interval ? `/${interval}` : ''}`;
       } else if (min_amount) {
-        return `${currency || '$'}${min_amount}+`;
+        return `${currency || '$'}${min_amount.toLocaleString()}+`;
       }
     }
     return 'Not specified';
   };
 
+  // Format salary from enriched details (JobSalary only)
+  const formatEnrichedSalary = (salary?: JobListing['salary']): string => {
+    if (!salary) return 'Not specified';
+    const { min_amount, max_amount, currency, interval } = salary;
+    if (min_amount && max_amount) {
+      const cur = currency || '$';
+      const fmt = (n: number) => n >= 1000 ? `${Math.round(n/1000)}k` : n.toLocaleString();
+      return `${cur}${fmt(min_amount)} - ${cur}${fmt(max_amount)}${interval ? `/${interval}` : ''}`;
+    } else if (min_amount) {
+      return `${currency || '$'}${min_amount.toLocaleString()}+`;
+    }
+    return 'Not specified';
+  };
+
   // Render job card
-  const renderJobCard = useCallback(({ item, index }: { item: JobListing; index: number }) => (
-    <View style={styles.jobCard}>
-      <View style={styles.jobHeader}>
-        <Text style={styles.jobTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        <Text style={styles.jobPosted}>
-          {item.date_posted ? new Date(item.date_posted).toLocaleDateString() : 'Recent'}
-        </Text>
+  const renderJobCard = useCallback(({ item, index }: { item: JobListing; index: number }) => {
+    const jobId = item.id;
+    const isExpanded = expandedJobs.has(jobId);
+    const details = jobDetailsCache[jobId];
+    const isLoading = loadingDetails.has(jobId);
+
+    return (
+      <View style={styles.jobCard}>
+        {/* Header with title and expand button */}
+        <View style={styles.jobHeader}>
+          <Text style={styles.jobTitle} numberOfLines={isExpanded ? 0 : 2}>
+            {item.title}
+          </Text>
+          <View style={styles.headerRight}>
+            {isExpanded ? (
+              <Pressable onPress={() => toggleJobExpansion(item)} style={styles.expandBtn}>
+                <Ionicons name="chevron-up" size={24} color={homeColors.primary} />
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => toggleJobExpansion(item)} style={styles.expandBtn}>
+                <Ionicons name="chevron-down" size={24} color={homeColors.textMuted} />
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        <Text style={styles.jobCompany}>{item.company}</Text>
+
+        <View style={styles.tagsRow}>
+          {/* Location */}
+          <View style={styles.tag}>
+            <Ionicons name="location-outline" size={14} color={homeColors.textMuted} />
+            <Text style={styles.tagText} numberOfLines={1}>
+              {item.is_remote ? 'Remote' : item.location || 'Unknown location'}
+            </Text>
+          </View>
+
+          {/* Job type */}
+          <View style={styles.tag}>
+            <Ionicons name="time-outline" size={14} color={homeColors.textMuted} />
+            <Text style={styles.tagText}>
+              {item.job_type ? item.job_type.charAt(0).toUpperCase() + item.job_type.slice(1) : 'N/A'}
+            </Text>
+          </View>
+
+          {/* Salary - use enriched details if available */}
+          <View style={styles.tag}>
+            <Ionicons name="cash-outline" size={14} color={homeColors.primary} />
+            <Text style={[styles.tagText, { color: homeColors.primary, fontWeight: '600' }]} numberOfLines={1}>
+              {details?.salary ? formatEnrichedSalary(details.salary) : formatSalary(item)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Optional: job board source */}
+        {item.site && (
+          <Text style={styles.sourceText}>Source: {SITE_LABELS[item.site] || item.site}</Text>
+        )}
+
+        {/* Expanded content: Description and Skills */}
+        {isExpanded && (
+          <View style={styles.expandedContent}>
+            {isLoading ? (
+              <View style={styles.loadingDetails}>
+                <ActivityIndicator size="small" color={homeColors.primary} />
+                <Text style={styles.loadingDetailsText}>Loading job details...</Text>
+              </View>
+            ) : details ? (
+              <>
+                {/* Description */}
+                {(details?.description || item.description) && (
+                  <View style={styles.detailSection}>
+                    <Text style={styles.detailLabel}>Description</Text>
+                    <Text style={styles.descriptionText}>
+                      {(details?.description || item.description).length > 1000
+                        ? (details?.description || item.description).substring(0, 1000) + '...'
+                        : (details?.description || item.description)}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Skills */}
+                {(details?.skills?.length || item.skills?.length) > 0 && (
+                  <View style={styles.detailSection}>
+                    <Text style={styles.detailLabel}>Required Skills</Text>
+                    <View style={styles.skillsContainer}>
+                      {(details?.skills || item.skills || []).map((skill, idx) => (
+                        <View key={idx} style={styles.skillTag}>
+                          <Text style={styles.skillTagText}>{skill}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {/* Fallback messages */}
+                {!details.description && !details.skills?.length && (
+                  <Text style={styles.noDetailsText}>No additional details available.</Text>
+                )}
+              </>
+            ) : null}
+          </View>
+        )}
+
+        <Pressable
+          style={({ pressed }) => [styles.applyBtn, pressed && styles.pressed]}
+          onPress={() => handleApply(item.job_url)}
+        >
+          <Text style={styles.applyBtnText}>Apply Now</Text>
+        </Pressable>
       </View>
-      <Text style={styles.jobCompany}>{item.company}</Text>
-
-      <View style={styles.tagsRow}>
-        {/* Location */}
-        <View style={styles.tag}>
-          <Ionicons name="location-outline" size={14} color={homeColors.textMuted} />
-          <Text style={styles.tagText} numberOfLines={1}>
-            {item.is_remote ? 'Remote' : item.location || 'Unknown location'}
-          </Text>
-        </View>
-
-        {/* Job type */}
-        <View style={styles.tag}>
-          <Ionicons name="time-outline" size={14} color={homeColors.textMuted} />
-          <Text style={styles.tagText}>
-            {item.job_type ? item.job_type.charAt(0).toUpperCase() + item.job_type.slice(1) : 'N/A'}
-          </Text>
-        </View>
-
-        {/* Salary */}
-        <View style={styles.tag}>
-          <Ionicons name="cash-outline" size={14} color={homeColors.primary} />
-          <Text style={[styles.tagText, { color: homeColors.primary, fontWeight: '600' }]} numberOfLines={1}>
-            {formatSalary(item)}
-          </Text>
-        </View>
-      </View>
-
-      {/* Optional: job board source */}
-      {item.site && (
-        <Text style={styles.sourceText}>Source: {SITE_LABELS[item.site] || item.site}</Text>
-      )}
-
-      <Pressable
-        style={({ pressed }) => [styles.applyBtn, pressed && styles.pressed]}
-        onPress={() => handleApply(item.job_url)}
-      >
-        <Text style={styles.applyBtnText}>Apply Now</Text>
-      </Pressable>
-    </View>
-  ), [handleApply]);
+    );
+  }, [expandedJobs, jobDetailsCache, loadingDetails, toggleJobExpansion, handleApply]);
 
   // Memoize filtered jobs (though the hook already filters)
   const displayedJobs = useMemo(() => jobs, [jobs]);
@@ -500,20 +693,6 @@ const styles = StyleSheet.create({
     backgroundColor: homeColors.primary + '15',
     borderColor: homeColors.primary,
   },
-  filterBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: homeColors.backgroundStart,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: homeColors.cardBorder,
-  },
-  filterBtnActive: {
-    backgroundColor: homeColors.primary + '15',
-    borderColor: homeColors.primary,
-  },
   listContent: {
     padding: 20,
   },
@@ -603,6 +782,14 @@ const styles = StyleSheet.create({
     marginRight: 8,
     lineHeight: 24,
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  expandBtn: {
+    padding: 4,
+    marginLeft: 8,
+  },
   jobPosted: {
     fontSize: 12,
     color: homeColors.textMuted,
@@ -617,7 +804,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   tag: {
     flexDirection: 'row',
@@ -636,6 +823,66 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: homeColors.textLight,
     marginBottom: 12,
+  },
+  expandedContent: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: homeColors.cardBorder,
+    backgroundColor: homeColors.backgroundStart + '40',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  loadingDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 12,
+  },
+  loadingDetailsText: {
+    fontSize: 14,
+    color: homeColors.textMuted,
+  },
+  detailSection: {
+    marginBottom: 16,
+  },
+  detailLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: homeColors.textDark,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  descriptionText: {
+    fontSize: 14,
+    color: homeColors.textDark,
+    lineHeight: 20,
+  },
+  skillsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  skillTag: {
+    backgroundColor: homeColors.primary + '15',
+    borderWidth: 1,
+    borderColor: homeColors.primary + '30',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  skillTagText: {
+    fontSize: 12,
+    color: homeColors.primary,
+    fontWeight: '500',
+  },
+  noDetailsText: {
+    fontSize: 14,
+    color: homeColors.textMuted,
+    fontStyle: 'italic',
   },
   applyBtn: {
     backgroundColor: homeColors.primary + '15',

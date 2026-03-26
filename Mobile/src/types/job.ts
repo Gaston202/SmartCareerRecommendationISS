@@ -33,6 +33,31 @@ export interface JobListing {
   company_industry?: string;
   skills?: string[];
   site: string; // which job board: indeed, linkedin, glassdoor, etc.
+  // Enriched details fields (optional, populated by job-details endpoint)
+  enriched_at?: string; // ISO timestamp when details were scraped
+}
+
+/**
+ * Response from the /api/job-details endpoint.
+ * Contains only the enriched fields (subset of JobListing).
+ */
+export interface JobEnrichedDetails {
+  job_url?: string;
+  description?: string;
+  salary?: JobSalary;
+  skills?: string[];
+  enriched_at?: string;
+}
+
+/**
+ * Response from the /api/extract-job-info endpoint.
+ * Used to enrich job data using LLM on existing descriptions.
+ */
+export interface JobExtractedInfo {
+  skills: string[];
+  salary?: JobSalary;
+  description?: string;
+  extraction_method: string;
 }
 
 export interface JobFilters {
