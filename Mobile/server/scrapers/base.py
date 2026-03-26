@@ -5,6 +5,7 @@ import re
 import asyncio
 import random
 from httpx import AsyncClient
+import os
 
 
 @dataclass
@@ -95,11 +96,29 @@ class BaseScraper(ABC):
             headers['Referer'] = referer
         return headers
 
+    def get_scraper_api_url(self, target_url: str) -> str:
+        """
+        Build ScraperAPI URL if SCRAPER_API_KEY is set.
+        Returns the original URL if no API key is configured.
+        """
+        scraper_api_key = os.getenv("SCRAPER_API_KEY")
+        if scraper_api_key:
+            # Use ScraperAPI to bypass bot detection
+            # Correct endpoint: api.scraperapi.com
+            scraper_url = f"https://api.scraperapi.com/?api_key={scraper_api_key}&url={target_url}"
+            print(f"DEBUG: Using ScraperAPI for {target_url[:50]}...")
+            return scraper_url
+        return target_url
+
     async def fetch_with_retry(self, client: AsyncClient, url: str, max_retries: int = 2, base_delay: float = 1.0) -> Optional[str]:
         """
         Fetch URL with retry logic, rotating user agents, and delays.
+        Uses ScraperAPI if SCRAPER_API_KEY is set to bypass bot detection.
         Returns HTML string or None if all retries fail.
         """
+        # Wrap URL with ScraperAPI if key is available
+        fetch_url = self.get_scraper_api_url(url)
+
         for attempt in range(max_retries + 1):
             try:
                 # Add delay between retries (exponential backoff)
@@ -108,20 +127,20 @@ class BaseScraper(ABC):
                     await asyncio.sleep(delay)
 
                 headers = self.get_random_headers(referer=url)
-                response = await client.get(url, headers=headers)
+                response = await client.get(fetch_url, headers=headers)
 
                 # LinkedIn 999 or 429/403 = rate limited/bot detected
                 if response.status_code in [999, 429, 403, 401]:
-                    print(f"WARNING: Got {response.status_code} from {url}, retrying...")
+                    print(f"WARNING: Got {response.status_code} from {fetch_url}, retrying...")
                     continue
 
                 if response.status_code == 200:
                     return response.text
                 else:
-                    print(f"WARNING: HTTP {response.status_code} from {url}")
+                    print(f"WARNING: HTTP {response.status_code} from {fetch_url}")
 
             except Exception as e:
-                print(f"ERROR fetching {url}: {e}")
+                print(f"ERROR fetching {fetch_url}: {e}")
                 if attempt < max_retries:
                     continue
 
