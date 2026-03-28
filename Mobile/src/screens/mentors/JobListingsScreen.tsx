@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   Pressable,
   TextInput,
   Modal,
@@ -13,7 +13,10 @@ import {
   Linking,
   ActivityIndicator,
   RefreshControl,
+  Platform,
+  ScrollView,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthProvider';
@@ -35,6 +38,28 @@ const SITE_LABELS: Record<string, string> = {
   naukri: 'Naukri',
 };
 
+// Design tokens for consistent spacing and layout
+const TOKENS = {
+  spacing: {
+    xs: 4,
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 20,
+    xxl: 24,
+  },
+  radius: {
+    sm: 6,
+    md: 8,
+    lg: 12,
+    xl: 16,
+    full: 9999,
+  },
+  touchTarget: {
+    min: 44, // Minimum 44×44pt for touch targets (iOS Human Interface Guidelines)
+  },
+} as const;
+
 export function JobListingsScreen() {
   const { state } = useAuth();
   const insets = useSafeAreaInsets();
@@ -55,6 +80,9 @@ export function JobListingsScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const [jobTypeError, setJobTypeError] = useState<string | null>(null);
   const [filtersApplied, setFiltersApplied] = useState(false);
+
+  // Saved jobs state
+  const [savedJobs, setSavedJobs] = useState<Set<string>>(new Set());
 
   // Expandable card state
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
@@ -79,6 +107,7 @@ export function JobListingsScreen() {
 
   // Handler: Toggle site selection
   const toggleSite = useCallback((site: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}); // Ignore haptic errors
     setFilters(prev => {
       const current = prev.siteNames || [];
       if (current.includes(site)) {
@@ -91,6 +120,20 @@ export function JobListingsScreen() {
       } else {
         return { ...prev, siteNames: [...current, site] };
       }
+    });
+  }, []);
+
+  // Handler: Toggle job save/favorite
+  const toggleSaveJob = useCallback((jobId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setSavedJobs(prev => {
+      const next = new Set(prev);
+      if (next.has(jobId)) {
+        next.delete(jobId);
+      } else {
+        next.add(jobId);
+      }
+      return next;
     });
   }, []);
 
@@ -118,6 +161,7 @@ export function JobListingsScreen() {
 
   // Handler: Apply filters from modal
   const handleApplyFilters = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setFiltersApplied(true);
     setShowFilters(false);
     // The useJobListings hook will automatically refetch when filters change
@@ -227,12 +271,18 @@ export function JobListingsScreen() {
       } finally {
         setLoadingDetails(prev => {
           const next = new Set(prev);
-          next.remove(jobId);
+          next.delete(jobId);
           return next;
         });
       }
     }
   }, [expandedJobs, jobDetailsCache]);
+
+  // Handler: Long press to quickly save job
+  const handleJobCardLongPress = useCallback((job: JobListing) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    toggleSaveJob(job.id);
+  }, [toggleSaveJob]);
 
   // Format salary display
   const formatSalary = (job: JobListing): string => {
@@ -265,26 +315,54 @@ export function JobListingsScreen() {
     return 'Not specified';
   };
 
-  // Render job card
+  // Memoize filtered jobs (though the hook already filters)
+  const displayedJobs = useMemo(() => jobs, [jobs]);
+
+  // Render individual job card
   const renderJobCard = useCallback(({ item, index }: { item: JobListing; index: number }) => {
     const jobId = item.id;
     const isExpanded = expandedJobs.has(jobId);
     const details = jobDetailsCache[jobId];
     const isLoading = loadingDetails.has(jobId);
+    const isSaved = savedJobs.has(jobId);
 
     return (
-      <View style={styles.jobCard}>
-        {/* Header with title */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.jobCard,
+          pressed && styles.cardPressed
+        ]}
+        onLongPress={() => handleJobCardLongPress(item)}
+        delayLongPress={500}
+        accessibilityLabel={`Job: ${item.title} at ${item.company}. Long press to save for later.`}
+      >
+        {/* Header with title and save button */}
         <View style={styles.jobHeader}>
-          <Text style={[styles.jobTitle, { marginRight: 0 }]} numberOfLines={isExpanded ? 0 : 2}>
+          <Text
+            style={[styles.jobTitle, { marginRight: 0 }]}
+            numberOfLines={isExpanded ? 0 : 2}
+          >
             {item.title}
           </Text>
+          <Pressable
+            style={styles.saveBtn}
+            onPress={() => toggleSaveJob(jobId)}
+            accessibilityRole="button"
+            accessibilityLabel={isSaved ? 'Remove from saved jobs' : 'Save job for later'}
+            accessibilityState={{ checked: isSaved }}
+          >
+            <Ionicons
+              name={isSaved ? 'bookmark' : 'bookmark-outline'}
+              size={22}
+              color={isSaved ? homeColors.primary : homeColors.textMuted}
+            />
+          </Pressable>
         </View>
 
-        <Text style={styles.jobCompany}>{item.company}</Text>
+        <Text style={styles.jobCompany} accessibilityRole="text">{item.company}</Text>
 
+        {/* Simplified tag row - priority: Location, Job Type, then Salary if space */}
         <View style={styles.tagsRow}>
-          {/* Location */}
           <View style={styles.tag}>
             <Ionicons name="location-outline" size={14} color={homeColors.textMuted} />
             <Text style={styles.tagText} numberOfLines={1}>
@@ -292,7 +370,6 @@ export function JobListingsScreen() {
             </Text>
           </View>
 
-          {/* Job type */}
           <View style={styles.tag}>
             <Ionicons name="time-outline" size={14} color={homeColors.textMuted} />
             <Text style={styles.tagText}>
@@ -300,13 +377,15 @@ export function JobListingsScreen() {
             </Text>
           </View>
 
-          {/* Salary - use enriched details if available */}
-          <View style={styles.tag}>
-            <Ionicons name="cash-outline" size={14} color={homeColors.primary} />
-            <Text style={[styles.tagText, { color: homeColors.primary, fontWeight: '600' }]} numberOfLines={1}>
-              {details?.salary ? formatEnrichedSalary(details.salary) : formatSalary(item)}
-            </Text>
-          </View>
+          {/* Show salary only if meaningful */}
+          {(details?.salary || item.salary) && (
+            <View style={styles.tag}>
+              <Ionicons name="cash-outline" size={14} color={homeColors.primary} />
+              <Text style={[styles.tagText, { color: homeColors.primary, fontWeight: '600' }]} numberOfLines={1}>
+                {details?.salary ? formatEnrichedSalary(details.salary) : formatSalary(item)}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Optional: job board source */}
@@ -321,7 +400,16 @@ export function JobListingsScreen() {
               {details?.description || item.description}
             </Text>
             {(details?.description || item.description).length > 200 && (
-              <Pressable onPress={() => toggleJobExpansion(item)} style={styles.showMoreBtn}>
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  toggleJobExpansion(item);
+                }}
+                style={styles.showMoreBtn}
+                accessibilityRole="button"
+                accessibilityLabel={isExpanded ? 'Show less job description' : 'Show full job description'}
+                accessibilityState={{ expanded: isExpanded }}
+              >
                 <Text style={styles.showMoreBtnText}>
                   {isExpanded ? 'Show Less' : 'Show More'}
                 </Text>
@@ -362,21 +450,24 @@ export function JobListingsScreen() {
 
         <Pressable
           style={({ pressed }) => [styles.applyBtn, pressed && styles.pressed]}
-          onPress={() => handleApply(item.job_url)}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            handleApply(item.job_url);
+          }}
+          accessibilityRole="link"
+          accessibilityLabel={`Apply for ${item.title} at ${item.company}`}
+          accessibilityHint="Opens job application in browser"
         >
           <Text style={styles.applyBtnText}>Apply Now</Text>
         </Pressable>
-      </View>
+      </Pressable>
     );
-  }, [expandedJobs, jobDetailsCache, loadingDetails, toggleJobExpansion, handleApply]);
-
-  // Memoize filtered jobs (though the hook already filters)
-  const displayedJobs = useMemo(() => jobs, [jobs]);
+  }, [expandedJobs, jobDetailsCache, loadingDetails, toggleJobExpansion, toggleSaveJob, handleApply, handleJobCardLongPress]);
 
   return (
     <View style={[styles.container, { backgroundColor: homeColors.backgroundStart }]}>
       {/* Header with Search */}
-      <View style={[styles.headerRow, { paddingTop: Math.max(insets.top, 20), backgroundColor: '#fff' }]}>
+      <View style={[styles.headerRow, { paddingTop: Math.max(insets.top, 20), backgroundColor: homeColors.cardBg }]}>
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>Job Listings</Text>
           <Text style={styles.headerSubtitle}>
@@ -393,9 +484,22 @@ export function JobListingsScreen() {
               onChangeText={text => updateFilter('search', text)}
               placeholderTextColor={homeColors.textMuted}
               returnKeyType="search"
+              accessibilityLabel="Job search"
+              accessibilityHint="Enter keywords to search jobs"
+              autoCorrect={false}
+              autoCapitalize="none"
             />
             {filters.search ? (
-              <Pressable onPress={() => updateFilter('search', '')}>
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  updateFilter('search', '');
+                }}
+                style={styles.clearSearchBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
                 <Ionicons name="close-circle" size={20} color={homeColors.textMuted} />
               </Pressable>
             ) : null}
@@ -404,11 +508,13 @@ export function JobListingsScreen() {
           {/* Results count or filter indicator */}
           <View style={styles.headerFooter}>
             {jobs.length > 0 && (
-              <Text style={styles.resultsText}>{jobs.length} jobs found</Text>
+              <Text style={styles.resultsText} accessibilityLiveRegion="polite">
+                {jobs.length} jobs found
+              </Text>
             )}
             {filtersApplied && (
               <View style={styles.filtersAppliedBadge}>
-                <Text style={styles.filtersAppliedText}>Filters applied</Text>
+                <Text style={styles.filtersAppliedText}>Filters active</Text>
               </View>
             )}
           </View>
@@ -417,54 +523,67 @@ export function JobListingsScreen() {
         {/* Filter button */}
         <Pressable
           style={[styles.filterBtn, filtersApplied && styles.filterBtnActive]}
-          onPress={() => setShowFilters(true)}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            setShowFilters(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Filter options"
+          accessibilityHint="Opens filter modal to refine job search"
+          accessibilityState={{ selected: filtersApplied }}
         >
           <Ionicons name="options" size={24} color={homeColors.primary} />
         </Pressable>
       </View>
 
       {/* Job List */}
-      <ScrollView
+      <FlatList
+        data={jobs}
+        keyExtractor={(item) => item.id}
+        renderItem={renderJobCard}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={refetch} colors={[homeColors.primary]} />
         }
-      >
-        {error && (
+        // Performance optimizations
+        initialNumToRender={5}
+        maxToRenderPerBatch={10}
+        windowSize={10}
+        removeClippedSubviews={true}
+        ListEmptyComponent={
+          !error && loading && jobs.length === 0 ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={homeColors.primary} />
+              <Text style={styles.loadingText}>Searching jobs...</Text>
+              <Text style={styles.loadingSubtext}>This may take 10-30 seconds</Text>
+            </View>
+          ) : !error && !loading && jobs.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="briefcase-outline" size={64} color={homeColors.textMuted} />
+              <Text style={styles.emptyText}>No jobs found</Text>
+              <Text style={styles.emptySubtext}>Try adjusting your filters or search terms</Text>
+              <Pressable
+                style={styles.emptyActionBtn}
+                onPress={clearFilters}
+                accessibilityRole="button"
+                accessibilityLabel="Clear all filters"
+              >
+                <Text style={styles.emptyActionBtnText}>Clear All Filters</Text>
+              </Pressable>
+            </View>
+          ) : null
+        }
+        ListHeaderComponent={error ? (
           <View style={styles.errorContainer}>
             <Ionicons name="alert-circle-outline" size={48} color={homeColors.textMuted} />
             <Text style={styles.errorText}>Failed to load jobs. Please try again.</Text>
-            <Pressable style={styles.retryBtn} onPress={refetch}>
+            <Pressable style={styles.retryBtn} onPress={refetch} accessibilityRole="button">
               <Text style={styles.retryBtnText}>Retry</Text>
             </Pressable>
           </View>
-        )}
-
-        {!error && loading && jobs.length === 0 && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={homeColors.primary} />
-            <Text style={styles.loadingText}>Searching jobs...</Text>
-            <Text style={styles.loadingSubtext}>This may take 10-30 seconds</Text>
-          </View>
-        )}
-
-        {!error && !loading && jobs.length === 0 && (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="briefcase-outline" size={64} color={homeColors.textMuted} />
-            <Text style={styles.emptyText}>No jobs found</Text>
-            <Text style={styles.emptySubtext}>Try adjusting your filters or search terms</Text>
-          </View>
-        )}
-
-        {!error && jobs.length > 0 && (
-          <View style={styles.jobsList}>
-            {jobs.map((job, index) => (
-              <View key={job.id || index}>{renderJobCard({ item: job, index })}</View>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+        ) : null}
+      />
 
       {/* Filter Modal */}
       <Modal
@@ -476,12 +595,28 @@ export function JobListingsScreen() {
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={[styles.modalContent, { paddingBottom: insets.bottom || 20, backgroundColor: '#fff' }]}>
+              <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 20), backgroundColor: homeColors.cardBg }]}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Filter Jobs</Text>
-                  <Pressable onPress={() => setShowFilters(false)}>
-                    <Ionicons name="close" size={28} color={homeColors.textMuted} />
-                  </Pressable>
+                  <View style={styles.headerRightButtons}>
+                    <Pressable
+                      style={styles.cancelBtn}
+                      onPress={() => setShowFilters(false)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Cancel and close filters"
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.cancelBtnText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setShowFilters(false)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Close filter modal"
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="close" size={28} color={homeColors.textMuted} />
+                    </Pressable>
+                  </View>
                 </View>
 
                 <ScrollView contentContainerStyle={styles.modalBody} showsVerticalScrollIndicator={false}>
@@ -493,6 +628,10 @@ export function JobListingsScreen() {
                       placeholder="e.g. San Francisco, CA or Remote"
                       value={filters.location}
                       onChangeText={text => updateFilter('location', text)}
+                      accessibilityLabel="Job location"
+                      accessibilityHint="Enter city, state, or type Remote"
+                      autoCorrect={false}
+                      autoCapitalize="none"
                     />
                   </View>
 
@@ -514,6 +653,9 @@ export function JobListingsScreen() {
                               updateFilter('jobType', type as typeof filters.jobType);
                             }
                           }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${type === 'all' ? 'All job types' : type} employment type`}
+                          accessibilityState={{ selected: type === 'all' ? !filters.jobType : filters.jobType === type }}
                         >
                           <Text style={[
                             styles.chipText,
@@ -535,6 +677,9 @@ export function JobListingsScreen() {
                         onValueChange={value => updateFilter('isRemoteOnly', value)}
                         trackColor={{ false: homeColors.backgroundMuted, true: homeColors.primaryLight + '80' }}
                         thumbColor={filters.isRemoteOnly ? homeColors.primary : '#f4f3f4'}
+                        accessibilityLabel="Remote only filter"
+                        accessibilityHint="Show only remote jobs"
+                        accessibilityRole="switch"
                       />
                     </View>
                   </View>
@@ -542,6 +687,7 @@ export function JobListingsScreen() {
                   {/* Job boards */}
                   <View style={styles.fieldGroup}>
                     <Text style={styles.fieldLabel}>Job Boards</Text>
+                    <Text style={styles.fieldHelper}>Select at least one job board to search</Text>
                     <View style={styles.checkboxGrid}>
                       {ALL_SITES.map(site => (
                         <Pressable
@@ -549,11 +695,16 @@ export function JobListingsScreen() {
                           style={styles.checkboxItem}
                           onPress={() => toggleSite(site)}
                         >
-                          <View style={[styles.checkbox, filters.siteNames?.includes(site) && styles.checkboxChecked]}>
-                            {filters.siteNames?.includes(site) && (
-                              <Ionicons name="checkmark" size={16} color="#fff" />
-                            )}
-                          </View>
+                          <Pressable
+                            style={styles.checkboxTouchArea}
+                            onPress={() => toggleSite(site)}
+                          >
+                            <View style={[styles.checkbox, filters.siteNames?.includes(site) && styles.checkboxChecked]}>
+                              {filters.siteNames?.includes(site) && (
+                                <Ionicons name="checkmark" size={16} color="#fff" />
+                              )}
+                            </View>
+                          </Pressable>
                           <Text style={styles.checkboxLabel}>{SITE_LABELS[site]}</Text>
                         </Pressable>
                       ))}
@@ -569,6 +720,9 @@ export function JobListingsScreen() {
                           key={num}
                           style={[styles.chipSmall, filters.resultsWanted === num && styles.chipActive]}
                           onPress={() => updateFilter('resultsWanted', num)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Show ${num} results per page`}
+                          accessibilityState={{ selected: filters.resultsWanted === num }}
                         >
                           <Text style={[styles.chipTextSmall, filters.resultsWanted === num && styles.chipTextActive]}>
                             {num}
@@ -581,12 +735,19 @@ export function JobListingsScreen() {
 
                 {/* Modal Actions */}
                 <View style={[styles.modalActions, { borderTopColor: homeColors.cardBorder }]}>
-                  <Pressable style={styles.clearBtn} onPress={clearFilters}>
+                  <Pressable
+                    style={styles.clearBtn}
+                    onPress={clearFilters}
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear all filters"
+                  >
                     <Text style={styles.clearBtnText}>Clear All</Text>
                   </Pressable>
                   <Pressable
                     style={[styles.applyFiltersBtn, { backgroundColor: homeColors.primary }]}
                     onPress={handleApplyFilters}
+                    accessibilityRole="button"
+                    accessibilityLabel="Apply current filter settings"
                   >
                     <Text style={styles.applyFiltersBtnText}>Apply Filters</Text>
                   </Pressable>
@@ -608,44 +769,49 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingHorizontal: TOKENS.spacing.lg,
+    paddingBottom: TOKENS.spacing.lg,
     borderBottomWidth: 1,
     borderBottomColor: homeColors.cardBorder,
-    backgroundColor: '#fff',
+    backgroundColor: homeColors.surface,
   },
   headerContent: {
     flex: 1,
-    marginRight: 12,
+    marginRight: TOKENS.spacing.md,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: homeColors.textDark,
-    marginBottom: 2,
+    marginBottom: TOKENS.spacing.xs,
   },
   headerSubtitle: {
     fontSize: 14,
     color: homeColors.textMuted,
-    marginBottom: 12,
+    marginBottom: TOKENS.spacing.md,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: homeColors.backgroundStart,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: TOKENS.radius.lg,
+    paddingHorizontal: TOKENS.spacing.md,
+    paddingVertical: TOKENS.spacing.sm,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
-    marginBottom: 8,
+    marginBottom: TOKENS.spacing.sm,
+    minHeight: TOKENS.touchTarget.min,
   },
   searchInput: {
     flex: 1,
-    marginLeft: 8,
+    marginLeft: TOKENS.spacing.sm,
     fontSize: 16,
     color: homeColors.textDark,
     padding: 0,
+    includeFontPadding: false,
+  },
+  clearSearchBtn: {
+    padding: TOKENS.spacing.xs,
   },
   headerFooter: {
     flexDirection: 'row',
@@ -659,9 +825,9 @@ const styles = StyleSheet.create({
   },
   filtersAppliedBadge: {
     backgroundColor: homeColors.accentGreen + '20',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: TOKENS.spacing.sm,
+    paddingVertical: TOKENS.spacing.xs,
+    borderRadius: TOKENS.radius.full,
   },
   filtersAppliedText: {
     fontSize: 11,
@@ -669,9 +835,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   filterBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: TOKENS.touchTarget.min,
+    height: TOKENS.touchTarget.min,
+    borderRadius: TOKENS.touchTarget.min / 2,
     backgroundColor: homeColors.backgroundStart,
     alignItems: 'center',
     justifyContent: 'center',
@@ -680,11 +846,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   filterBtnActive: {
-    backgroundColor: homeColors.primary + '15',
+    backgroundColor: homeColors.primary + '20',
     borderColor: homeColors.primary,
   },
   listContent: {
-    padding: 20,
+    padding: TOKENS.spacing.lg,
   },
   loadingContainer: {
     alignItems: 'center',
@@ -692,13 +858,13 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
   },
   loadingText: {
-    marginTop: 16,
+    marginTop: TOKENS.spacing.lg,
     fontSize: 16,
     fontWeight: '600',
     color: homeColors.textDark,
   },
   loadingSubtext: {
-    marginTop: 4,
+    marginTop: TOKENS.spacing.sm,
     fontSize: 13,
     color: homeColors.textMuted,
   },
@@ -707,103 +873,115 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
   },
   errorText: {
-    marginTop: 12,
+    marginTop: TOKENS.spacing.md,
     fontSize: 16,
     color: homeColors.textDark,
     textAlign: 'center',
     marginHorizontal: 40,
   },
   retryBtn: {
-    marginTop: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 24,
-    backgroundColor: homeColors.primary + '15',
-    borderRadius: 12,
+    marginTop: TOKENS.spacing.md,
+    paddingVertical: TOKENS.spacing.sm,
+    paddingHorizontal: TOKENS.spacing.lg,
+    backgroundColor: homeColors.primary + '20',
+    borderRadius: TOKENS.radius.lg,
     borderWidth: 1,
     borderColor: homeColors.primary + '30',
+    minHeight: TOKENS.touchTarget.min,
   },
   retryBtnText: {
     color: homeColors.primary,
     fontWeight: '600',
+    fontSize: 14,
   },
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: 60,
   },
   emptyText: {
-    marginTop: 16,
+    marginTop: TOKENS.spacing.lg,
     fontSize: 18,
     fontWeight: '700',
     color: homeColors.textDark,
   },
   emptySubtext: {
-    marginTop: 4,
+    marginTop: TOKENS.spacing.sm,
     fontSize: 14,
     color: homeColors.textMuted,
     textAlign: 'center',
     marginHorizontal: 40,
   },
-  jobsList: {
-    gap: 16,
+  emptyActionBtn: {
+    marginTop: TOKENS.spacing.lg,
+    paddingVertical: TOKENS.spacing.sm,
+    paddingHorizontal: TOKENS.spacing.lg,
+    backgroundColor: homeColors.primary + '20',
+    borderRadius: TOKENS.radius.lg,
+    borderWidth: 1,
+    borderColor: homeColors.primary + '30',
+    minHeight: TOKENS.touchTarget.min,
+  },
+  emptyActionBtnText: {
+    color: homeColors.primary,
+    fontWeight: '600',
+    fontSize: 14,
   },
   jobCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: homeColors.cardBg,
+    borderRadius: TOKENS.radius.xl,
+    padding: TOKENS.spacing.lg,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
   jobHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 4,
+    marginBottom: TOKENS.spacing.sm,
   },
   jobTitle: {
     flex: 1,
     fontSize: 18,
     fontWeight: '700',
     color: homeColors.textDark,
-    marginRight: 8,
+    marginRight: TOKENS.spacing.sm,
     lineHeight: 24,
   },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  expandBtn: {
-    padding: 4,
-    marginLeft: 8,
-  },
-  jobPosted: {
-    fontSize: 12,
-    color: homeColors.textMuted,
+  saveBtn: {
+    padding: TOKENS.spacing.xs,
+    marginLeft: TOKENS.spacing.xs,
   },
   jobCompany: {
     fontSize: 15,
     color: homeColors.textDark,
-    marginBottom: 12,
+    marginBottom: TOKENS.spacing.md,
     fontWeight: '500',
   },
   tagsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
+    gap: TOKENS.spacing.sm,
+    marginBottom: TOKENS.spacing.md,
   },
   tag: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: homeColors.backgroundStart,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
+    paddingHorizontal: TOKENS.spacing.sm,
+    paddingVertical: TOKENS.spacing.xs,
+    borderRadius: TOKENS.radius.md,
+    gap: TOKENS.spacing.xs,
   },
   tagText: {
     fontSize: 12,
@@ -812,16 +990,22 @@ const styles = StyleSheet.create({
   sourceText: {
     fontSize: 11,
     color: homeColors.textLight,
-    marginBottom: 12,
+    marginBottom: TOKENS.spacing.sm,
   },
   descriptionPreview: {
-    marginBottom: 8,
+    marginBottom: TOKENS.spacing.sm,
+  },
+  descriptionText: {
+    fontSize: 14,
+    color: homeColors.textDark,
+    lineHeight: 20,
   },
   showMoreBtn: {
     alignSelf: 'flex-start',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    marginTop: 4,
+    paddingVertical: TOKENS.spacing.xs,
+    paddingHorizontal: TOKENS.spacing.sm,
+    marginTop: TOKENS.spacing.xs,
+    minHeight: TOKENS.touchTarget.min - 12,
   },
   showMoreBtnText: {
     color: homeColors.primary,
@@ -829,54 +1013,49 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   expandedContent: {
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: TOKENS.spacing.md,
+    paddingTop: TOKENS.spacing.md,
     borderTopWidth: 1,
     borderTopColor: homeColors.cardBorder,
-    backgroundColor: homeColors.backgroundStart + '40',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
+    backgroundColor: homeColors.backgroundStart,
+    borderRadius: TOKENS.radius.md,
+    padding: TOKENS.spacing.md,
+    marginBottom: TOKENS.spacing.md,
   },
   loadingDetails: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 20,
-    gap: 12,
+    paddingVertical: TOKENS.spacing.lg,
+    gap: TOKENS.spacing.md,
   },
   loadingDetailsText: {
     fontSize: 14,
     color: homeColors.textMuted,
   },
   detailSection: {
-    marginBottom: 16,
+    marginBottom: TOKENS.spacing.md,
   },
   detailLabel: {
     fontSize: 13,
     fontWeight: '600',
     color: homeColors.textDark,
-    marginBottom: 6,
+    marginBottom: TOKENS.spacing.sm,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-  },
-  descriptionText: {
-    fontSize: 14,
-    color: homeColors.textDark,
-    lineHeight: 20,
   },
   skillsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: TOKENS.spacing.sm,
   },
   skillTag: {
     backgroundColor: homeColors.primary + '15',
     borderWidth: 1,
     borderColor: homeColors.primary + '30',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: TOKENS.spacing.sm,
+    paddingVertical: TOKENS.spacing.xs,
+    borderRadius: TOKENS.radius.sm,
   },
   skillTagText: {
     fontSize: 12,
@@ -889,12 +1068,14 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   applyBtn: {
-    backgroundColor: homeColors.primary + '15',
+    backgroundColor: homeColors.primary + '20',
     borderWidth: 1,
     borderColor: homeColors.primary + '30',
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: TOKENS.spacing.sm,
+    paddingHorizontal: TOKENS.spacing.md,
+    borderRadius: TOKENS.radius.md,
     alignItems: 'center',
+    minHeight: TOKENS.touchTarget.min,
   },
   applyBtnText: {
     color: homeColors.primary,
@@ -902,7 +1083,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   pressed: {
-    opacity: 0.8,
+    opacity: 0.7,
+  },
+  cardPressed: {
+    opacity: 0.9,
   },
   // Modal styles
   modalOverlay: {
@@ -911,23 +1095,43 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: TOKENS.radius.xl,
+    borderTopRightRadius: TOKENS.radius.xl,
     maxHeight: '90%',
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: TOKENS.spacing.lg,
+    paddingVertical: TOKENS.spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: homeColors.cardBorder,
+  },
+  headerRightButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cancelBtn: {
+    paddingVertical: TOKENS.spacing.xs,
+    paddingHorizontal: TOKENS.spacing.sm,
+    marginRight: TOKENS.spacing.xs,
+  },
+  cancelBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: homeColors.textMuted,
   },
   modalTitle: {
     fontSize: 18,
@@ -935,63 +1139,71 @@ const styles = StyleSheet.create({
     color: homeColors.textDark,
   },
   modalBody: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 12,
+    paddingHorizontal: TOKENS.spacing.lg,
+    paddingTop: TOKENS.spacing.md,
+    paddingBottom: TOKENS.spacing.sm,
   },
   fieldGroup: {
-    marginBottom: 24,
+    marginBottom: TOKENS.spacing.xl,
   },
   fieldLabel: {
     fontSize: 14,
     fontWeight: '600',
     color: homeColors.textDark,
-    marginBottom: 8,
+    marginBottom: TOKENS.spacing.sm,
+  },
+  fieldHelper: {
+    fontSize: 12,
+    color: homeColors.textMuted,
+    marginTop: TOKENS.spacing.xs,
+    marginBottom: TOKENS.spacing.sm,
   },
   input: {
     backgroundColor: homeColors.backgroundStart,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderRadius: TOKENS.radius.lg,
+    paddingHorizontal: TOKENS.spacing.md,
+    paddingVertical: TOKENS.spacing.sm,
     fontSize: 16,
     color: homeColors.textDark,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
+    minHeight: TOKENS.touchTarget.min,
   },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: TOKENS.spacing.sm,
   },
   chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: TOKENS.spacing.md,
+    paddingVertical: TOKENS.spacing.sm,
+    borderRadius: TOKENS.radius.full,
     backgroundColor: homeColors.backgroundStart,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
   },
   chipActive: {
-    backgroundColor: homeColors.primary,
+    backgroundColor: homeColors.primary + '20',
     borderColor: homeColors.primary,
   },
   chipText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: homeColors.textMuted,
+    fontSize: 14,
+    color: homeColors.textDark,
   },
   chipTextActive: {
-    color: '#fff',
+    color: homeColors.primary,
+    fontWeight: '600',
   },
   chipSmall: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: TOKENS.spacing.sm,
+    paddingVertical: TOKENS.spacing.sm,
+    borderRadius: TOKENS.radius.full,
     backgroundColor: homeColors.backgroundStart,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
-    minWidth: 44,
+    minWidth: TOKENS.touchTarget.min,
     alignItems: 'center',
+    minHeight: 36,
   },
   chipTextSmall: {
     fontSize: 12,
@@ -1006,24 +1218,26 @@ const styles = StyleSheet.create({
   checkboxGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: TOKENS.spacing.md,
   },
   checkboxItem: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '48%',
-    marginBottom: 8,
+    marginBottom: TOKENS.spacing.sm,
+  },
+  checkboxTouchArea: {
+    padding: TOKENS.spacing.sm,
   },
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
+    width: TOKENS.touchTarget.min,
+    height: TOKENS.touchTarget.min,
+    borderRadius: TOKENS.radius.md,
     borderWidth: 2,
     borderColor: homeColors.cardBorder,
-    backgroundColor: '#fff',
+    backgroundColor: homeColors.cardBg,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
   },
   checkboxChecked: {
     backgroundColor: homeColors.primary,
@@ -1036,19 +1250,20 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: TOKENS.spacing.lg,
+    paddingVertical: TOKENS.spacing.md,
     borderTopWidth: 1,
-    gap: 12,
+    gap: TOKENS.spacing.md,
   },
   clearBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: TOKENS.spacing.sm,
+    borderRadius: TOKENS.radius.lg,
     alignItems: 'center',
     backgroundColor: homeColors.backgroundStart,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
+    minHeight: TOKENS.touchTarget.min,
   },
   clearBtnText: {
     color: homeColors.textMuted,
@@ -1057,9 +1272,11 @@ const styles = StyleSheet.create({
   },
   applyFiltersBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: TOKENS.spacing.sm,
+    borderRadius: TOKENS.radius.lg,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: TOKENS.touchTarget.min,
   },
   applyFiltersBtnText: {
     color: '#fff',

@@ -48,10 +48,37 @@ JOB_TYPE_MAP = {
     "contract": "contract",
 }
 
+# Common JobSpy country identifiers used by Indeed/Glassdoor.
+COUNTRY_KEYWORDS = {
+    "USA": ["usa", "united states", "us", "america"],
+    "FRANCE": ["france", "fr", "paris", "lyon", "marseille", "toulouse", "lille", "nice"],
+    "UK": ["uk", "united kingdom", "england", "london", "manchester", "birmingham"],
+    "CANADA": ["canada", "ca", "toronto", "montreal", "vancouver", "ottawa"],
+    "GERMANY": ["germany", "de", "berlin", "munich", "hamburg", "frankfurt"],
+    "NETHERLANDS": ["netherlands", "nl", "amsterdam", "rotterdam", "the hague", "eindhoven"],
+    "SPAIN": ["spain", "es", "madrid", "barcelona", "valencia", "seville"],
+    "ITALY": ["italy", "it", "rome", "milan", "naples", "turin"],
+    "INDIA": ["india", "in", "bangalore", "bengaluru", "mumbai", "delhi", "hyderabad", "pune"],
+    "UAE": ["uae", "united arab emirates", "dubai", "abu dhabi", "sharjah"],
+}
+
+
+def infer_country_indeed(location: str) -> Optional[str]:
+    """Infer JobSpy country_indeed from free-text location when possible."""
+    if not location or not location.strip():
+        return None
+
+    normalized = location.strip().lower()
+    for country, keywords in COUNTRY_KEYWORDS.items():
+        if any(keyword in normalized for keyword in keywords):
+            return country
+    return None
+
 @app.get("/api/jobs")
 async def get_jobs(
     search: str = Query("", description="Job title or keywords"),
     location: str = Query("", description="Location (city, state, country)"),
+    country_indeed: Optional[str] = Query(None, description="Optional override for JobSpy country_indeed (e.g., USA, FRANCE)"),
     site_name: Optional[List[str]] = Query(None, description=f"Job boards: {', '.join(ALLOWED_SITES)}"),
     job_type: Optional[str] = Query(None, description="Job type: fulltime, parttime, internship, contract"),
     is_remote: Optional[bool] = Query(None, description="Filter for remote jobs only"),
@@ -103,7 +130,9 @@ async def get_jobs(
             'hours_old': scrape_hours_old,
         }
         if 'indeed' in sites or 'glassdoor' in sites:
-            scrape_kwargs['country_indeed'] = 'USA'
+            inferred_country = infer_country_indeed(location)
+            selected_country = (country_indeed.strip().upper() if country_indeed and country_indeed.strip() else None) or inferred_country or 'USA'
+            scrape_kwargs['country_indeed'] = selected_country
 
         jobs = await loop.run_in_executor(
             None,
@@ -398,6 +427,8 @@ async def extract_job_info(
     if not openrouter_key:
         raise HTTPException(status_code=500, detail="LLM extraction not configured (OPENROUTER_API_KEY missing)")
 
+    llm_error: Exception | None = None
+
     try:
         from scrapers.llm_extractor import LLMExtractor
         from scrapers.base import BaseScraper
@@ -423,55 +454,22 @@ async def extract_job_info(
         print(f"DEBUG: LLM result - desc_len={len(llm_result.get('description',''))}, skills={llm_result.get('skills')}, salary={llm_result.get('salary')}")
         print(f"DEBUG: falling back? {not (has_description or has_skills or has_salary)}")
 
-        if not (has_description or has_skills or has_salary):
-            # LLM returned empty/useless data - fall back to regex
-            print("WARNING: LLM returned empty results, falling back to regex extraction")
-            raise ValueError("LLM returned empty results, triggering fallback")
+        should_fallback = not (has_description or has_skills or has_salary)
 
-        # Parse salary if LLM returned a string
-        salary = None
-        if has_salary:
-            # Use IndeedScraper's extract_salary method (inherited from BaseScraper)
-            from scrapers.indeed import IndeedScraper
-            scraper = IndeedScraper()
-            salary = scraper.extract_salary(llm_result["salary"])
-
-        result = {
-            "skills": llm_result.get("skills", []),
-            "salary": salary.to_dict() if salary else None,
-            "description": llm_result.get("description", ""),
-            "extraction_method": "llm",
-        }
-
-        return JSONResponse(
-            content=result,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Content-Type": "application/json",
-            }
-        )
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-
-        # Fallback: Use rule-based extraction (regex) if LLM fails
-        try:
-            from scrapers.indeed import IndeedScraper
-            scraper = IndeedScraper()
-
-            # Extract skills using pattern matching
-            skills = scraper.extract_skills(description)
-
-            # Extract salary from description or salary_text
-            salary_text_to_parse = salary_text or description
-            salary = scraper.extract_salary(salary_text_to_parse) if salary_text_to_parse else None
+        if not should_fallback:
+            # Parse salary if LLM returned a string
+            salary = None
+            if has_salary:
+                # Use IndeedScraper's extract_salary method (inherited from BaseScraper)
+                from scrapers.indeed import IndeedScraper
+                scraper = IndeedScraper()
+                salary = scraper.extract_salary(llm_result["salary"])
 
             result = {
-                "skills": skills,
+                "skills": llm_result.get("skills", []),
                 "salary": salary.to_dict() if salary else None,
-                "description": description[:500],  # Truncated preview
-                "extraction_method": "regex_fallback",
+                "description": llm_result.get("description", ""),
+                "extraction_method": "llm",
             }
 
             return JSONResponse(
@@ -481,8 +479,45 @@ async def extract_job_info(
                     "Content-Type": "application/json",
                 }
             )
-        except Exception as fallback_error:
-            raise HTTPException(status_code=500, detail=f"LLM extraction failed and fallback also failed: {str(e)}, fallback: {str(fallback_error)}")
+
+        # LLM returned empty/useless data - use regex fallback below
+        print("WARNING: LLM returned empty results, falling back to regex extraction")
+
+    except Exception as e:
+        llm_error = e
+        import traceback
+        traceback.print_exc()
+
+    # Fallback: Use rule-based extraction (regex) when LLM returns empty data or fails.
+    try:
+        from scrapers.indeed import IndeedScraper
+        scraper = IndeedScraper()
+
+        # Extract skills using pattern matching
+        skills = scraper.extract_skills(description)
+
+        # Extract salary from description or salary_text
+        salary_text_to_parse = salary_text or description
+        salary = scraper.extract_salary(salary_text_to_parse) if salary_text_to_parse else None
+
+        result = {
+            "skills": skills,
+            "salary": salary.to_dict() if salary else None,
+            "description": description[:500],  # Truncated preview
+            "extraction_method": "regex_fallback",
+        }
+
+        return JSONResponse(
+            content=result,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Content-Type": "application/json",
+            }
+        )
+    except Exception as fallback_error:
+        if llm_error is not None:
+            raise HTTPException(status_code=500, detail=f"LLM extraction failed and fallback also failed: {str(llm_error)}, fallback: {str(fallback_error)}")
+        raise HTTPException(status_code=500, detail=f"Regex fallback extraction failed: {str(fallback_error)}")
 
 if __name__ == "__main__":
     import uvicorn
