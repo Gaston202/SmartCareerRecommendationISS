@@ -274,22 +274,11 @@ export function JobListingsScreen() {
 
     return (
       <View style={styles.jobCard}>
-        {/* Header with title and expand button */}
+        {/* Header with title */}
         <View style={styles.jobHeader}>
-          <Text style={styles.jobTitle} numberOfLines={isExpanded ? 0 : 2}>
+          <Text style={[styles.jobTitle, { marginRight: 0 }]} numberOfLines={isExpanded ? 0 : 2}>
             {item.title}
           </Text>
-          <View style={styles.headerRight}>
-            {isExpanded ? (
-              <Pressable onPress={() => toggleJobExpansion(item)} style={styles.expandBtn}>
-                <Ionicons name="chevron-up" size={24} color={homeColors.primary} />
-              </Pressable>
-            ) : (
-              <Pressable onPress={() => toggleJobExpansion(item)} style={styles.expandBtn}>
-                <Ionicons name="chevron-down" size={24} color={homeColors.textMuted} />
-              </Pressable>
-            )}
-          </View>
         </View>
 
         <Text style={styles.jobCompany}>{item.company}</Text>
@@ -325,29 +314,32 @@ export function JobListingsScreen() {
           <Text style={styles.sourceText}>Source: {SITE_LABELS[item.site] || item.site}</Text>
         )}
 
-        {/* Expanded content: Description and Skills */}
+        {/* Description preview (always shown, expands when isExpanded) */}
+        {(details?.description || item.description) && (
+          <View style={styles.descriptionPreview}>
+            <Text style={styles.descriptionText} numberOfLines={isExpanded ? 0 : 3}>
+              {details?.description || item.description}
+            </Text>
+            {(details?.description || item.description).length > 200 && (
+              <Pressable onPress={() => toggleJobExpansion(item)} style={styles.showMoreBtn}>
+                <Text style={styles.showMoreBtnText}>
+                  {isExpanded ? 'Show Less' : 'Show More'}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {/* Expanded content: Skills only */}
         {isExpanded && (
           <View style={styles.expandedContent}>
             {isLoading ? (
               <View style={styles.loadingDetails}>
                 <ActivityIndicator size="small" color={homeColors.primary} />
-                <Text style={styles.loadingDetailsText}>Loading job details...</Text>
+                <Text style={styles.loadingDetailsText}>Loading skills...</Text>
               </View>
-            ) : details ? (
+            ) : (
               <>
-                {/* Description */}
-                {(details?.description || item.description) && (
-                  <View style={styles.detailSection}>
-                    <Text style={styles.detailLabel}>Description</Text>
-                    <Text style={styles.descriptionText}>
-                      {(details?.description || item.description).length > 1000
-                        ? (details?.description || item.description).substring(0, 1000) + '...'
-                        : (details?.description || item.description)}
-                    </Text>
-                  </View>
-                )}
-
-                {/* Skills */}
                 {(details?.skills?.length || item.skills?.length) > 0 && (
                   <View style={styles.detailSection}>
                     <Text style={styles.detailLabel}>Required Skills</Text>
@@ -360,13 +352,11 @@ export function JobListingsScreen() {
                     </View>
                   </View>
                 )}
-
-                {/* Fallback messages */}
-                {!details.description && !details.skills?.length && (
-                  <Text style={styles.noDetailsText}>No additional details available.</Text>
+                {!details?.skills?.length && !item.skills?.length && !isLoading && (
+                  <Text style={styles.noDetailsText}>No skills listed.</Text>
                 )}
               </>
-            ) : null}
+            )}
           </View>
         )}
 
@@ -823,6 +813,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: homeColors.textLight,
     marginBottom: 12,
+  },
+  descriptionPreview: {
+    marginBottom: 8,
+  },
+  showMoreBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginTop: 4,
+  },
+  showMoreBtnText: {
+    color: homeColors.primary,
+    fontSize: 14,
+    fontWeight: '600',
   },
   expandedContent: {
     marginTop: 12,
