@@ -1,0 +1,17 @@
+# Core dependencies
+fastapi
+uvicorn[standard]
+
+# JobSpy - using version that's compatible with numpy 2.x
+python-jobspy
+
+# Web scraping dependencies
+beautifulsoup4
+httpx
+lxml
+
+# LLM integration (OpenRouter - OpenAI compatible)
+openai>=1.0.0
+
+# Note: numpy>=2.0 is already in your environment.
+# If you encounter issues, try: pip install "numpy<2.0" for maximum compatibility
