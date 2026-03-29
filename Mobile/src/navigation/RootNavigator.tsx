@@ -23,7 +23,7 @@ import { GroupChatsScreen } from '../screens/mentors/GroupChatsScreen';
 import { GroupChatScreen } from '../screens/mentors/GroupChatScreen';
 
 import { MentorHomeScreen } from '../screens/mentors/MentorHomeScreen';
-import { MentorJobSuggestionsScreen } from '../screens/mentors/MentorJobSuggestionsScreen';
+import { JobListingsScreen } from '../screens/mentors/JobListingsScreen';
 import { MentorSpecialtyGroupChatsScreen } from '../screens/mentors/MentorSpecialtyGroupChatsScreen';
 
 import { homeColors } from '../screens/homeTheme';
@@ -248,7 +248,7 @@ export function RootNavigator(): React.ReactElement {
           >
             <Tab.Screen name="MentorHome" component={MentorHomeScreen} options={{ tabBarLabel: 'Home' }} />
             <Tab.Screen name="MentorGroupChats" component={MentorGroupChatsStackNavigator} options={{ tabBarLabel: 'Chats' }} />
-            <Tab.Screen name="JobSuggestions" component={MentorJobSuggestionsScreen} options={{ tabBarLabel: 'Jobs' }} />
+            <Tab.Screen name="JobSuggestions" component={JobListingsScreen} options={{ tabBarLabel: 'Jobs' }} />
             <Tab.Screen name="Profile" component={ProfileScreen} />
           </Tab.Navigator>
         ) : (
