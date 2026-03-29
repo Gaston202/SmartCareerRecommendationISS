@@ -64,8 +64,7 @@ TODO (Next Steps):
     10. Document and publish module
 """
 
-from .main_pipeline import CareerRecommendationPipeline, get_pipeline
-from .orchestrator import PipelineOrchestrator
+# Core imports
 from .schemas import (
     UserProfile,
     CareerRecommendationInput,
@@ -83,18 +82,33 @@ from .agents import (
     GapAgent,
     RoadmapAgent,
 )
-from .rag import Retriever, EmbeddingService, VectorStore
 from .utils import get_logger
 from .config import config, AIConfig
+
+# Optional RAG imports (gracefully handle if not available)
+try:
+    from .rag import Retriever, EmbeddingService, VectorStore
+except ImportError:
+    Retriever = None
+    EmbeddingService = None
+    VectorStore = None
+
+# Legacy imports (optional - gracefully handle if not available)
+try:
+    from .main_pipeline import CareerRecommendationPipeline, get_pipeline
+except ImportError:
+    CareerRecommendationPipeline = None
+    get_pipeline = None
+
+try:
+    from .orchestrator import PipelineOrchestrator
+except ImportError:
+    PipelineOrchestrator = None
 
 __version__ = "0.1.0"
 __author__ = "Smart Career Recommendation Team"
 
 __all__ = [
-    # Main API
-    "CareerRecommendationPipeline",
-    "get_pipeline",
-    "PipelineOrchestrator",
     # Schemas
     "UserProfile",
     "CareerRecommendationInput",
@@ -110,7 +124,7 @@ __all__ = [
     "CareerAgent",
     "GapAgent",
     "RoadmapAgent",
-    # RAG
+    # RAG (optional)
     "Retriever",
     "EmbeddingService",
     "VectorStore",
@@ -118,4 +132,8 @@ __all__ = [
     "get_logger",
     "config",
     "AIConfig",
+    # Legacy (may be None)
+    "CareerRecommendationPipeline",
+    "get_pipeline",
+    "PipelineOrchestrator",
 ]

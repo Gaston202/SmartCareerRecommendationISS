@@ -59,44 +59,34 @@ export function useMatchedCareers() {
       console.log('[useMatchedCareers] ✅ All requirements met: Quiz + CV Analysis + Skills ready');
 
       // Gather user skills: combine confirmed skills + extracted CV skills for comprehensive profile
-      const confirmedUserSkills = (userSkills || []).map((s) => s.name);
-      const extractedCvSkills = (cvAnalysis?.extracted_skills || []) as string[];
-      const allUserSkills = Array.from(new Set([...confirmedUserSkills, ...extractedCvSkills])); // Deduplicate
+      const confirmedUserSkills = (userSkills || [])
+        .filter(s => s && s.name && typeof s.name === 'string')
+        .map((s) => s.name);
+      const extractedCvSkills = Array.isArray(cvAnalysis?.extracted_skills)
+        ? (cvAnalysis.extracted_skills as string[]).filter(s => typeof s === 'string')
+        : [];
+      // Deduplicate using array key pattern (not Set) to avoid issues with non-primitive types
+      const allUserSkills = Array.from(new Map(
+        [...confirmedUserSkills, ...extractedCvSkills].map(skill => [skill, skill])
+      ).values());
 
       // Get current user ID
       const { data: { user } } = await supabase.auth.getUser();
       const userId = user?.id || 'unknown';
 
-      // Try AI-powered matching with comprehensive data
-      try {
-        console.log('[useMatchedCareers] Using AI-powered matching with comprehensive data');
-        const aiMatches = await calculateAiPoweredCareerMatches(
-          userId,
-          allCareers,
-          quizQuestionsWithAnswers,
-          allUserSkills,
-          cvAnalysis,
-          quizSessionId
-        );
-        
-        // Return top 5 from AI results
-        return getTopMatchedCareers(aiMatches, 5);
-      } catch (error) {
-        console.warn('[useMatchedCareers] AI matching failed, falling back to legacy:', error);
-        // Fall through to legacy matching as fallback
-      }
-
-      // Legacy matching as fallback
-      console.log('[useMatchedCareers] Using legacy career matching');
-      const matches = calculateCareerMatches(
+      // Call AI-powered matching through backend ai_v2
+      console.log('[useMatchedCareers] [AI_ONLY] Calling backend for AI-powered career matching');
+      const aiMatches = await calculateAiPoweredCareerMatches(
+        userId,
         allCareers,
+        quizQuestionsWithAnswers,
         allUserSkills,
-        undefined,
-        cvAnalysis
+        cvAnalysis,
+        quizSessionId
       );
-
-      // Return top 5
-      return getTopMatchedCareers(matches, 5);
+      
+      // Return top 5 from AI results
+      return getTopMatchedCareers(aiMatches, 5);
     },
     enabled: !careersLoading && !skillsLoading && !cvLoading,
   });

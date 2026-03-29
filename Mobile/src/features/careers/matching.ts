@@ -294,9 +294,8 @@ export async function calculateAiPoweredCareerMatches(
 
     return matches;
   } catch (error) {
-    console.error("[Matching] AI-powered matching failed, falling back to legacy:", error);
-    // Fallback to legacy matching if AI fails
-    return calculateCareerMatches(allCareers, userSkills);
+    console.error("[AI_ONLY] Career matching failed:", error);
+    throw error; // IMPORTANT: do NOT fallback anymore
   }
 }
 

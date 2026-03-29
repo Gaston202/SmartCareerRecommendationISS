@@ -83,12 +83,20 @@ class CVAgent(BaseAgent):
         try:
             self._log_execution("Starting CV analysis with ATS scoring")
 
-            cv_text = input_data.get("cv_text")
-            if not cv_text:
-                self._log_execution("No CV text provided, skipping CV analysis", level="warning")
+            cv_text = input_data.get("cv_text", "").strip()
+            if not cv_text or len(cv_text) < 50:
+                # Empty or too-short CV (< 50 chars) - skip analysis
+                self._log_execution(
+                    f"Insufficient CV text provided ({len(cv_text)} chars), skipping detailed analysis", 
+                    level="warning"
+                )
                 return self._create_output(
                     success=True,
-                    data={"cv_provided": False},
+                    data={
+                        "cv_provided": False,
+                        "cv_length": len(cv_text),
+                        "note": "CV is too short or empty to analyze"
+                    },
                 )
 
             # Use LLM to extract skills from CV
@@ -326,27 +334,33 @@ class CVAgent(BaseAgent):
         Use LLM to extract skills from CV text.
         Falls back to regex-based extraction if LLM fails.
         Safely handles dict/object responses from LLM by converting to strings.
+        
+        FIX #5: NOW PASSES CV_TEXT TO LLM so it can analyze the actual CV content
         """
         try:
-            # Use LLM to help identify skills
-            cv_snippet = cv_text[:2000]  # Limit to first 2000 chars
-            llm_result = self.llm.analyze_skill_gaps(
-                current_skills=[],
-                target_role="Based on CV",
-                required_skills=[],
+            if not cv_text or len(cv_text) < 50:
+                self._log_execution("CV text too short for LLM analysis, using regex extraction")
+                return self._extract_skills(cv_text)
+            
+            # Use LLM to extract skills FROM THE CV TEXT (FIX: was missing cv_text before)
+            llm_result = self.llm.extract_skills_from_cv(
+                cv_text=cv_text[:3000],  # Pass CV text to LLM for analysis
             )
             
             # Extract skills from LLM response
-            gap_analysis = llm_result.get("gap_analysis", [])
-            if gap_analysis:
-                # SAFE: Use safe_extract_strings to handle dicts/objects in gap_analysis
-                # This prevents "cannot use 'dict' as a set element" errors
-                skills_safe = safe_extract_strings(gap_analysis, fallback=[])
-                self._log_execution(
-                    f"LLM extracted {len(skills_safe)} skills from gap_analysis"
-                )
-                return skills_safe[:10]  # Return top 10 identified skills (all guaranteed strings)
+            if llm_result and llm_result.get("success"):
+                extracted_skills = llm_result.get("skills", [])
+                if extracted_skills:
+                    # SAFE: Use safe_extract_strings to handle dicts/objects
+                    # This prevents "cannot use 'dict' as a set element" errors
+                    skills_safe = safe_extract_strings(extracted_skills, fallback=[])
+                    self._log_execution(
+                        f"✓ LLM extracted {len(skills_safe)} skills from CV text"
+                    )
+                    return skills_safe[:15]  # Return top 15 identified skills (all guaranteed strings)
             
+            # Fallback to regex if LLM didn't find skills
+            self._log_execution("LLM found no skills, falling back to regex extraction")
             return self._extract_skills(cv_text)
         except Exception as e:
             self._log_execution(f"LLM skill extraction failed: {str(e)}, falling back to regex", level="warning")

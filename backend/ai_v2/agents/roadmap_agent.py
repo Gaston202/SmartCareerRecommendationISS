@@ -67,8 +67,22 @@ class RoadmapAgent(BaseAgent):
             missing_skills = input_data.get("missing_skills", [])
             experience_level = input_data.get("experience_level", "intermediate")
             
+            # FIX #8: Handle empty missing_skills gracefully instead of raising
             if not missing_skills:
-                raise ValueError("missing_skills is required for roadmap generation")
+                self._log_execution(
+                    "No missing skills provided for roadmap, using target role as context",
+                    level="warning"
+                )
+                # Create a minimal roadmap based on target role and experience level
+                return self._create_output(
+                    success=True,
+                    data={
+                        "phases": [],
+                        "target_role": target_role,
+                        "experience_level": experience_level,
+                        "note": "Insufficient skill data for detailed roadmap, basic structure only"
+                    },
+                )
             
             # Use LLM to generate roadmap
             llm_result = self.llm.generate_learning_roadmap(

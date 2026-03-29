@@ -201,7 +201,11 @@ class CareerAgent(BaseAgent):
             Dict with relevant careers, skills, learning paths, and raw documents for LLM context
         """
         try:
-            from ..tools.base import retrieve_documents
+            try:
+                from ..tools.base import retrieve_documents
+            except ImportError:
+                self._log_execution("RAG tools module not available, using fallback", level="warning")
+                return {}
             
             # IMPROVED QUERY: Include role preference + skills + requirements + path
             # This provides better semantic matching against career documents

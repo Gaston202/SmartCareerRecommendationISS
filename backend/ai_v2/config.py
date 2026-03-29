@@ -25,9 +25,10 @@ class AIConfig:
     Loads settings from environment variables with sensible defaults.
     """
 
-    # API and External Services
-    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    # API and External Services - Using OpenRouter
+    OPENROUTER_API_KEY: Optional[str] = os.getenv("OPENROUTER_API_KEY")
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    LLM_MODEL: str = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
     
     # TODO: Add other LLM providers when implemented
     # ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
@@ -110,10 +111,10 @@ class AIConfig:
             bool: True if validation passes
         """
         # API keys are optional - allow demo mode without real LLM access
-        if not cls.OPENAI_API_KEY:
+        if not cls.OPENROUTER_API_KEY:
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning("OPENAI_API_KEY not set - using mock LLM implementations for testing")
+            logger.warning("OPENROUTER_API_KEY not set - using mock LLM implementations for testing")
         
         return True
 

@@ -69,8 +69,33 @@ class GapAgent(BaseAgent):
             current_skills = input_data.get("current_skills", [])
             required_skills = input_data.get("required_skills", [])
             
-            if not current_skills or not required_skills:
-                raise ValueError("current_skills and required_skills are required")
+            # Graceful handling: if skills are empty, treat all required_skills as gaps
+            if not required_skills:
+                self._log_execution("No required_skills provided, returning empty gap analysis", level="warning")
+                return self._create_output(
+                    success=True,
+                    data={
+                        "target_role": target_role,
+                        "gap_analysis": [],
+                        "skill_gaps": [],
+                        "note": "No required skills defined for gap analysis"
+                    },
+                )
+            
+            if not current_skills:
+                self._log_execution("No current_skills - treating all required_skills as gaps", level="info")
+                # All required skills are gaps when user has no current skills
+                return self._create_output(
+                    success=True,
+                    data={
+                        "target_role": target_role,
+                        "current_skills": [],
+                        "required_skills": required_skills,
+                        "gap_analysis": required_skills,
+                        "skill_gaps": required_skills,
+                        "note": "No current skills - all required skills are gaps"
+                    },
+                )
             
             # Use LLM to analyze gaps
             llm_result = self.llm.analyze_skill_gaps(
@@ -80,7 +105,23 @@ class GapAgent(BaseAgent):
             )
             
             if not llm_result.get("success"):
-                raise ValueError("LLM failed to analyze skill gaps")
+                # FIX #6: Return graceful empty response instead of raising
+                self._log_execution(
+                    "LLM gap analysis failed, returning empty gap analysis",
+                    level="warning"
+                )
+                return self._create_output(
+                    success=True,
+                    data={
+                        "target_role": target_role,
+                        "current_skills": current_skills,
+                        "required_skills": required_skills,
+                        "gap_items": [],
+                        "gap_percentage": self._calculate_coverage(current_skills, required_skills),
+                        "priority_gaps": [],
+                        "note": "Gap analysis unavailable, but structure is valid for roadmap generation"
+                    },
+                )
             
             # Extract gap items from LLM result
             gap_items = []

@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Set, TypeVar, Callable, Optional
 from dataclasses import dataclass
 from enum import Enum
 import json
+import re
 
 from ..utils import get_logger
 
@@ -278,8 +279,14 @@ def safe_parse_json(
     """
     Safely parse JSON text with fallback for malformed input.
     
+    Handles:
+    - None or empty content
+    - Whitespace-only content
+    - Markdown code fences (```json ... ```)
+    - JSON decode errors
+    
     Args:
-        text: JSON string to parse
+        text: JSON string to parse (or None)
         fallback: Default dict to return if parsing fails
     
     Returns:
@@ -290,17 +297,43 @@ def safe_parse_json(
         >>> assert result["role"] == "Engineer"
         >>> result = safe_parse_json("invalid", fallback={"error": True})
         >>> assert result["error"] == True
+        >>> result = safe_parse_json("")  # Empty string
+        >>> assert result == {}
     """
+    # ✅ FIXED: Guard against None or non-string content
     if not text or not isinstance(text, str):
+        logger.debug(f"[JSON_PARSE] Input is None or not string, using fallback")
+        return fallback or {}
+    
+    # Strip whitespace
+    text = text.strip()
+    
+    # ✅ FIXED: Check if empty after stripping
+    if not text:
+        logger.warning(f"[JSON_PARSE] Input is empty string after stripping, using fallback")
+        return fallback or {}
+    
+    # ✅ FIXED: Remove markdown code fences if present
+    if text.startswith("```"):
+        logger.debug(f"[JSON_PARSE] Removing markdown code fences from JSON")
+        # Remove opening fence: ```json or ```
+        text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+        # Remove closing fence: ```
+        text = re.sub(r"\n?```\s*$", "", text)
+        text = text.strip()
+    
+    # Final empty check after fence removal
+    if not text:
+        logger.warning(f"[JSON_PARSE] Content empty after removing code fences, using fallback")
         return fallback or {}
     
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
-        logger.warning(f"JSON parse error: {e}. Using fallback.")
+        logger.warning(f"[JSON_PARSE] JSON decode error: {e}. Text preview: {text[:100]}... Using fallback.")
         return fallback or {}
     except Exception as e:
-        logger.error(f"Unexpected error parsing JSON: {e}")
+        logger.error(f"[JSON_PARSE] Unexpected error parsing JSON: {e}")
         return fallback or {}
 
 

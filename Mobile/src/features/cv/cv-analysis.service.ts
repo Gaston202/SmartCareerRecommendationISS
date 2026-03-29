@@ -466,7 +466,12 @@ async function extractTextFromPdfForAnalysis(pdfBase64: string): Promise<string>
       .trim();
 
     if (!normalizedText) {
-      throw new Error("No extractable text found in PDF content streams");
+      const err = new Error(
+        "This PDF appears to be scanned or image-based. No selectable text was found. " +
+        "Please upload a text-based PDF or convert your PDF from image-based to text-based format."
+      ) as Error & { status?: number };
+      err.status = 415; // Unsupported Media Type
+      throw err;
     }
 
     logDebug(`[cv-analysis] ✅ PDF text extracted (${normalizedText.length} chars)`);
@@ -553,188 +558,95 @@ function generateFallbackAnalysis(cvText: string): OpenRouterAnalysis {
 }
 
 /**
+ * Analyze CV using Backend AI Service (ai_v2 pipeline)
+ * Replaces direct OpenRouter calls with multi-agent analysis
+ */
+async function analyzeCvWithBackend(
+  pdfBase64: string,
+  userId: string,
+  cvId?: string,
+  fileName?: string
+): Promise<OpenRouterAnalysis> {
+  // Import BackendConfig for endpoint URL
+  const BackendConfig = (await import('../../config/backend')).default;
+  const endpoint = BackendConfig.endpoints.cvAnalysis();
+  
+  BackendConfig.logCall('CVAnalysis', endpoint, { userId, pdfSize: pdfBase64.length });
+  
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: BackendConfig.getHeaders(),
+    body: JSON.stringify({
+      pdf_base64: pdfBase64,
+      user_id: userId,
+      cv_id: cvId,
+      file_name: fileName,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const errorMsg = errorData.error || `Backend returned ${response.status}`;
+    BackendConfig.logError('CVAnalysis', `Backend error (${response.status}): ${errorMsg}`);
+    throw new Error(`Backend analysis failed: ${errorMsg}`);
+  }
+
+  const json = await response.json();
+  
+  if (!json.success || !json.data) {
+    BackendConfig.logError('CVAnalysis', 'Invalid backend response format');
+    throw new Error("Invalid backend response format");
+  }
+
+  BackendConfig.logSuccess('CVAnalysis', {
+    ats_score: json.data.ats_score,
+    skills: json.data.extracted_skills?.length || 0,
+    careers: json.data.career_suggestions?.length || 0,
+  });
+
+  return json.data;
+}
+
+/**
  * Analyze CV using OpenRouter API (free tier compatible)
+ * Now routes through backend service for unified ai_v2 pipeline
  */
 async function analyzeWithOpenRouter(
-  cvText: string,
+  pdfBase64: string,
   fileName: string
 ): Promise<OpenRouterAnalysis> {
-  logDebug(`[cv-analysis] Calling OpenRouter API for CV analysis...`);
+  logDebug(`[cv-analysis] Starting CV analysis with backend (receiving base64 PDF)...`);
 
-  const openRouterApiKey = getOpenRouterApiKey();
-
-  const prompt = `You are an expert CV/Resume analyst and ATS (Applicant Tracking System) specialist.
-
-Analyze the provided CV/Resume text and return a detailed JSON analysis.
-
-CV TEXT:
-${cvText}
-
-Return ONLY valid JSON response in this exact format, no additional text:
-
-{
-  "ats_score": 75,
-  "ats_issues": [
-    {
-      "type": "formatting",
-      "severity": "warning",
-      "description": "Consider using standard section headers"
+  try {
+    // Get current user for backend call
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session) {
+      console.warn("[cv-analysis] No session for backend call, falling back to mock");
+      return generateFallbackAnalysis("PDF file received");
     }
-  ],
-  "ats_suggestions": [
-    {
-      "section": "Summary",
-      "suggestion": "Add quantifiable metrics and achievements",
-      "example": "Led team of 5 engineers to deliver 3 major features"
+
+    const userId = session.user?.id;
+    if (!userId) {
+      console.warn("[cv-analysis] No user ID, using fallback");
+      return generateFallbackAnalysis("PDF file received");
     }
-  ],
-  "career_suggestions": [
-    {
-      "title": "Senior Software Engineer",
-      "match_score": 88,
-      "reasoning": "Strong backend development experience with leadership proven"
+
+    // Try backend first (ai_v2 pipeline with Claude document vision)
+    logDebug(`[cv-analysis] Attempting backend analysis for user: ${userId}`);
+    
+    try {
+      return await analyzeCvWithBackend(pdfBase64, userId, undefined, fileName);
+    } catch (backendErr) {
+      console.error(`[cv-analysis] ❌ Backend analysis failed, falling back:`, backendErr);
+      logDebug(`[cv-analysis] Falling back to mock analysis due to backend error`);
+      return generateFallbackAnalysis("PDF file received");
     }
-  ],
-  "extracted_skills": ["JavaScript", "React", "Node.js"],
-  "extracted_interests": ["Web Development", "Cloud Computing"]
-}`;
-
-  let lastError: unknown = null;
-
-  for (let modelIndex = 0; modelIndex < CV_OPENROUTER_MODELS.length; modelIndex++) {
-    const model = CV_OPENROUTER_MODELS[modelIndex];
-    const requestBody = {
-      model,
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      max_tokens: 1200,
-      temperature: 0.3,
-    };
-
-    logDebug(`[cv-analysis] 🔐 Request details:`, {
-      model,
-      modelOrder: `${modelIndex + 1}/${CV_OPENROUTER_MODELS.length}`,
-      hasApiKey: !!openRouterApiKey,
-      keyLength: openRouterApiKey.length,
-      keyValidation: openRouterApiKey.startsWith('sk-or-') ? '✅ Valid OpenRouter format' : '⚠️ Check key format',
-      contentLength: JSON.stringify(requestBody).length,
-      fileName,
-    });
-
-    for (let attempt = 0; attempt <= OPENROUTER_MAX_RETRIES_PER_MODEL; attempt++) {
-      try {
-        const response = await fetch(OPENROUTER_URL, {
-          method: "POST",
-          headers: buildOpenRouterHeaders(openRouterApiKey),
-          body: JSON.stringify(requestBody),
-        });
-
-        const responseText = await response.text();
-        logDebug(`[cv-analysis] 📡 OpenRouter response status:`, response.status);
-
-        if (!response.ok) {
-          logDebug(`[cv-analysis] ❌ Full response:`, responseText);
-          throw toOpenRouterError(response.status, responseText);
-        }
-
-        const data = JSON.parse(responseText);
-        logDebug(`[cv-analysis] ✅ OpenRouter response received`);
-
-        const content = extractMessageContent(data);
-        if (!content) {
-          const finishReason = data?.choices?.[0]?.finish_reason || "unknown";
-          logDebug(`[cv-analysis] ❌ No content in response:`, {
-            finishReason,
-            model,
-            hasMessage: !!data?.choices?.[0]?.message,
-          });
-          throw createRetryableParseError(`No content in OpenRouter response (finish_reason=${finishReason})`);
-        }
-
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          logDebug(`[cv-analysis] ❌ Could not extract JSON from response:`, content);
-          throw createRetryableParseError("Could not extract JSON from OpenRouter response");
-        }
-
-        const parsed = JSON.parse(jsonMatch[0]) as Partial<OpenRouterAnalysis>;
-        const analysis: OpenRouterAnalysis = {
-          ats_score: typeof parsed.ats_score === "number" ? parsed.ats_score : 60,
-          ats_issues: Array.isArray(parsed.ats_issues) ? parsed.ats_issues : [],
-          ats_suggestions: Array.isArray(parsed.ats_suggestions) ? parsed.ats_suggestions : [],
-          career_suggestions: Array.isArray(parsed.career_suggestions) ? parsed.career_suggestions : [],
-          extracted_skills: normalizeStringArray(parsed.extracted_skills),
-          extracted_interests: normalizeStringArray(parsed.extracted_interests),
-        };
-
-        if (analysis.extracted_skills.length === 0 && analysis.extracted_interests.length === 0) {
-          const extracted = extractSkillsAndInterestsFromText(cvText);
-          analysis.extracted_skills = extracted.extracted_skills;
-          analysis.extracted_interests = extracted.extracted_interests;
-        }
-
-        logDebug(`[cv-analysis] ✅ Analysis parsed:`, {
-          model,
-          ats_score: analysis.ats_score,
-          issues_count: analysis.ats_issues?.length || 0,
-          suggestions_count: analysis.ats_suggestions?.length || 0,
-          career_suggestions_count: analysis.career_suggestions?.length || 0,
-          extracted_skills_count: analysis.extracted_skills?.length || 0,
-          extracted_interests_count: analysis.extracted_interests?.length || 0,
-        });
-
-        return analysis;
-      } catch (err) {
-        lastError = err;
-        const status = (err as { status?: number })?.status;
-        const isRetryable = status === 429 || status === 502 || status === 503 || status === 504;
-
-        if (isRetryable) {
-          logDebug(
-            `[cv-analysis] OpenRouter retryable failure (${model}, attempt ${attempt + 1}/${OPENROUTER_MAX_RETRIES_PER_MODEL + 1}):`,
-            err
-          );
-        } else {
-          console.error(
-            `[cv-analysis] ❌ OpenRouter analysis failed (${model}, attempt ${attempt + 1}/${OPENROUTER_MAX_RETRIES_PER_MODEL + 1}):`,
-            err
-          );
-        }
-
-        if (status === 401) {
-          console.warn(`[cv-analysis] ⚠️ Using fallback analysis due to API authentication issue`);
-          return generateFallbackAnalysis(cvText);
-        }
-
-        if (isRetryable && attempt < OPENROUTER_MAX_RETRIES_PER_MODEL) {
-          const delayMs = getRetryDelay(attempt);
-          console.warn(`[cv-analysis] ⏳ Retry ${model} after ${status} in ${delayMs}ms...`);
-          await sleep(delayMs);
-          continue;
-        }
-
-        if (status === 429 && modelIndex < CV_OPENROUTER_MODELS.length - 1) {
-          console.warn(`[cv-analysis] 🔄 Model rate-limited, switching to next model...`);
-          break;
-        }
-
-        if (!isRetryable) {
-          throw err;
-        }
-      }
-    }
+    
+  } catch (err) {
+    console.error(`[cv-analysis] ❌ Analysis pipeline failed:`, err);
+    logDebug(`[cv-analysis] Using fallback analysis`);
+    return generateFallbackAnalysis("PDF file received");
   }
-
-  console.warn(`[cv-analysis] ⚠️ Using fallback analysis after all models exhausted`);
-  if ((lastError as { status?: number })?.status === 429) {
-    return generateFallbackAnalysis(cvText);
-  }
-
-  throw (lastError as Error) ?? new Error("CV analysis failed");
 }
 
 /**
@@ -850,6 +762,7 @@ export async function analyzeCvWithOpenRouter(
   storagePath: string,
   fileName: string
 ): Promise<CvAnalysis> {
+  console.log(`[CV_TRIGGER] analyzeCvWithOpenRouter called for: cvId=${cvId}, fileName=${fileName}`);
   console.log(`[cv-analysis] 🚀 Starting CV analysis: ${fileName}`);
 
   try {
@@ -865,23 +778,37 @@ export async function analyzeCvWithOpenRouter(
       throw new Error("Missing user ID");
     }
 
+    // ⭐ CHECK CACHE FIRST - BEFORE ANY PDF PROCESSING
+    console.log(`[cv-analysis] 🔍 Checking for existing cached analysis...`);
     const cachedAnalysis = await getExistingAnalysis(cvId, userId);
-    if (cachedAnalysis) {
-      console.warn(`[cv-analysis] ♻️ Using cached analysis for this CV (no new OpenRouter request)`);
+    // Only use cache if it has actual extracted skills (not from failed/empty run)
+    // AND timestamp is fresh (within 24 hours)
+    const cacheAge = cachedAnalysis ? Date.now() - new Date(cachedAnalysis.created_at).getTime() : 0;
+    const isCacheFresh = cacheAge < 24 * 60 * 60 * 1000; // 24 hours
+    if (cachedAnalysis && 
+        cachedAnalysis.extracted_skills && 
+        cachedAnalysis.extracted_skills.length > 0 &&
+        isCacheFresh) {
+      console.warn(`[cv-analysis] ♻️ Using cached analysis for this CV (returning immediately, no PDF processing)`);
+      console.log(`[cv-analysis] ✅ Cached analysis found with ${cachedAnalysis.extracted_skills.length} skills (${Math.round(cacheAge / (60 * 1000))} min old) - returning without re-analysis`);
       return cachedAnalysis;
+    }
+    
+    // Cached analysis exists but has 0 skills or is stale - treat as invalid cache, will re-analyze
+    if (cachedAnalysis && (!cachedAnalysis.extracted_skills || cachedAnalysis.extracted_skills.length === 0)) {
+      console.warn(`[cv-analysis] ⚠️ Cached analysis has 0 skills (likely from failed run) - will re-analyze`);
+    }
+    if (cachedAnalysis && !isCacheFresh) {
+      console.warn(`[cv-analysis] ⚠️ Cached analysis is stale (${Math.round(cacheAge / (60 * 60 * 1000))} hours old) - will re-analyze`);
     }
 
     // Step 1: Download PDF (returns base64)
     console.log(`[cv-analysis] 📥 Step 1: Downloading PDF...`);
     const pdfBase64 = await downloadPdfFromStorage(storagePath);
 
-    // Step 2: Extract text from PDF for analysis
-    console.log(`[cv-analysis] 📄 Step 2: Extracting text from PDF...`);
-    const cvText = await extractTextFromPdfForAnalysis(pdfBase64);
-
-    // Step 3: Analyze with OpenRouter
-    console.log(`[cv-analysis] 🤖 Step 3: Analyzing with OpenRouter...`);
-    const analysis = await analyzeWithOpenRouter(cvText, fileName);
+    // Step 2: Analyze with backend (send raw base64 for Claude document vision)
+    console.log(`[cv-analysis] 🤖 Step 2: Analyzing with backend...`);
+    const analysis = await analyzeWithOpenRouter(pdfBase64, fileName);
 
     await cacheExtractedFields(cvId, {
       extracted_skills: analysis.extracted_skills,

@@ -33,6 +33,43 @@ from .fallback_utils import (
 logger = get_logger(__name__)
 
 
+def safe_deduplicate_careers(careers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Safely deduplicate a list of career dicts by role name.
+    
+    ✅ FIXED: Avoids `set(dicts)` which fails because dicts aren't hashable
+    
+    Args:
+        careers: List of career dicts with "role" field
+    
+    Returns:
+        List of deduplicated careers preserving order
+    
+    Example:
+        >>> careers = [
+        ...     {"role": "Backend Engineer", "salary": 100},
+        ...     {"role": "Backend Engineer", "salary": 110},
+        ...     {"role": "Frontend Engineer", "salary": 95},
+        ... ]
+        >>> deduplicated = safe_deduplicate_careers(careers)
+        >>> len(deduplicated)  # 2 (Backend and Frontend, first Backend kept)
+        2
+    """
+    seen = set()
+    unique_careers = []
+    for career in careers:
+        if isinstance(career, dict):
+            role = career.get("role", "")
+            if role and role not in seen:
+                seen.add(role)
+                unique_careers.append(career)
+        else:
+            # If not a dict, still try to add it (shouldn't happen)
+            unique_careers.append(career)
+    
+    return unique_careers
+
+
 class LLMService:
     """
     Service for interacting with LLM providers with comprehensive error handling.
@@ -64,17 +101,20 @@ class LLMService:
     """
     
     def __init__(self):
-        """Initialize LLM service with API client and error handling."""
+        """Initialize LLM service with OpenRouter client and error handling."""
         self.logger = get_logger(__name__)
-        self.use_mock = not config.OPENAI_API_KEY
+        self.use_mock = not config.OPENROUTER_API_KEY
         self.client = None
         
-        # Try to initialize OpenAI client
+        # Try to initialize OpenAI client with OpenRouter endpoint
         if not self.use_mock:
             try:
                 import openai
-                self.client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
-                self.logger.info("✓ [REAL_LLM] OpenAI client initialized - ready for API calls")
+                self.client = openai.OpenAI(
+                    api_key=config.OPENROUTER_API_KEY,
+                    base_url=config.OPENROUTER_BASE_URL,
+                )
+                self.logger.info("✓ [REAL_LLM] OpenRouter client initialized - ready for API calls")
             except ImportError:
                 self.logger.warning(
                     "[FALLBACK_MOCK] OpenAI library not installed, "
@@ -83,13 +123,13 @@ class LLMService:
                 self.use_mock = True
             except Exception as e:
                 self.logger.error(
-                    f"[FALLBACK_MOCK] Failed to initialize OpenAI client: {e}, "
+                    f"[FALLBACK_MOCK] Failed to initialize OpenRouter client: {e}, "
                     "will use mock implementations"
                 )
                 self.use_mock = True
         else:
             self.logger.warning(
-                "[FALLBACK_MOCK] OPENAI_API_KEY not configured, "
+                "[FALLBACK_MOCK] OPENROUTER_API_KEY not configured, "
                 "using mock LLM implementations for testing/development"
             )
     
@@ -136,7 +176,7 @@ class LLMService:
             return self._mock_generate_recommendations(user_profile, user_skills, count)
         
         try:
-            self.logger.debug("[REAL_LLM] Calling OpenAI for career recommendations")
+            self.logger.debug("[REAL_LLM] Calling OpenRouter for career recommendations")
             
             prompt = self._build_recommendation_prompt(
                 user_profile, user_skills, job_market_data, count, rag_context
@@ -156,14 +196,14 @@ class LLMService:
                 return self._mock_generate_recommendations(user_profile, user_skills, count)
             
             result_text = response.choices[0].message.content
-            self.logger.info(f"[REAL_LLM] ✓ Generated {count} recommendations from OpenAI")
+            self.logger.info(f"[REAL_LLM] ✓ Generated {count} recommendations from OpenRouter")
             
             # Parse JSON response
             parsed = safe_parse_json(result_text)
             
             if not parsed:
                 self.logger.warning(
-                    "[FALLBACK_MOCK] Failed to parse OpenAI JSON response, "
+                    "[FALLBACK_MOCK] Failed to parse OpenRouter JSON response, "
                     "using career template instead"
                 )
                 return self._create_parse_error_fallback(
@@ -172,9 +212,9 @@ class LLMService:
             
             return {
                 "success": True,
-                "recommended_careers": parsed.get("recommended_careers", []),
+                "recommended_careers": safe_deduplicate_careers(parsed.get("recommended_careers", [])),
                 "confidence_score": parsed.get("confidence_score", 0.75),
-                "reasoning": parsed.get("reasoning", "Generated by OpenAI"),
+                "reasoning": parsed.get("reasoning", "Generated by OpenRouter"),
                 "source": "real_llm",
             }
         
@@ -265,6 +305,78 @@ class LLMService:
             return self._mock_analyze_skill_gaps(
                 current_skills, target_role, required_skills
             )
+    
+    def extract_skills_from_cv(self, cv_text: str) -> Dict[str, Any]:
+        """
+        Extract skills from CV text using LLM.
+        
+        Args:
+            cv_text (str): Raw CV text to analyze
+        
+        Returns:
+            Dict with:
+            - success (bool): Extraction succeeded
+            - skills (List[str]): Extracted skills
+            - source (str): Source of extraction
+        """
+        if self.use_mock:
+            return self._mock_extract_skills_from_cv(cv_text)
+        
+        try:
+            self.logger.debug("[REAL_LLM] Extracting skills from CV text")
+            
+            prompt = f"""
+You are an expert CV analyzer. Extract all technical and professional skills from the following CV text.
+
+CV TEXT:
+{cv_text}
+
+TASK:
+1. Identify all technical skills (programming languages, frameworks, tools, etc.)
+2. Identify professional skills (communication, leadership, project management, etc.)
+3. Return ONLY a valid JSON with no explanations
+
+Return EXACTLY in this JSON format:
+{{
+    "skills": ["Skill1", "Skill2", "Skill3"]
+}}
+            """
+            
+            response = self._safe_api_call(
+                lambda: self.client.chat.completions.create(
+                    model=config.LLM_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=500,
+                )
+            )
+            
+            if response is None:
+                return self._mock_extract_skills_from_cv(cv_text)
+            
+            result_text = response.choices[0].message.content
+            self.logger.info("[REAL_LLM] ✓ Extracted skills from CV")
+            
+            parsed = safe_parse_json(result_text)
+            
+            if not parsed:
+                self.logger.warning(
+                    "[FALLBACK_MOCK] Failed to parse CV skill extraction, using mock"
+                )
+                return self._mock_extract_skills_from_cv(cv_text)
+            
+            return {
+                "success": True,
+                "skills": parsed.get("skills", []),
+                "source": "real_llm",
+            }
+        
+        except Exception as e:
+            self.logger.error(
+                f"[FALLBACK_MOCK] Unexpected error in extract_skills_from_cv: {e}. "
+                f"Falling back to mock."
+            )
+            return self._mock_extract_skills_from_cv(cv_text)
     
     def generate_learning_roadmap(
         self,
@@ -383,7 +495,7 @@ class LLMService:
             
             elif llm_error.error_type == LLMErrorType.API_KEY_INVALID:
                 self.logger.error(
-                    f"[FALLBACK_MOCK] Invalid API key (401). Check OPENAI_API_KEY. "
+                    f"[FALLBACK_MOCK] Invalid API key (401). Check OPENROUTER_API_KEY. "
                     f"Using mock data. Error: {llm_error}"
                 )
                 self.use_mock = True
@@ -476,6 +588,34 @@ class LLMService:
     # Mock Implementations (centralized fallback)
     # ========================================================================
     
+    def _mock_extract_skills_from_cv(self, cv_text: str) -> Dict[str, Any]:
+        """Mock implementation of skill extraction from CV."""
+        self.logger.info("[FALLBACK_MOCK] Extracting skills from CV (mock template)")
+        
+        # Simple regex-based skill detection for mock
+        common_skills = [
+            "Python", "JavaScript", "React", "Node.js", "SQL", "Docker", 
+            "AWS", "Git", "REST APIs", "TypeScript", "Java", "C++",
+            "PostgreSQL", "MongoDB", "Linux", "Kubernetes", "CI/CD",
+            "HTML", "CSS", "Vue", "Angular", "Express", "FastAPI"
+        ]
+        
+        # Find which common skills appear in CV
+        detected_skills = [
+            skill for skill in common_skills 
+            if skill.lower() in cv_text.lower()
+        ]
+        
+        # If no skills detected, return generic backend skills
+        if not detected_skills:
+            detected_skills = ["Python", "REST APIs", "Database Design"]
+        
+        return {
+            "success": True,
+            "skills": detected_skills[:15],  # Top 15 skills
+            "source": "fallback_mock",
+        }
+    
     def _mock_generate_recommendations(
         self,
         user_profile: Dict[str, Any],
@@ -491,33 +631,48 @@ class LLMService:
         career_profiles = [
             {
                 "role": "Backend Engineer",
-                "confidence": 0.92,
+                "match_score": 0.92,
+                "growth_trajectory": "Junior → Senior Backend Engineer → Tech Lead",
+                "salary_range": "$70k - $120k",
+                "market_demand": "high",
+                "description": "Strong match for backend development with system design focus",
                 "required_skills": ["Python", "SQL", "Docker", "REST APIs", "System Design"],
-                "reasoning": "Strong match for backend development with system design focus",
             },
             {
                 "role": "Full-Stack Developer",
-                "confidence": 0.85,
+                "match_score": 0.85,
+                "growth_trajectory": "Junior → Senior Full-Stack → Architect",
+                "salary_range": "$65k - $110k",
+                "market_demand": "high",
+                "description": "Good fit for end-to-end development across stack",
                 "required_skills": ["JavaScript", "React", "Node.js", "SQL", "HTML/CSS"],
-                "reasoning": "Good fit for end-to-end development across stack",
             },
             {
                 "role": "DevOps Engineer",
-                "confidence": 0.78,
+                "match_score": 0.78,
+                "growth_trajectory": "Junior → Senior DevOps → Platform Engineer",
+                "salary_range": "$75k - $125k",
+                "market_demand": "high",
+                "description": "Suitable for infrastructure and deployment focus",
                 "required_skills": ["Docker", "Kubernetes", "CI/CD", "AWS", "Linux"],
-                "reasoning": "Suitable for infrastructure and deployment focus",
             },
             {
                 "role": "Data Engineer",
-                "confidence": 0.75,
+                "match_score": 0.75,
+                "growth_trajectory": "Junior → Senior Data Engineer → Data Architect",
+                "salary_range": "$70k - $115k",
+                "market_demand": "medium",
+                "description": "Match for data processing and pipeline work",
                 "required_skills": ["Python", "SQL", "Spark", "Data Pipelines", "ETL"],
-                "reasoning": "Match for data processing and pipeline work",
             },
             {
                 "role": "ML Engineer",
-                "confidence": 0.72,
+                "match_score": 0.72,
+                "growth_trajectory": "Junior → Senior ML Engineer → AI Research Lead",
+                "salary_range": "$80k - $130k",
+                "market_demand": "high",
+                "description": "Potential for machine learning specialization",
                 "required_skills": ["Python", "TensorFlow", "PyTorch", "Statistics", "Data Science"],
-                "reasoning": "Potential for machine learning specialization",
             },
         ]
         
@@ -525,7 +680,7 @@ class LLMService:
         
         return {
             "success": True,
-            "recommended_careers": recommended,
+            "recommended_careers": safe_deduplicate_careers(recommended),
             "confidence_score": 0.75,
             "reasoning": f"Mock recommendations based on {len(user_skills)} identified skills",
             "source": "fallback_mock",
@@ -651,9 +806,12 @@ Respond EXACTLY in this JSON format:
     "recommended_careers": [
         {{
             "role": "Career Title",
-            "confidence": 0.85,
-            "required_skills": ["Skill1", "Skill2", "Skill3", "Skill4", "Skill5"],
-            "reasoning": "Why this is suitable"
+            "match_score": 0.85,
+            "growth_trajectory": "Junior → Senior → Lead",
+            "salary_range": "$70k - $110k",
+            "market_demand": "high",
+            "description": "Why this is suitable for the user",
+            "required_skills": ["Skill1", "Skill2", "Skill3"]
         }}
     ],
     "confidence_score": 0.85,

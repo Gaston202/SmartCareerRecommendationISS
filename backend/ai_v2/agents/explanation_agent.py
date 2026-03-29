@@ -248,7 +248,11 @@ class ExplanationAgent(BaseAgent):
             Dict with career info from knowledge base
         """
         try:
-            from ..tools.base import retrieve_documents
+            try:
+                from ..tools.base import retrieve_documents
+            except ImportError:
+                self._log_execution(f"RAG tools module not available for {target_role}, using fallback", level="warning")
+                return {}
             
             # Search for career role-specific information
             query = f"{target_role} skills requirements career path"

@@ -1,0 +1,28 @@
+# AI v2 Module Requirements
+# Advanced AI features for career recommendation system
+
+# LLM & Embeddings
+sentence-transformers>=2.2.0    # For embeddings
+openai>=1.0                      # OpenAI API
+anthropic>=0.7.0                # Anthropic Claude (optional)
+
+# RAG & Vector Storage
+langchain>=0.0.300              # LLM orchestration
+faiss-cpu>=1.7.0                # Vector similarity search
+chromadb>=0.3.0                 # Vector store
+
+# Data Processing
+pandas>=1.5.0                   # Data manipulation
+numpy>=1.23.0                   # Numerical computing
+
+# Utilities
+pydantic>=2.0                   # Data validation
+python-dotenv>=1.0             # Environment variables
+pyyaml>=6.0                     # YAML parsing
+
+# Async Support
+asyncio>=3.4                    # Python 3.9+ 
+aiohttp>=3.8.0                 # Async HTTP
+
+# Logging & Monitoring
+python-json-logger>=2.0.0      # JSON logging
