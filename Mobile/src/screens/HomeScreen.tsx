@@ -7,6 +7,7 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
+  useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,6 +22,7 @@ import type { CvUpload } from "../features/cv/types";
 import { analyzeCvWithOpenRouter } from "../features/cv/cv-analysis.service";
 import { supabase } from "../api/supabase";
 import { homeColors } from "./homeTheme";
+import { AppLogo } from "../ui/AppLogo";
 
 // ============================================================================
 // STATE MACHINE TYPES
@@ -51,7 +53,7 @@ const spacing = {
 // Accessibility configuration
 const a11y = {
   logo: {
-    label: "SmartCareer app logo",
+    label: "MyPath app logo",
     hint: "Career recommendation app for students"
   },
   uploadCv: {
@@ -119,14 +121,20 @@ const HOW_IT_WORKS = [
 
 function StarRating() {
   return (
-    <View style={styles.starRow}>
+    <View
+      style={styles.starRow}
+      accessible
+      accessibilityLabel={a11y.starRating.label}
+      accessibilityHint={a11y.starRating.hint}
+      accessibilityRole="summary"
+    >
       {[1, 2, 3, 4, 5].map((i) => (
         <Ionicons
           key={i}
           name="star"
           size={16}
           color={homeColors.starYellow}
-          accessibilityLabel="Star"
+          accessible={false}
           accessibilityRole="image"
         />
       ))}
@@ -137,6 +145,8 @@ function StarRating() {
 export default function HomeScreen(): React.ReactElement {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const queryClient = useQueryClient();
+  const { width } = useWindowDimensions();
+  const isCompactLayout = width < 380;
 
   // React Query hooks - fetch latest CV upload
   const { data: latestUpload, refetch: refetchCv } = useLatestCvUpload();
@@ -166,6 +176,15 @@ export default function HomeScreen(): React.ReactElement {
   const cvName = cv?.filename || null;
   const hasCv = cv !== null;
   const isProcessing = status !== "idle" && status !== "error";
+
+  const statusTextMap: Partial<Record<Status, string>> = {
+    picking: "Opening file picker...",
+    uploading: "Uploading your CV...",
+    changing: "Replacing your CV...",
+    deleting: "Deleting your CV...",
+    analyzing: "Analyzing your CV with AI...",
+  };
+  const currentStatusText = statusTextMap[status];
 
   // ========================================================================
   // HANDLER 1: UPLOAD CV (with haptic feedback)
@@ -489,18 +508,12 @@ export default function HomeScreen(): React.ReactElement {
           { paddingBottom: spacing['4xl'] + spacing['3xl'] } // Bottom padding for tab bar
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {/* Hero Section */}
         <View style={[styles.hero, { marginBottom: spacing['3xl'] }]}>
           <View style={styles.logoBox}>
-            <Ionicons
-              name="library-outline"
-              size={26}
-              color="#fff"
-              accessibilityLabel={a11y.logo.label}
-              accessibilityHint={a11y.logo.hint}
-              accessibilityRole="image"
-            />
+            <AppLogo size={40} />
           </View>
           <Text style={styles.heroTitle}>
             Find Your Career Path{"\n"}
@@ -511,8 +524,26 @@ export default function HomeScreen(): React.ReactElement {
           </Text>
         </View>
 
+        {currentStatusText && (
+          <View
+            style={styles.statusBanner}
+            accessibilityRole="progressbar"
+            accessibilityLabel={currentStatusText}
+            accessibilityLiveRegion="polite"
+          >
+            <ActivityIndicator size="small" color={homeColors.primary} />
+            <Text style={styles.statusBannerText}>{currentStatusText}</Text>
+          </View>
+        )}
+
         {/* Two CTA Buttons: Quiz + CV */}
-        <View style={[styles.ctaRow, { marginBottom: spacing['3xl'] - 4 }]}>
+        <View
+          style={[
+            styles.ctaRow,
+            isCompactLayout && styles.ctaRowCompact,
+            { marginBottom: spacing['3xl'] - 4 },
+          ]}
+        >
           <Pressable
             style={({ pressed }) => [styles.ctaQuizWrap, pressed && styles.pressed]}
             onPress={goToQuiz}
@@ -555,6 +586,28 @@ export default function HomeScreen(): React.ReactElement {
                 >
                   {cvName}
                 </Text>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.cvAnalyzeBtn,
+                    isProcessing && styles.disabled,
+                    pressed && !isProcessing && styles.pressed,
+                  ]}
+                  onPress={handleAnalyze}
+                  disabled={isProcessing}
+                  accessibilityRole="button"
+                  accessibilityLabel={a11y.analyzeCv.label}
+                  accessibilityHint={a11y.analyzeCv.hint}
+                  accessibilityState={{ disabled: isProcessing }}
+                >
+                  {status === "analyzing" ? (
+                    <ActivityIndicator size="small" color={homeColors.onPrimary} />
+                  ) : (
+                    <>
+                      <Ionicons name="analytics-outline" size={16} color={homeColors.onPrimary} />
+                      <Text style={styles.cvAnalyzeBtnText}>Analyze CV</Text>
+                    </>
+                  )}
+                </Pressable>
                 <View style={styles.cvActionsRow}>
                   <Pressable
                     style={({ pressed }) => [
@@ -640,7 +693,7 @@ export default function HomeScreen(): React.ReactElement {
               name="alert-circle"
               size={16}
               color={homeColors.error}
-              accessibilityRole="alert"
+              accessibilityRole="image"
             />
             <Text style={styles.errorText}>{error}</Text>
             <Pressable
@@ -662,7 +715,7 @@ export default function HomeScreen(): React.ReactElement {
         </Text>
         <View style={styles.howItWorksGrid}>
           {HOW_IT_WORKS.map((item) => (
-            <View key={item.step} style={styles.howCard}>
+            <View key={item.step} style={[styles.howCard, isCompactLayout && styles.howCardCompact]}>
               <View style={[styles.howIconBox, { backgroundColor: item.color + "20" }]}>
                 <Ionicons
                   name={item.icon}
@@ -712,7 +765,7 @@ export default function HomeScreen(): React.ReactElement {
         {/* CTA Block: Ready to Build Your Future? */}
         <Pressable
           style={({ pressed }) => [styles.ctaBlockWrap, pressed && styles.pressed]}
-          accessibilityRole="region"
+          accessibilityRole="summary"
           accessibilityLabel="Call to action section"
         >
           <LinearGradient
@@ -725,7 +778,7 @@ export default function HomeScreen(): React.ReactElement {
             <Text style={styles.ctaBlockSubtitle}>
               Start your journey today and discover the perfect career for you.
             </Text>
-            <View style={styles.ctaBlockButtons}>
+            <View style={[styles.ctaBlockButtons, isCompactLayout && styles.ctaBlockButtonsCompact]}>
               <Pressable
                 style={({ pressed }) => [
                   styles.ctaBlockBtnWhite,
@@ -840,6 +893,9 @@ const styles = StyleSheet.create({
     gap: 12, // spacing['md']
     marginBottom: 36, // spacing['3xl'] + adjustment (36 = 32 + 4)
   },
+  ctaRowCompact: {
+    flexDirection: "column",
+  },
   ctaQuizWrap: {
     flex: 1,
     borderRadius: 16,
@@ -911,6 +967,22 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 4,
   },
+  cvAnalyzeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    borderRadius: 10,
+    paddingVertical: 12,
+    backgroundColor: homeColors.primary,
+    gap: 6,
+    marginTop: 2,
+  },
+  cvAnalyzeBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: homeColors.onPrimary,
+  },
   cvActionBtn: {
     flex: 1,
     flexDirection: "row",
@@ -943,6 +1015,24 @@ const styles = StyleSheet.create({
   },
 
   // Error Banner
+  statusBanner: {
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    gap: 8,
+  },
+  statusBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: homeColors.onSurface,
+    fontWeight: "600",
+  },
   errorBanner: {
     backgroundColor: homeColors.errorContainer,
     borderRadius: 10,
@@ -995,6 +1085,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
+  },
+  howCardCompact: {
+    width: "100%",
   },
   howIconBox: {
     width: 44,
@@ -1067,6 +1160,9 @@ const styles = StyleSheet.create({
   ctaBlockButtons: {
     flexDirection: "row",
     gap: 12,
+  },
+  ctaBlockButtonsCompact: {
+    flexDirection: "column",
   },
   ctaBlockBtnWhite: {
     flex: 1,

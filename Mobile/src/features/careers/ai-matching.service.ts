@@ -42,25 +42,28 @@ function logDebug(message: string, ...args: unknown[]) {
 }
 
 function buildSystemPrompt(): string {
-  return `You are an expert career counselor and AI career matching system. Your task is to analyze user data comprehensively and recommend the TOP 5 most suitable careers.
+  return `You are an expert career counselor and AI career matching system. Your task is to analyze user data comprehensively and generate the TOP 5 most suitable careers.
 
 You will receive:
 1. Quiz questions with user's answers (shows interests, preferences, work style)
+2. Nova psychometric profile summary (behavior, motivations, cognition, work environment fit)
 2. CV analysis data (skills, interests, ATS score)
-3. List of available careers with details
+3. Optional list of reference careers (for inspiration only, not a hard constraint)
 
 RESPOND WITH ONLY VALID JSON - NO MARKDOWN, NO CODE BLOCKS, NO EXTRA TEXT!
 Output exactly this JSON structure:
-{"topMatches":[{"careerTitle":"Career Title","careerDescription":"Brief description of the career","matchScore":92,"matchingFactors":{"quizAlignment":"How quiz answers align with this career","skillsMatch":"How extracted skills and CV relate to this career","cvAnalysisMatch":"Additional insights from CV analysis if applicable"},"reasoning":"Detailed explanation of why this is a top match (2-3 sentences)","recommendedNextSteps":["Step 1","Step 2","Step 3"]}]}
+{"topMatches":[{"careerTitle":"Career Title","careerDescription":"Brief description of the career","careerCategory":"Technology","requiredSkills":["Skill A","Skill B"],"estimatedSalaryRange":"$65,000-$95,000","growthRatePercent":18,"demandLevel":"high","tags":["Tag1","Tag2"],"matchScore":92,"matchingFactors":{"quizAlignment":"How quiz answers align with this career","skillsMatch":"How extracted skills and CV relate to this career","cvAnalysisMatch":"Additional insights from CV analysis if applicable"},"reasoning":"Detailed explanation of why this is a top match (2-3 sentences)","recommendedNextSteps":["Step 1","Step 2","Step 3"]}]}
 
 CRITICAL RULES:
 - Output MUST be valid JSON only (no markdown backticks, no explanations before or after)
-- Return EXACTLY 5 careers (or fewer if < 5 available)
+- Return EXACTLY 5 careers
 - matchScore: integer 75-99 range, ordered descending
-- careerTitle: must be from the available careers list
+- Careers should be AI-generated and personalized from user profile (not limited to any database list)
 - careerDescription: 1-2 sentences
 - reasoning: 2-3 sentences explaining the match
 - recommendedNextSteps: array of 3 practical steps
+- requiredSkills: 4-8 concise skills for the role
+- demandLevel: one of low, medium, high, very-high
 - Consider ALL user data holistically
 - Prioritize careers matching MULTIPLE factors
 - Focus on career viability with current + learnable skills`;
@@ -90,31 +93,47 @@ CV ANALYSIS SUMMARY:
       }`
     : "";
 
+  const novaSection = input.novaProfile
+    ? `
+NOVA PSYCHOMETRIC PROFILE:
+- Headline: ${input.novaProfile.headline || "N/A"}
+- Professional Identity: ${input.novaProfile.professionalIdentity || "N/A"}
+- Primary Style: ${input.novaProfile.primaryStyle || "N/A"}
+- Top Motivators: ${(input.novaProfile.topMotivators || []).join(", ") || "None"}
+- Decision Style: ${input.novaProfile.decisionStyle || "N/A"}
+- Learning Style: ${input.novaProfile.learningStyle || "N/A"}
+- Communication Style: ${input.novaProfile.communicationStyle || "N/A"}
+- Best Fit Environments: ${(input.novaProfile.bestFitEnvironments || []).join(", ") || "None"}
+- Watchouts: ${(input.novaProfile.watchouts || []).join(", ") || "None"}
+- Development Axes: ${(input.novaProfile.recommendedDevelopmentAxes || []).join(", ") || "None"}`
+    : "";
+
   const skillsSection =
     input.userSkills.length > 0
       ? `\nUSER CONFIRMED SKILLS: ${input.userSkills.join(", ")}`
       : "";
 
-  const careersSection = `
-AVAILABLE CAREERS TO MATCH AGAINST:
+  const careersSection = input.availableCareers && input.availableCareers.length > 0 ? `
+REFERENCE CAREERS (OPTIONAL CONTEXT, DO NOT LIMIT OUTPUT TO THIS LIST):
 ${input.availableCareers
   .map(
     (c) =>
       `- ${c.title} (${c.category}): ${c.description}\n  Required Skills: ${c.required_skills.join(", ") || "None"}\n  Salary: $${c.average_salary?.toLocaleString() || "N/A"} | Growth: ${c.growth_rate || "N/A"}% | Demand: ${c.demand_level || "N/A"}`
   )
-  .join("\n\n")}`;
+  .join("\n\n")}` : "";
 
   return `USER PROFILE DATA FOR CAREER MATCHING:
 
 QUIZ RESPONSES:
 ${quizSection}
 ${skillsSection}
+${novaSection}
 ${cvSection}
 
 ${careersSection}
 
 ===== CRITICAL INSTRUCTIONS =====
-Analyze this comprehensive user data and return ONLY the TOP 5 most suitable careers.
+Analyze this comprehensive user data and return ONLY the TOP 5 most suitable AI-generated careers.
 
 RESPOND WITH ONLY THIS JSON - NO OTHER TEXT, NO MARKDOWN BLOCKS:
 {"topMatches":[...]}
@@ -406,7 +425,7 @@ export async function generateAiCareerMatches(
       quizQuestions: input.quizQuestions.length,
       hasCvAnalysis: !!input.cvAnalysis,
       userSkills: input.userSkills.length,
-      availableCareers: input.availableCareers.length,
+      availableCareers: input.availableCareers?.length || 0,
     });
 
     const result = await callOpenRouter(input);

@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import { useCareersWithSkills } from './hooks';
 import { useUserSkills } from '../cv/hooks';
 import { useCvAnalysis } from '../cv/hooks';
-import { getLatestQuizSessionId, getQuizQuestionsWithAnswers } from '../quiz/storage';
+import { getLatestQuizSessionId, getQuizQuestionsWithAnswers, getQuizSession } from '../quiz/storage';
 import { 
   calculateCareerMatches, 
   getTopMatchedCareers,
@@ -38,12 +38,11 @@ export function useMatchedCareers() {
       quizSessionId,
     ],
     queryFn: async (): Promise<(CareerMatch | AiPoweredCareerMatch)[]> => {
-      if (!allCareers || allCareers.length === 0) {
-        return [];
-      }
+      const careersPool = allCareers || [];
 
       // Get quiz questions with answers from storage (full data)
       const quizQuestionsWithAnswers = await getQuizQuestionsWithAnswers();
+      const quizSession = await getQuizSession();
 
       // REQUIREMENT CHECK: User must have taken the quiz AND completed CV analysis
       if (!quizQuestionsWithAnswers || quizQuestionsWithAnswers.length === 0) {
@@ -72,9 +71,10 @@ export function useMatchedCareers() {
         console.log('[useMatchedCareers] Using AI-powered matching with comprehensive data');
         const aiMatches = await calculateAiPoweredCareerMatches(
           userId,
-          allCareers,
+          careersPool,
           quizQuestionsWithAnswers,
           allUserSkills,
+          quizSession?.results,
           cvAnalysis,
           quizSessionId
         );
@@ -89,7 +89,7 @@ export function useMatchedCareers() {
       // Legacy matching as fallback
       console.log('[useMatchedCareers] Using legacy career matching');
       const matches = calculateCareerMatches(
-        allCareers,
+        careersPool,
         allUserSkills,
         undefined,
         cvAnalysis

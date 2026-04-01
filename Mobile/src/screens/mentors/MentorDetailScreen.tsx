@@ -13,13 +13,16 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMentor, useMentorByUserId, useMentorReviews, useMentorSessions, useUserProfile } from '../../features/mentors/hooks';
 import { useAuth } from '../../auth/AuthProvider';
 import { homeColors } from '../homeTheme';
 
 export function MentorDetailScreen() {
   const route = useRoute();
+  const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const params = route.params as { mentorId?: string; userId?: string };
   const { state } = useAuth();
   const user = state.user;
@@ -75,8 +78,11 @@ export function MentorDetailScreen() {
           colors={[homeColors.primary, homeColors.primaryDark]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.header}
+          style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}
         >
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Ionicons name="chevron-back" size={24} color="#fff" />
+          </TouchableOpacity>
           <View style={styles.avatarContainer}>
             {userProfile.avatar ? (
               <Image
@@ -185,8 +191,11 @@ export function MentorDetailScreen() {
         colors={[homeColors.primary, homeColors.primaryDark]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.header}
+        style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}
       >
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="chevron-back" size={24} color="#fff" />
+        </TouchableOpacity>
         <View style={styles.avatarContainer}>
           {mentorProfile.avatar ? (
             <Image
@@ -289,7 +298,7 @@ export function MentorDetailScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => {
-              // Navigate to mentor group chat
+              navigation.navigate('GroupChats');
             }}
             style={styles.secondaryButton}
             activeOpacity={0.8}
@@ -476,7 +485,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   header: {
-    paddingTop: 60,
     paddingBottom: 30,
     paddingHorizontal: 20,
   },
@@ -486,7 +494,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   backButton: {
-    marginBottom: 20,
+    marginBottom: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   avatarContainer: {
     alignItems: 'center',
