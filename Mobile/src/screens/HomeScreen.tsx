@@ -9,11 +9,13 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQueryClient } from "@tanstack/react-query";
+import * as Haptics from 'expo-haptics';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUploadCv, useLatestCvUpload, useDeleteCv, cvQueryKeys } from "../features/cv/hooks";
 import type { CvUpload } from "../features/cv/types";
 import { analyzeCvWithOpenRouter } from "../features/cv/cv-analysis.service";
@@ -33,6 +35,50 @@ type HomeStackParamList = {
 };
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'HomeMain'>;
+
+// Spacing scale for consistent rhythm (4dp grid)
+const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  '2xl': 24,
+  '3xl': 32,
+  '4xl': 40,
+};
+
+// Accessibility configuration
+const a11y = {
+  logo: {
+    label: "SmartCareer app logo",
+    hint: "Career recommendation app for students"
+  },
+  uploadCv: {
+    label: "Upload your CV document",
+    hint: "Opens file picker to select a PDF file"
+  },
+  analyzeCv: {
+    label: "Analyze CV with AI",
+    hint: "Get instant feedback on your resume"
+  },
+  deleteCv: {
+    label: "Delete uploaded CV",
+    hint: "Permanently remove your CV from our servers"
+  },
+  changeCv: {
+    label: "Change CV",
+    hint: "Replace your current CV with a different file"
+  },
+  quiz: {
+    label: "Take career quiz",
+    hint: "Start the AI-powered career discovery quiz"
+  },
+  starRating: {
+    label: "5 star rating",
+    hint: "Average user rating"
+  },
+};
 
 const TESTIMONIALS = [
   { quote: "This helped me choose computer science!", author: "Sarah", age: 18 },
@@ -75,7 +121,14 @@ function StarRating() {
   return (
     <View style={styles.starRow}>
       {[1, 2, 3, 4, 5].map((i) => (
-        <Ionicons key={i} name="star" size={16} color={homeColors.starYellow} />
+        <Ionicons
+          key={i}
+          name="star"
+          size={16}
+          color={homeColors.starYellow}
+          accessibilityLabel="Star"
+          accessibilityRole="image"
+        />
       ))}
     </View>
   );
@@ -84,43 +137,44 @@ function StarRating() {
 export default function HomeScreen(): React.ReactElement {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const queryClient = useQueryClient();
-  
+
   // React Query hooks - fetch latest CV upload
   const { data: latestUpload, refetch: refetchCv } = useLatestCvUpload();
   const { mutate: uploadCv } = useUploadCv();
   const { mutate: deleteCv } = useDeleteCv();
-  
+
   // ========================================================================
   // STATE MACHINE: Finite State Machine Pattern
   // ========================================================================
   // Single source of truth for CV data (CvUpload from Supabase)
   const [cv, setCv] = useState<CvUpload | null>(null);
-  
+
   // Status transitions: idle → action → idle/error
   const [status, setStatus] = useState<Status>("idle");
-  
+
   // Error display
   const [error, setError] = useState<string | null>(null);
-  
+
   // Sync with React Query data
   React.useEffect(() => {
     if (latestUpload) {
       setCv(latestUpload);
     }
   }, [latestUpload]);
-  
+
   // Derived states from FSM
   const cvName = cv?.filename || null;
   const hasCv = cv !== null;
   const isProcessing = status !== "idle" && status !== "error";
-  
+
   // ========================================================================
-  // HANDLER 1: UPLOAD CV
+  // HANDLER 1: UPLOAD CV (with haptic feedback)
   // ========================================================================
   const handleUpload = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setStatus("picking");
     setError(null);
-    
+
     try {
       console.log("[HomeScreen] Starting CV pick...");
       const result = await DocumentPicker.getDocumentAsync({
@@ -128,32 +182,34 @@ export default function HomeScreen(): React.ReactElement {
         copyToCacheDirectory: true,
         multiple: false,
       });
-      
+
       if (result.canceled) {
         console.log("[HomeScreen] CV pick canceled by user");
         setStatus("idle");
         return;
       }
-      
+
       const file = result.assets[0];
       if (!file.name.toLowerCase().endsWith(".pdf")) {
         const err = "Please upload PDF only.";
         setError(err);
         setStatus("error");
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert("Invalid file", err);
         setStatus("idle");
         return;
       }
-      
+
       setStatus("uploading");
       console.log("[HomeScreen] Uploading CV...", file.name);
-      
+
       // Use React Query mutation
       uploadCv(
         { uri: file.uri, name: file.name, mimeType: file.mimeType },
         {
           onSuccess: (uploaded) => {
             console.log("[HomeScreen] ✅ CV uploaded successfully!", uploaded);
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setCv(uploaded);
             setStatus("idle");
             setError(null);
@@ -161,6 +217,7 @@ export default function HomeScreen(): React.ReactElement {
           },
           onError: (err: any) => {
             console.error("[HomeScreen] ❌ Upload failed:", err);
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             const errorMsg = err?.message || "Could not upload CV.";
             setError(errorMsg);
             setStatus("error");
@@ -170,6 +227,7 @@ export default function HomeScreen(): React.ReactElement {
       );
     } catch (err: any) {
       console.error("[HomeScreen] Exception during upload:", err);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       const errorMsg = err?.message || "Failed to pick file.";
       setError(errorMsg);
       setStatus("error");
@@ -181,16 +239,16 @@ export default function HomeScreen(): React.ReactElement {
       }
     }
   };
-  
+
   // ========================================================================
-  // HANDLER 2: DELETE CV
+  // HANDLER 2: DELETE CV (with haptic feedback)
   // ========================================================================
   const handleDelete = () => {
     if (!cv?.id) {
       console.warn("[HomeScreen] ⚠️ Cannot delete: no CV found");
       return;
     }
-    
+
     Alert.alert(
       "Delete CV",
       "Are you sure? This will remove your CV and analysis.",
@@ -203,27 +261,29 @@ export default function HomeScreen(): React.ReactElement {
             setStatus("deleting");
             setError(null);
             console.log("[HomeScreen] User confirmed delete for CV:", cv.id);
-            
+
             try {
               deleteCv(cv, {
                 onSuccess: () => {
                   console.log("[HomeScreen] ✅ CV deleted from storage/DB");
+                  await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   // CRITICAL: Reset cv immediately + invalidate queries
                   setCv(null);
                   setStatus("idle");
                   setError(null);
-                  
+
                   // Invalidate all CV-related queries
                   queryClient.invalidateQueries({ queryKey: cvQueryKeys.uploads() });
                   queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
                   queryClient.invalidateQueries({ queryKey: cvQueryKeys.skills() });
                   refetchCv();
-                  
+
                   console.log("[HomeScreen] ✅ UI reset to 'Upload CV' state");
                   Alert.alert("Success", "CV deleted successfully!");
                 },
                 onError: (err: any) => {
                   console.error("[HomeScreen] ❌ Delete failed:", err);
+                  await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                   const errorMsg = err?.message || "Could not delete CV.";
                   setError(errorMsg);
                   setStatus("error");
@@ -232,6 +292,7 @@ export default function HomeScreen(): React.ReactElement {
               });
             } catch (err: any) {
               console.error("[HomeScreen] Exception during delete:", err);
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
               const errorMsg = err?.message || "Delete operation failed.";
               setError(errorMsg);
               setStatus("error");
@@ -242,7 +303,7 @@ export default function HomeScreen(): React.ReactElement {
       ]
     );
   };
-  
+
   // ========================================================================
   // HANDLER 3: CHANGE CV (delete old → upload new)
   // ========================================================================
@@ -252,11 +313,11 @@ export default function HomeScreen(): React.ReactElement {
       await handleUpload();
       return;
     }
-    
+
     setStatus("changing");
     setError(null);
     console.log("[HomeScreen] 🔄 Change CV: deleting old CV first:", cv.id);
-    
+
     try {
       // Step 1: Delete old CV and wait for completion
       await new Promise<void>((resolve, reject) => {
@@ -265,12 +326,12 @@ export default function HomeScreen(): React.ReactElement {
             console.log("[HomeScreen] ✅ Old CV deleted, state reset");
             setCv(null);
             setStatus("idle");
-            
+
             // Invalidate queries
             queryClient.invalidateQueries({ queryKey: cvQueryKeys.uploads() });
             queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
             refetchCv();
-            
+
             resolve();
           },
           onError: (err: any) => {
@@ -281,7 +342,7 @@ export default function HomeScreen(): React.ReactElement {
           },
         });
       });
-      
+
       // Step 2: Upload new CV (pick file)
       setStatus("picking");
       const result = await DocumentPicker.getDocumentAsync({
@@ -289,13 +350,13 @@ export default function HomeScreen(): React.ReactElement {
         copyToCacheDirectory: true,
         multiple: false,
       });
-      
+
       if (result.canceled) {
         console.log("[HomeScreen] New CV pick canceled");
         setStatus("idle");
         return;
       }
-      
+
       const file = result.assets[0];
       if (!file.name.toLowerCase().endsWith(".pdf")) {
         setStatus("error");
@@ -304,10 +365,10 @@ export default function HomeScreen(): React.ReactElement {
         setStatus("idle");
         return;
       }
-      
+
       setStatus("uploading");
       console.log("[HomeScreen] Uploading new CV...", file.name);
-      
+
       // Step 3: Upload new CV
       await new Promise<void>((resolve, reject) => {
         uploadCv(
@@ -315,6 +376,7 @@ export default function HomeScreen(): React.ReactElement {
           {
             onSuccess: (uploaded) => {
               console.log("[HomeScreen] ✅ New CV uploaded!", uploaded);
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               setCv(uploaded);
               setStatus("idle");
               setError(null);
@@ -337,9 +399,9 @@ export default function HomeScreen(): React.ReactElement {
       Alert.alert("Error", err?.message || "Change CV failed. Try again.");
     }
   };
-  
+
   // ========================================================================
-  // HANDLER 4: ANALYZE CV
+  // HANDLER 4: ANALYZE CV (with haptic feedback)
   // ========================================================================
   const handleAnalyze = async () => {
     if (!cv?.id) {
@@ -350,7 +412,7 @@ export default function HomeScreen(): React.ReactElement {
       setStatus("idle");
       return;
     }
-    
+
     // Verify session exists before attempting analysis
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !session) {
@@ -362,16 +424,16 @@ export default function HomeScreen(): React.ReactElement {
       setStatus("idle");
       return;
     }
-    
+
     console.log("[HomeScreen] ✅ Session verified", {
       userId: session.user?.id,
       tokenLength: session.access_token?.length,
     });
-    
+
     setStatus("analyzing");
     setError(null);
     console.log("[HomeScreen] 👉 Starting client-side CV analysis:", cv.id);
-    
+
     try {
       // ⭐ Client-side analysis with OpenRouter (no Edge Function)
       const result = await analyzeCvWithOpenRouter(
@@ -381,18 +443,20 @@ export default function HomeScreen(): React.ReactElement {
       );
 
       queryClient.setQueryData(cvQueryKeys.analysis(cv.id), result);
-      
+
       console.log("[HomeScreen] ✅ CV analysis completed and saved!");
-      
+
       // Invalidate queries to show new results
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
-      
+
       setStatus("idle");
       setError(null);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert("Analysis Complete", "Your CV has been analyzed!");
       (navigation as any).navigate("CVAnalysis");
     } catch (err: any) {
       console.error("[HomeScreen] ❌ Analysis failed:", err);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       const errorMsg = err?.message || "Could not analyze CV.";
       setError(errorMsg);
       setStatus("error");
@@ -400,32 +464,43 @@ export default function HomeScreen(): React.ReactElement {
       setStatus("idle");
     }
   };
-  
+
   // ========================================================================
   // NAVIGATION HANDLERS
   // ========================================================================
-  const goToQuiz = () => {
+  const goToQuiz = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     navigation.navigate("Quiz");
   };
-  
+
   // ========================================================================
   // RENDER: Build UI based on FSM state
   // ========================================================================
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <LinearGradient
         colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
         style={StyleSheet.absoluteFill}
       />
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: spacing['4xl'] + spacing['3xl'] } // Bottom padding for tab bar
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero Section */}
-        <View style={styles.hero}>
+        <View style={[styles.hero, { marginBottom: spacing['3xl'] }]}>
           <View style={styles.logoBox}>
-            <FontAwesome5 name="graduation-cap" size={26} color="#fff" />
+            <Ionicons
+              name="library-outline"
+              size={26}
+              color="#fff"
+              accessibilityLabel={a11y.logo.label}
+              accessibilityHint={a11y.logo.hint}
+              accessibilityRole="image"
+            />
           </View>
           <Text style={styles.heroTitle}>
             Find Your Career Path{"\n"}
@@ -437,10 +512,14 @@ export default function HomeScreen(): React.ReactElement {
         </View>
 
         {/* Two CTA Buttons: Quiz + CV */}
-        <View style={styles.ctaRow}>
+        <View style={[styles.ctaRow, { marginBottom: spacing['3xl'] - 4 }]}>
           <Pressable
             style={({ pressed }) => [styles.ctaQuizWrap, pressed && styles.pressed]}
             onPress={goToQuiz}
+            accessibilityRole="button"
+            accessibilityLabel={a11y.quiz.label}
+            accessibilityHint={a11y.quiz.hint}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <LinearGradient
               colors={[homeColors.primary, homeColors.primaryDark]}
@@ -448,7 +527,7 @@ export default function HomeScreen(): React.ReactElement {
               end={{ x: 1, y: 0 }}
               style={styles.ctaQuizGradient}
             >
-              <Ionicons name="bulb-outline" size={22} color="#fff" />
+              <Ionicons name="bulb-outline" size={22} color={homeColors.onPrimary} />
               <Text style={styles.ctaQuizText}>Take Career Quiz</Text>
             </LinearGradient>
           </Pressable>
@@ -462,12 +541,18 @@ export default function HomeScreen(): React.ReactElement {
                     name={status === "analyzing" ? "hourglass-outline" : "checkmark-circle"}
                     size={20}
                     color={status === "analyzing" ? homeColors.primary : homeColors.accentGreen}
+                    accessibilityLabel={status === "analyzing" ? "Analyzing" : "Complete"}
+                    accessibilityRole="image"
                   />
                   <Text style={styles.cvUploadedTitle}>
                     {status === "analyzing" ? "Analyzing..." : "CV Uploaded"}
                   </Text>
                 </View>
-                <Text style={styles.cvUploadedFilename} numberOfLines={1}>
+                <Text
+                  style={styles.cvUploadedFilename}
+                  numberOfLines={1}
+                  accessibilityRole="text"
+                >
                   {cvName}
                 </Text>
                 <View style={styles.cvActionsRow}>
@@ -480,6 +565,10 @@ export default function HomeScreen(): React.ReactElement {
                     ]}
                     onPress={handleChange}
                     disabled={isProcessing}
+                    accessibilityRole="button"
+                    accessibilityLabel={a11y.changeCv.label}
+                    accessibilityHint={a11y.changeCv.hint}
+                    accessibilityState={{ disabled: isProcessing }}
                   >
                     {status === "changing" ? (
                       <ActivityIndicator size="small" color={homeColors.primary} />
@@ -499,12 +588,17 @@ export default function HomeScreen(): React.ReactElement {
                     ]}
                     onPress={handleDelete}
                     disabled={isProcessing}
+                    accessibilityRole="button"
+                    accessibilityLabel={a11y.deleteCv.label}
+                    accessibilityHint={a11y.deleteCv.hint}
+                    accessibilityState={{ disabled: isProcessing }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
                     {status === "deleting" ? (
-                      <ActivityIndicator size="small" color="#f44336" />
+                      <ActivityIndicator size="small" color={homeColors.error} />
                     ) : (
                       <>
-                        <Ionicons name="trash-outline" size={16} color="#f44336" />
+                        <Ionicons name="trash-outline" size={16} color={homeColors.error} />
                         <Text style={styles.cvDeleteBtnText}>Delete</Text>
                       </>
                     )}
@@ -521,6 +615,11 @@ export default function HomeScreen(): React.ReactElement {
               ]}
               onPress={handleUpload}
               disabled={isProcessing}
+              accessibilityRole="button"
+              accessibilityLabel={a11y.uploadCv.label}
+              accessibilityHint={a11y.uploadCv.hint}
+              accessibilityState={{ disabled: isProcessing }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               {status === "uploading" ? (
                 <ActivityIndicator size="small" color={homeColors.primary} />
@@ -537,21 +636,41 @@ export default function HomeScreen(): React.ReactElement {
         {/* Error Display */}
         {error && status === "error" && (
           <View style={styles.errorBanner}>
-            <Ionicons name="alert-circle" size={16} color="#f44336" />
+            <Ionicons
+              name="alert-circle"
+              size={16}
+              color={homeColors.error}
+              accessibilityRole="alert"
+            />
             <Text style={styles.errorText}>{error}</Text>
-            <Pressable onPress={() => { setError(null); setStatus("idle"); }}>
-              <Ionicons name="close" size={16} color="#f44336" />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss error"
+              onPress={() => { setError(null); setStatus("idle"); }}
+            >
+              <Ionicons name="close" size={16} color={homeColors.error} />
             </Pressable>
           </View>
         )}
 
         {/* How It Works */}
-        <Text style={styles.sectionTitle}>How It Works</Text>
+        <Text
+          style={styles.sectionTitle}
+          accessibilityRole="header"
+        >
+          How It Works
+        </Text>
         <View style={styles.howItWorksGrid}>
           {HOW_IT_WORKS.map((item) => (
             <View key={item.step} style={styles.howCard}>
               <View style={[styles.howIconBox, { backgroundColor: item.color + "20" }]}>
-                <Ionicons name={item.icon} size={24} color={item.color} />
+                <Ionicons
+                  name={item.icon}
+                  size={24}
+                  color={item.color}
+                  accessibilityLabel={`Step ${item.step}: ${item.title}`}
+                  accessibilityRole="image"
+                />
               </View>
               <Text style={styles.howCardTitle}>{item.step}. {item.title}</Text>
               <Text style={styles.howCardDesc}>{item.description}</Text>
@@ -560,9 +679,19 @@ export default function HomeScreen(): React.ReactElement {
         </View>
 
         {/* Trusted by Students */}
-        <Text style={styles.sectionTitle}>Trusted by Students</Text>
+        <Text
+          style={styles.sectionTitle}
+          accessibilityRole="header"
+        >
+          Trusted by Students
+        </Text>
         <View style={styles.trustedSubtitle}>
-          <Ionicons name="sparkles" size={14} color={homeColors.primary} />
+          <Ionicons
+            name="sparkles"
+            size={14}
+            color={homeColors.primary}
+            accessibilityRole="image"
+          />
           <Text style={styles.trustedSubtitleText}>AI-powered career matching</Text>
         </View>
         <View style={styles.testimonials}>
@@ -570,13 +699,22 @@ export default function HomeScreen(): React.ReactElement {
             <View key={i} style={styles.testimonialCard}>
               <StarRating />
               <Text style={styles.testimonialQuote}>"{t.quote}"</Text>
-              <Text style={styles.testimonialAuthor}>– {t.author}, {t.age}</Text>
+              <Text
+                style={styles.testimonialAuthor}
+                accessibilityLabel={`Testimonial from ${t.author}, age ${t.age}`}
+              >
+                – {t.author}, {t.age}
+              </Text>
             </View>
           ))}
         </View>
 
         {/* CTA Block: Ready to Build Your Future? */}
-        <Pressable style={({ pressed }) => [styles.ctaBlockWrap, pressed && styles.pressed]}>
+        <Pressable
+          style={({ pressed }) => [styles.ctaBlockWrap, pressed && styles.pressed]}
+          accessibilityRole="region"
+          accessibilityLabel="Call to action section"
+        >
           <LinearGradient
             colors={[homeColors.primaryLight, homeColors.primaryDark]}
             start={{ x: 0, y: 0 }}
@@ -596,6 +734,10 @@ export default function HomeScreen(): React.ReactElement {
                 ]}
                 onPress={goToQuiz}
                 disabled={isProcessing}
+                accessibilityRole="button"
+                accessibilityLabel="Take the Quiz"
+                accessibilityHint="Start the AI-powered career discovery quiz"
+                accessibilityState={{ disabled: isProcessing }}
               >
                 <Text style={styles.ctaBlockBtnWhiteText}>Take the Quiz</Text>
                 <Ionicons name="arrow-forward" size={18} color={homeColors.primary} />
@@ -608,15 +750,19 @@ export default function HomeScreen(): React.ReactElement {
                 ]}
                 onPress={hasCv ? handleAnalyze : handleUpload}
                 disabled={isProcessing}
+                accessibilityRole="button"
+                accessibilityLabel={a11y[hasCv ? 'analyzeCv' : 'uploadCv'].label}
+                accessibilityHint={a11y[hasCv ? 'analyzeCv' : 'uploadCv'].hint}
+                accessibilityState={{ disabled: isProcessing }}
               >
                 {status === "uploading" || status === "analyzing" ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={homeColors.onPrimary} />
                 ) : (
                   <>
                     <Ionicons
                       name={hasCv ? "analytics-outline" : "cloud-upload-outline"}
                       size={18}
-                      color="#fff"
+                      color={homeColors.onPrimary}
                     />
                     <Text style={styles.ctaBlockBtnPurpleText}>
                       {hasCv ? "Analyze CV" : "Upload CV"}
@@ -630,20 +776,36 @@ export default function HomeScreen(): React.ReactElement {
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
+// Spacing scale (4dp grid) - referenced inside styles
+// Define outside StyleSheet to use in component logic
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 48, paddingBottom: 32 },
-  pressed: { opacity: 0.9 },
-  disabled: { opacity: 0.5 },
+  container: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 48,
+  },
+  pressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  disabled: {
+    opacity: 0.5,
+  },
 
   hero: {
     alignItems: "center",
-    marginBottom: 36,
+    marginBottom: 32, // spacing['3xl']
   },
   logoBox: {
     width: 56,
@@ -652,7 +814,7 @@ const styles = StyleSheet.create({
     backgroundColor: homeColors.logoBg,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    marginBottom: 16, // spacing['lg']
   },
   heroTitle: {
     fontSize: 22,
@@ -660,14 +822,14 @@ const styles = StyleSheet.create({
     color: homeColors.textDark,
     textAlign: "center",
     lineHeight: 30,
-    marginBottom: 8,
+    marginBottom: 8, // spacing['sm']
   },
   heroTitleHighlight: {
     color: homeColors.primary,
   },
   heroSubtitle: {
     fontSize: 14,
-    color: homeColors.textMuted,
+    color: homeColors.onSurfaceVariant, // Use semantic token
     textAlign: "center",
     lineHeight: 20,
     paddingHorizontal: 8,
@@ -675,13 +837,15 @@ const styles = StyleSheet.create({
 
   ctaRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 40,
+    gap: 12, // spacing['md']
+    marginBottom: 36, // spacing['3xl'] + adjustment (36 = 32 + 4)
   },
   ctaQuizWrap: {
     flex: 1,
     borderRadius: 16,
     overflow: "hidden",
+    // Ensure minimum touch target
+    minHeight: 56, // 44pt + padding
   },
   ctaQuizGradient: {
     flexDirection: "row",
@@ -689,11 +853,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 16,
     gap: 8,
+    minHeight: 56,
   },
   ctaQuizText: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#fff",
+    color: homeColors.onPrimary, // Semantic token instead of #fff
   },
   ctaUploadWrap: {
     flex: 1,
@@ -706,11 +871,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 16,
     gap: 8,
+    minHeight: 56,
   },
   ctaUploadText: {
     fontSize: 15,
     fontWeight: "700",
-    color: homeColors.textDark,
+    color: homeColors.onSurface,
   },
 
   // CV Uploaded State Styles
@@ -737,7 +903,7 @@ const styles = StyleSheet.create({
   },
   cvUploadedFilename: {
     fontSize: 13,
-    color: homeColors.textDark,
+    color: homeColors.onSurface,
     fontWeight: "600",
   },
   cvActionsRow: {
@@ -750,9 +916,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
+    paddingVertical: 12, // Increased from 8 for better touch target
     borderRadius: 10,
     gap: 4,
+    minHeight: 44, // Ensure minimum touch target
   },
   cvChangeBtnStyle: {
     backgroundColor: homeColors.primary + "15",
@@ -765,22 +932,22 @@ const styles = StyleSheet.create({
     color: homeColors.primary,
   },
   cvDeleteBtnStyle: {
-    backgroundColor: "#f4433615",
+    backgroundColor: homeColors.errorContainer,
     borderWidth: 1,
-    borderColor: "#f4433630",
+    borderColor: homeColors.error + "30",
   },
   cvDeleteBtnText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#f44336",
+    color: homeColors.error,
   },
 
   // Error Banner
   errorBanner: {
-    backgroundColor: "#f4433615",
+    backgroundColor: homeColors.errorContainer,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#f4433630",
+    borderColor: homeColors.error + "30",
     flexDirection: "row",
     alignItems: "center",
     padding: 12,
@@ -790,16 +957,16 @@ const styles = StyleSheet.create({
   errorText: {
     flex: 1,
     fontSize: 13,
-    color: "#f44336",
+    color: homeColors.error,
     fontWeight: "500",
   },
 
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: homeColors.textDark,
-    marginTop: 8,
-    marginBottom: 16,
+    color: homeColors.onSurface,
+    marginTop: spacing['lg'], // 16
+    marginBottom: spacing['lg'], // 16
     textAlign: "center",
   },
   trustedSubtitle: {
@@ -840,12 +1007,12 @@ const styles = StyleSheet.create({
   howCardTitle: {
     fontSize: 15,
     fontWeight: "700",
-    color: homeColors.textDark,
+    color: homeColors.onSurface,
     marginBottom: 6,
   },
   howCardDesc: {
     fontSize: 12,
-    color: homeColors.textMuted,
+    color: homeColors.onSurfaceVariant,
     lineHeight: 17,
   },
 
@@ -867,18 +1034,19 @@ const styles = StyleSheet.create({
   },
   testimonialQuote: {
     fontSize: 14,
-    color: homeColors.textDark,
+    color: homeColors.onSurface,
     lineHeight: 20,
     marginBottom: 8,
   },
   testimonialAuthor: {
     fontSize: 13,
-    color: homeColors.textMuted,
+    color: homeColors.onSurfaceVariant,
   },
 
   ctaBlockWrap: {
     borderRadius: 20,
     overflow: "hidden",
+    marginTop: 8,
   },
   ctaBlockGradient: {
     padding: 24,
@@ -886,7 +1054,7 @@ const styles = StyleSheet.create({
   ctaBlockTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#fff",
+    color: homeColors.onPrimary,
     textAlign: "center",
     marginBottom: 8,
   },
@@ -905,10 +1073,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
+    backgroundColor: homeColors.onPrimary, // Use white from theme
     paddingVertical: 14,
     borderRadius: 14,
     gap: 6,
+    minHeight: 52, // Ensure touch target
   },
   ctaBlockBtnWhiteText: {
     fontSize: 15,
@@ -926,12 +1095,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.5)",
     gap: 6,
+    minHeight: 52,
   },
   ctaBlockBtnPurpleText: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#fff",
+    color: homeColors.onPrimary,
   },
 
-  bottomSpacer: { height: 40 },
+  bottomSpacer: {
+    height: 120, // Increased to account for tab bar + safe area
+  },
 });
