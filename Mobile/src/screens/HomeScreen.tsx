@@ -209,7 +209,7 @@ export default function HomeScreen(): React.ReactElement {
         {
           onSuccess: (uploaded) => {
             console.log("[HomeScreen] ✅ CV uploaded successfully!", uploaded);
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setCv(uploaded);
             setStatus("idle");
             setError(null);
@@ -217,7 +217,7 @@ export default function HomeScreen(): React.ReactElement {
           },
           onError: (err: any) => {
             console.error("[HomeScreen] ❌ Upload failed:", err);
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             const errorMsg = err?.message || "Could not upload CV.";
             setError(errorMsg);
             setStatus("error");
@@ -266,7 +266,7 @@ export default function HomeScreen(): React.ReactElement {
               deleteCv(cv, {
                 onSuccess: () => {
                   console.log("[HomeScreen] ✅ CV deleted from storage/DB");
-                  await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   // CRITICAL: Reset cv immediately + invalidate queries
                   setCv(null);
                   setStatus("idle");
@@ -283,7 +283,7 @@ export default function HomeScreen(): React.ReactElement {
                 },
                 onError: (err: any) => {
                   console.error("[HomeScreen] ❌ Delete failed:", err);
-                  await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                   const errorMsg = err?.message || "Could not delete CV.";
                   setError(errorMsg);
                   setStatus("error");
@@ -376,7 +376,7 @@ export default function HomeScreen(): React.ReactElement {
           {
             onSuccess: (uploaded) => {
               console.log("[HomeScreen] ✅ New CV uploaded!", uploaded);
-              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               setCv(uploaded);
               setStatus("idle");
               setError(null);
