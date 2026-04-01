@@ -22,6 +22,7 @@ import { useGroupChat, useChatMessages } from '../../features/mentors/hooks';
 import { useAuth } from '../../auth/AuthProvider';
 import { homeColors } from '../homeTheme';
 import type { ChatMessage } from '../../types/mentor';
+import { AppLogo } from '../../ui/AppLogo';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -442,12 +443,14 @@ export function GroupChatScreen() {
             onPress={() => navigation.goBack()}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 8 }}
             style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <Ionicons name="chevron-back" size={26} color="#fff" />
           </Pressable>
 
           <View style={styles.headerAvatarWrapper}>
-            <Ionicons name="chatbubbles" size={18} color="#fff" />
+            <AppLogo size={18} />
           </View>
 
           <View style={styles.headerMeta}>
@@ -557,6 +560,8 @@ export function GroupChatScreen() {
               onPress={handleSendMessage}
               disabled={!canSend && !sending}
               style={({ pressed }) => [styles.sendBtn, pressed && canSend && { opacity: 0.85 }]}
+              accessibilityRole="button"
+              accessibilityLabel={canSend ? 'Send message' : 'Voice input unavailable'}
             >
               <LinearGradient
                 colors={canSend ? [homeColors.primary, homeColors.primaryDark] : ['#e5e7eb', '#d1d5db']}

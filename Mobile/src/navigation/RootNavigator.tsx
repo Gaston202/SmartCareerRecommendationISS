@@ -104,6 +104,7 @@ function MentorsStackNavigator(): React.ReactElement {
         component={GroupChatScreen}
         options={({ route }) => ({
           title: 'Chat',
+          headerShown: false,
         })}
       />
       <MentorsStack.Screen
@@ -141,6 +142,7 @@ function MentorGroupChatsStackNavigator(): React.ReactElement {
         component={GroupChatScreen}
         options={({ route }) => ({
           title: 'Chat',
+          headerShown: false,
         })}
       />
       <MentorGroupChatsStack.Screen

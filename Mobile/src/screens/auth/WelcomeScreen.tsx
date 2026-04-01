@@ -8,9 +8,10 @@ import {
   Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { authColors } from './authTheme';
+import { AppLogo } from '../../ui/AppLogo';
 
 type AuthStackParamList = {
   Welcome: undefined;
@@ -78,7 +79,7 @@ export function WelcomeScreen({ navigation }: WelcomeScreenProps): React.ReactEl
       >
         <View style={styles.contentBlock}>
         <View style={styles.logoCircle}>
-          <FontAwesome5 name="graduation-cap" size={26} color="#fff" />
+          <AppLogo size={42} />
         </View>
 
         <Text style={styles.title}>
@@ -183,13 +184,15 @@ const styles = StyleSheet.create({
     left: -10,
   },
   logoCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     backgroundColor: authColors.logoBg,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
   title: {
     fontSize: 22,
@@ -246,6 +249,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
+    minHeight: 52,
     gap: 8,
   },
   getStartedText: {

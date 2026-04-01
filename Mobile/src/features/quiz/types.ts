@@ -30,15 +30,69 @@ export interface CareerRecommendation {
   tags: string[];
 }
 
+export interface NovaBehaviorProfile {
+  primaryStyle: string;
+  secondaryStyle?: string;
+  traits: string[];
+  discBlend?: string;
+  discPercentages?: {
+    red: number;
+    yellow: number;
+    green: number;
+    blue: number;
+  };
+}
+
+export interface NovaStyleComparison {
+  naturalStyleSummary: string;
+  adaptedStyleSummary: string;
+  adaptationDrivers: string[];
+  stressSignals: string[];
+}
+
+export interface NovaMotivationProfile {
+  topMotivators: string[];
+  demotivators: string[];
+  valuesSummary: string;
+}
+
+export interface NovaCognitiveProfile {
+  decisionStyle: string;
+  thinkingStyle: string;
+  learningStyle: string;
+  communicationStyle: string;
+}
+
+export interface NovaCareerProjection {
+  bestFitEnvironments: string[];
+  leadershipStyle: string;
+  watchouts: string[];
+  futureFocus: string;
+}
+
+export interface NovaProfileSummary {
+  headline: string;
+  professionalIdentity: string;
+  behavior: NovaBehaviorProfile;
+  styleComparison: NovaStyleComparison;
+  motivations: NovaMotivationProfile;
+  cognition: NovaCognitiveProfile;
+  careerProjection: NovaCareerProjection;
+  recommendedDevelopmentAxes: string[];
+}
+
 export interface QuizResults {
   type: 'results';
   careers: CareerRecommendation[];
+  novaProfile?: NovaProfileSummary;
 }
 
 export interface QuizSession {
   questionsWithAnswers: QuestionWithAnswer[];
   results: QuizResults;
   completedAt: string;
+  assessmentVersion?: string;
+  quizModel?: string;
 }
 
 export type QuizNextResponse = QuizQuestion | QuizResults;
