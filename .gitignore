@@ -36,3 +36,6 @@ wheels/
 *.egg
 .pytest_cache/
 .coverage
+
+CLAUDE.md
+DATABASE_SCHEMA.md
