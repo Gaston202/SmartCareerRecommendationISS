@@ -69,8 +69,10 @@ class AIConfig:
     
     ENABLE_RAG: bool = os.getenv("ENABLE_RAG", "true").lower() == "true"
     
-    # Supabase table name for documents
-    SUPABASE_DOCUMENTS_TABLE: str = os.getenv("SUPABASE_DOCUMENTS_TABLE", "career_documents")
+    # Supabase table name for documents (must match actual table in Supabase)
+    # Default: "documents" (pgvector knowledge base table created in migration 002)
+    # Can override with environment variable: SUPABASE_DOCUMENTS_TABLE
+    SUPABASE_DOCUMENTS_TABLE: str = os.getenv("SUPABASE_DOCUMENTS_TABLE", "documents")
     
     # TODO: Configure alternative vector store backends (Pinecone, Weaviate, Milvus, FAISS)
     # VECTOR_STORE_TYPE: str = os.getenv("VECTOR_STORE_TYPE", "supabase")

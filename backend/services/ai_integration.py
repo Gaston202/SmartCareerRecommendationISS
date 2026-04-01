@@ -26,7 +26,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
-from ai_v2.orchestrator import PipelineOrchestrator
+from backend.ai_v2.agents.orchestrator import PipelineOrchestrator
 from ai_v2.schemas import UserProfile, CareerRecommendationOutput
 from ai_v2.utils import get_logger
 from ai_v2.config import config

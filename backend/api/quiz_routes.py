@@ -434,6 +434,13 @@ def create_cv_routes(app: FastAPI) -> None:
                 logger.debug(f"   Improvement suggestions: {len(improvements)}")
                 logger.debug(f"   Summary: {summary[:80]}...")
                 logger.info(f"✅ [CV] Analysis successful: {len(skills)} skills, {len(strengths)} strengths")
+                
+                # Transform for mobile app compatibility
+                # Mobile expects: ats_score, careers (count), skills (count) at top level
+                if response.data:
+                    response.data["ats_score"] = 70  # Default ATS score (no real parser)
+                    response.data["careers"] = 0  # Will be filled by career matching endpoint
+                    response.data["skills"] = len(skills)  # Number of extracted skills
             else:
                 logger.warning(f"⚠️  [CV] Analysis returned success=False")
                 logger.debug(f"   Error: {response.error}")

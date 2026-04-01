@@ -14,48 +14,108 @@ from ..utils import get_logger
 
 logger = get_logger(__name__)
 
+
+class _InitializationFailedSentinel:
+    """
+    Sentinel object representing a cached initialization failure.
+    
+    This allows us to distinguish between:
+    - Never attempted initialization (None)
+    - Successfully initialized (actual instance)
+    - Already attempted but failed (_InitializationFailedSentinel)
+    
+    This prevents repeated re-initialization of failed services.
+    """
+    def __init__(self, error: str, error_type: str):
+        self.error = error
+        self.error_type = error_type
+    
+    def __repr__(self):
+        return f"<InitFailed: {self.error_type}: {self.error}>"
+
+
 # Global RAG instance (lazy-initialized)
+# States:
+#   None = not yet attempted
+#   _rag_instance = successful initialization
+#   _InitializationFailedSentinel = initialization attempted but failed (CACHED)
 _rag_instance = None
 
 
 def _get_rag_service():
-    """Get or initialize the RAG service."""
+    """
+    Get or initialize the RAG service with cached failure detection.
+    
+    Implements proper singleton pattern that caches both successes and failures:
+    - First call: attempts initialization, caches result (good or bad)
+    - Subsequent calls: returns cached result without re-running init
+    - Prevents wasted startup time on failed initialization
+    - Preserves original error for debugging
+    
+    Returns:
+        SupabaseRAG instance or None if:
+        - RAG disabled in config
+        - Initialization failed (will use cached error on retry)
+    """
     global _rag_instance
     
-    if _rag_instance is not None:
+    # === Already successfully initialized ===
+    if _rag_instance is not None and not isinstance(_rag_instance, _InitializationFailedSentinel):
         return _rag_instance
     
-    # Check if RAG is enabled and dependencies are available
+    # === Already attempted but failed (CACHED) ===
+    if isinstance(_rag_instance, _InitializationFailedSentinel):
+        logger.debug(
+            f"[RAG] Initialization already failed: {_rag_instance.error_type}. "
+            f"Using fallback (no retry). Error: {_rag_instance.error}"
+        )
+        return None  # Consistent with failure behavior
+    
+    # === First attempt: check if RAG is enabled ===
     if not config.ENABLE_RAG:
         logger.warning("[RAG] RAG is disabled in config")
-        return None
+        return None  # Don't cache - this is a config decision, not a failure
+    
+    # === First attempt: initialize ===
+    logger.debug("[RAG] Attempting to initialize RAG service...")
     
     try:
         # Import here to avoid circular imports
-        from services.supabase_client import get_supabase_client
         from ..services.supabase_rag import SupabaseRAG
+        from ..services.embedding import EmbeddingService
         
-        supabase = get_supabase_client()
+        # Try to get Supabase client, but it's optional
+        supabase = None
+        try:
+            from services.supabase_client import get_supabase_client
+            supabase = get_supabase_client()
+        except ImportError:
+            logger.debug("[RAG] Supabase client not available - RAG will use fallback/mock mode")
         
-        # Note: EmbeddingService optional for now - RAG will work in limited capacity
-        # When embeddings are needed, we'll create a simple embedding service
+        # Initialize embedding service (now required for RAG)
         embedding_service = None
         try:
-            # Try to import embedding service if available
-            from ..services.embedding import EmbeddingService
             embedding_service = EmbeddingService()
-        except ImportError:
-            logger.debug("[RAG] EmbeddingService not available, RAG will use fallback search")
+            logger.debug("[RAG] EmbeddingService initialized successfully")
+        except Exception as e:
+            logger.warning(f"[RAG] Failed to initialize EmbeddingService: {e}, RAG will use fallback")
         
+        # Create RAG instance with optional client and embedding service
         _rag_instance = SupabaseRAG(client=supabase, embedding_service=embedding_service)
-        logger.info("[RAG] ✓ RAG service initialized")
+        logger.info("[RAG] ✓ RAG service initialized (embedding-based)")
         return _rag_instance
         
     except ImportError as e:
-        logger.warning(f"[RAG] Failed to import RAG dependencies: {e}")
+        error_msg = f"Failed to import RAG dependencies: {e}"
+        logger.warning(f"[RAG] {error_msg}")
+        # CACHE the failure to prevent re-initialization
+        _rag_instance = _InitializationFailedSentinel(error_msg, "ImportError")
         return None
     except Exception as e:
-        logger.error(f"[RAG] Failed to initialize RAG service: {e}")
+        error_msg = f"Failed to initialize RAG service: {e}"
+        logger.error(f"[RAG] {error_msg}", exc_info=True)
+        # CACHE the failure to prevent re-initialization
+        _rag_instance = _InitializationFailedSentinel(error_msg, type(e).__name__)
         return None
 
 
@@ -331,24 +391,45 @@ Salary Boost: Knowing system design increases salary by 30-50%""",
         },
     ]
     
-    # Simple keyword matching for fallback search
+    # FIXED: Intelligent keyword matching with stopword filtering
+    # Prevents naive/order-dependent scoring where "for", "and", "requirements" boost unrelated docs
+    
+    # Common English stopwords that add noise to career queries
+    stopwords = {
+        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+        "of", "with", "by", "from", "up", "about", "as", "is", "are", "was",
+        "were", "be", "been", "have", "has", "had", "do", "does", "did",
+        "will", "would", "could", "should", "may", "might", "can",
+        "their", "they", "them", "what", "which", "this", "that", "these",
+        "those", "who", "whom", "where", "when", "why", "how", "all", "each",
+        "every", "both", "few", "more", "most", "other", "some", "such", "no",
+        "nor", "not", "only", "same", "so", "very", "just", "than"
+    }
+    
     lower_query = query.lower()
+    query_keywords = [
+        kw for kw in lower_query.split()
+        if kw and len(kw) > 2 and kw not in stopwords
+    ]
+    
     scored = []
+    max_possible_score = sum(3 for _ in query_keywords)  # All keywords found in title
     
     for doc in knowledge_base:
-        # Score based on keyword matches
+        # Score based on meaningful keyword matches only
         title = doc["title"].lower()
         text = doc["text"].lower()
         
         score = 0
-        for keyword in lower_query.split():
+        for keyword in query_keywords:
             if keyword in title:
-                score += 3
+                score += 3  # Strong signal: keyword in title
             elif keyword in text:
-                score += 1
+                score += 1  # Weak signal: keyword somewhere in text
         
-        if score > 0:
-            doc["similarity"] = min(1.0, score / 10)  # Normalize to 0-1
+        if score > 0 and max_possible_score > 0:
+            # Normalize to 0-1 range, using total possible score as denominator
+            doc["similarity"] = min(1.0, score / max_possible_score)
             scored.append(doc)
     
     # Sort by score and limit

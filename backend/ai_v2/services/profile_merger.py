@@ -93,9 +93,11 @@ class ProfileMerger:
             merged.cv_projects = cv_profile.cv_projects or []
             merged.cv_background = cv_profile.cv_background
             
-            # Merge inferred skills: combine all
-            all_inferred = set((quiz_profile.inferred_skills or []) + 
-                              (cv_profile.inferred_skills or []))
+            # Merge inferred skills: combine all (convert to strings to handle dicts)
+            inferred_list = (quiz_profile.inferred_skills or []) + (cv_profile.inferred_skills or [])
+            # Convert dicts to strings before deduplication
+            inferred_strings = [str(s) if not isinstance(s, str) else s for s in inferred_list]
+            all_inferred = set(inferred_strings)
             merged.inferred_skills = list(all_inferred)
             
             # Merge dislikes: from quiz

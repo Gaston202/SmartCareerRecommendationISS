@@ -41,7 +41,7 @@ class RoadmapAgent(BaseAgent):
 
     def run(self, input_data: Dict[str, Any]) -> AgentOutput:
         """
-        Generate career roadmap using LLM.
+        Generate career roadmap using LLM + RAG context.
         
         Args:
             input_data (Dict[str, Any]): Must contain:
@@ -61,34 +61,45 @@ class RoadmapAgent(BaseAgent):
             ... })
         """
         try:
-            self._log_execution("Starting roadmap generation with LLM")
+            self._log_execution("Starting roadmap generation with LLM + RAG")
 
             target_role = input_data.get("target_role", "Backend Engineer")
             missing_skills = input_data.get("missing_skills", [])
             experience_level = input_data.get("experience_level", "intermediate")
             
-            # FIX #8: Handle empty missing_skills gracefully instead of raising
+            # FIX #8: Handle empty missing_skills gracefully - generate generic roadmap for role
             if not missing_skills:
                 self._log_execution(
-                    "No missing skills provided for roadmap, using target role as context",
+                    f"No missing skills provided for roadmap, generating generic phases for {target_role}",
                     level="warning"
                 )
-                # Create a minimal roadmap based on target role and experience level
+                # Generate generic roadmap phases based on target role only
+                generic_phases = self._generate_generic_roadmap(target_role, experience_level)
                 return self._create_output(
                     success=True,
                     data={
-                        "phases": [],
+                        "phases": generic_phases,
                         "target_role": target_role,
                         "experience_level": experience_level,
-                        "note": "Insufficient skill data for detailed roadmap, basic structure only"
+                        "note": "Generic roadmap (no specific skills provided)",
+                        "llm_source": "fallback_generic"
                     },
                 )
             
-            # Use LLM to generate roadmap
+            # ================================================================
+            # NEW: Retrieve learning resources from RAG knowledge base
+            # ================================================================
+            rag_context = self._get_rag_context_for_roadmap(target_role, missing_skills)
+            self._log_execution(
+                f"Retrieved RAG context with learning resources and project examples"
+            )
+            
+            # Use LLM to generate roadmap with RAG context
             llm_result = self.llm.generate_learning_roadmap(
                 target_role=target_role,
                 missing_skills=missing_skills,
                 current_experience=experience_level,
+                rag_context=rag_context.get("context_text", ""),  # NEW: Pass RAG knowledge
             )
             
             if not llm_result.get("success"):
@@ -120,10 +131,14 @@ class RoadmapAgent(BaseAgent):
                 "milestones": llm_result.get("milestones", []),
                 "resources": llm_result.get("resources", []),
                 "llm_source": llm_result.get("source", "unknown"),  # Track pipeline source
+                # NEW: Add RAG-enriched learning resources
+                "learning_resources": rag_context.get("resources", []),
+                "project_examples": rag_context.get("project_examples", []),
+                "rag_enriched": True,
             }
             
             self._log_execution(
-                f"Roadmap generation completed - {len(roadmap_steps)} phases created"
+                f"Roadmap generation completed - {len(roadmap_steps)} phases created (RAG-enriched)"
             )
 
             return self._create_output(
@@ -137,3 +152,124 @@ class RoadmapAgent(BaseAgent):
                 success=False,
                 error=str(e),
             )
+    
+    def _get_rag_context_for_roadmap(
+        self, target_role: str, missing_skills: list
+    ) -> Dict[str, Any]:
+        """
+        Retrieve learning resources and project examples from RAG.
+        
+        Args:
+            target_role: Target career role
+            missing_skills: Skills that need to be learned
+            
+        Returns:
+            Dict with learning resources and project examples
+        """
+        try:
+            try:
+                from ..tools.base import retrieve_documents
+            except ImportError:
+                self._log_execution("RAG tools module not available, using fallback", level="warning")
+                return {"resources": [], "project_examples": [], "context_text": ""}
+            
+            # Build rich query for learning resources
+            query_parts = [
+                target_role,
+                "learning path project tutorial resources courses",
+            ]
+            if missing_skills:
+                # Add first 3 skills to query
+                skills_sample = missing_skills[:3]
+                query_parts.extend(str(s) for s in skills_sample)
+            
+            query = " ".join(query_parts)
+            
+            self._log_execution(f"RAG query for roadmap: '{query}'")
+            
+            # Retrieve documents (more than needed for richer context)
+            rag_result = retrieve_documents(query, top_k=12)
+            
+            if not rag_result.get("success"):
+                self._log_execution("RAG retrieval failed, using fallback", level="warning")
+                return {"resources": [], "project_examples": [], "context_text": ""}
+            
+            # Extract learning resources
+            resources = [
+                {
+                    "title": doc["title"],
+                    "type": doc["category"],
+                    "url": doc.get("metadata", {}).get("url", ""),
+                    "description": doc["text"][:250] if len(doc["text"]) > 250 else doc["text"],
+                    "relevance": doc["similarity"],
+                }
+                for doc in rag_result.get("documents", [])
+                if doc["category"] in ["resource", "learning_path", "skill"]
+            ]
+            
+            # Extract project examples (practical milestones)
+            project_examples = [
+                {
+                    "title": doc["title"],
+                    "description": doc["text"][:300] if len(doc["text"]) > 300 else doc["text"],
+                    "skills_taught": doc.get("metadata", {}).get("skills", []),
+                }
+                for doc in rag_result.get("documents", [])
+                if doc["category"] == "resource"
+            ][:3]  # Top 3 project examples
+            
+            # Build context text for LLM (first 3 documents)
+            context_texts = [
+                f"Resource: {doc['title']}\n{doc['text'][:400]}"
+                for doc in rag_result.get("documents", [])[:3]
+            ]
+            context_text = "\n\n".join(context_texts)
+            
+            return {
+                "resources": resources,
+                "project_examples": project_examples,
+                "context_text": context_text,
+            }
+            
+        except Exception as e:
+            self._log_execution(f"Error retrieving RAG context for roadmap: {str(e)}", level="warning")
+            return {"resources": [], "project_examples": [], "context_text": ""}
+    
+    def _generate_generic_roadmap(self, target_role: str, experience_level: str) -> list:
+        """
+        Generate generic roadmap phases based on target role when no specific skills provided.
+        
+        This ensures users always get a roadmap even if skill extraction fails.
+        """
+        # Generic phases that apply to most roles
+        phases = [
+            {
+                "phase": 1,
+                "title": "Fundamentals & Foundations",
+                "duration_months": 2,
+                "skills_to_learn": ["Core concepts", "Best practices", "Industry standards"],
+                "difficulty": "beginner",
+                "resources": ["Official documentation", "Online tutorials", "Beginner courses"],
+                "milestones": ["Complete foundational course", "Build first project", "Understand core patterns"],
+            },
+            {
+                "phase": 2,
+                "title": "Intermediate Skills",
+                "duration_months": 3,
+                "skills_to_learn": ["Advanced techniques", "Problem-solving", "Code optimization"],
+                "difficulty": "intermediate",
+                "resources": ["Advanced courses", "Technical blogs", "Open source projects"],
+                "milestones": ["Build 2-3 intermediate projects", "Review others' code", "Contribute to open source"],
+            },
+            {
+                "phase": 3,
+                "title": "Specialization & Mastery",
+                "duration_months": 3,
+                "skills_to_learn": ["Specialization", "System design", "Performance tuning"],
+                "difficulty": "advanced",
+                "resources": ["Specialized courses", "Research papers", "Expert mentorship"],
+                "milestones": ["Build complex project", "Mentor others", "Publish case study"],
+            },
+        ]
+        
+        return phases

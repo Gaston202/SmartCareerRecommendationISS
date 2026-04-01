@@ -13,10 +13,11 @@ Features:
 """
 
 from typing import Any, Dict, List
+import json
 
 from ..schemas import AgentOutput, AgentType
 from ..services import LLMService
-from ..services.fallback_utils import safe_extract_strings, safe_deduplicate_by_field
+from ..services.fallback_utils import safe_extract_strings, safe_deduplicate_by_field, LLMError
 from .base_agent import BaseAgent
 
 
@@ -182,11 +183,37 @@ class CareerAgent(BaseAgent):
                 data=career_recommendations,
             )
 
-        except Exception as e:
-            self._log_execution(f"Error during career recommendation: {str(e)}", level="error")
+        except (ValueError, KeyError) as e:
+            # Expected failures: Missing required fields, invalid data structure
+            self._log_execution(
+                f"Input validation failed during career recommendation: {str(e)}",
+                level="warning"
+            )
             return self._create_output(
                 success=False,
                 error=str(e),
+            )
+        
+        except (TimeoutError, ConnectionError, OSError) as e:
+            # Network/connectivity issues: Expected transient failures
+            self._log_execution(
+                f"Network/connectivity issue during career recommendation: {str(e)}",
+                level="warning"
+            )
+            return self._create_output(
+                success=False,
+                error=f"Service temporarily unavailable: {str(e)}",
+            )
+        
+        except (LLMError, RuntimeError) as e:
+            # LLM-specific failures: Expected but important to track
+            self._log_execution(
+                f"LLM service error during career recommendation: {str(e)}",
+                level="error"
+            )
+            return self._create_output(
+                success=False,
+                error=f"Recommendation generation failed: {str(e)}",
             )
     
     def _get_rag_context(self, skills: List[str], user_profile: Any) -> Dict[str, Any]:
@@ -207,11 +234,9 @@ class CareerAgent(BaseAgent):
                 self._log_execution("RAG tools module not available, using fallback", level="warning")
                 return {}
             
-            # IMPROVED QUERY: Include role preference + skills + requirements + path
-            # This provides better semantic matching against career documents
-            target_role = "software engineer"  # Default fallback
-            if hasattr(user_profile, 'preferred_roles') and user_profile.preferred_roles:
-                target_role = user_profile.preferred_roles[0]
+            # IMPROVED QUERY: Derive target role from actual profile data (not hardcoded)
+            # Build smart fallback that considers skills, experience, and education
+            target_role = self._derive_target_role_from_profile(skills, user_profile)
             
             # Build rich query combining role, skills, requirements, and career path
             query_parts = [
@@ -222,7 +247,7 @@ class CareerAgent(BaseAgent):
                 query_parts.append(f"{' '.join(skills[:3])}")
             query = " ".join(query_parts)
             
-            self._log_execution(f"RAG query: '{query}'")
+            self._log_execution(f"RAG query: '{query}' (derived role: {target_role})")
             
             rag_result = retrieve_documents(query, top_k=10)  # Increased from 5 to 10 for better context
             
@@ -263,9 +288,166 @@ class CareerAgent(BaseAgent):
                 "raw_documents": context_documents,  # For potential further enrichment
             }
         
-        except Exception as e:
-            self._log_execution(f"Error getting RAG context: {e}", level="warning")
+        except (ValueError, KeyError, AttributeError) as e:
+            # Expected failures in RAG context retrieval: Missing fields, data structure issues
+            self._log_execution(
+                f"Expected failure in RAG context retrieval: {type(e).__name__}: {e}",
+                level="debug"
+            )
             return {}
+        
+        except (TimeoutError, ConnectionError, OSError) as e:
+            # Network/connectivity issues: Service temporarily unavailable
+            self._log_execution(
+                f"Network error retrieving RAG context: {type(e).__name__}: {e}",
+                level="warning"
+            )
+            return {}
+    
+    def _derive_target_role_from_profile(self, skills: List[str], user_profile: Any) -> str:
+        """
+        Intelligently derive a target career role from user's actual profile data.
+        
+        This replaces hardcoded defaults like "software engineer" with role suggestions
+        based on the user's actual skills, experience level, and education. This ensures
+        non-tech users don't always get tech-related RAG results.
+        
+        Args:
+            skills: List of user's skills
+            user_profile: User profile object with experience_level, education, etc.
+            
+        Returns:
+            String representing a target role (e.g., "Data Scientist", "Product Manager")
+        
+        Strategy:
+            1. Check if preferred_roles is set → use first one
+            2. Analyze skills → map to common roles (Python→Backend, UI→Designer, etc.)
+            3. Consider education background → degree type suggests field
+            4. Consider experience level → entry vs senior level
+            5. Fallback to generic role based on top skill
+        """
+        
+        # Priority 1: Use explicitly stated preferences
+        if hasattr(user_profile, 'preferred_roles') and user_profile.preferred_roles:
+            return user_profile.preferred_roles[0]
+        
+        # Priority 2: Derive from skills (map skills → typical roles)
+        if skills:
+            derived_role = self._map_skills_to_role(skills)
+            if derived_role:
+                return derived_role
+        
+        # Priority 3: Derive from education background
+        if hasattr(user_profile, 'education') and user_profile.education:
+            derived_role = self._map_education_to_role(user_profile.education)
+            if derived_role:
+                return derived_role
+        
+        # Priority 4: Use experience level as a hint
+        # entry level → suggest junior roles; senior → advanced roles
+        if hasattr(user_profile, 'experience_level'):
+            exp_level = user_profile.experience_level.lower()
+            if exp_level in ("entry", "junior", "0-2"):
+                return "Junior Professional"
+            elif exp_level in ("senior", "5+", "7+"):
+                return "Senior Professional"
+        
+        # Final fallback: Generic "Professional" instead of hardcoded "Software Engineer"
+        return "Professional"
+    
+    def _map_skills_to_role(self, skills: List[str]) -> str:
+        """
+        Map a list of skills to a likely career role.
+        
+        Examples:
+            ["Python", "Django", "SQL"] → Backend Engineer
+            ["React", "JavaScript", "CSS"] → Frontend Developer
+            ["Excel", "SQL", "Tableau"] → Data Analyst
+            ["Design", "Figma", "UI/UX"] → Product Designer
+        
+        Args:
+            skills: List of skill strings
+            
+        Returns:
+            Role name or empty string if no mapping found
+        """
+        skills_lower = [s.lower() for s in skills]
+        
+        # Skill-to-role mappings (priority order)
+        skill_role_map = {
+            # Tech roles
+            ("python", "django", "flask", "fastapi"): "Backend Engineer",
+            ("python", "pandas", "numpy", "scikit", "tensorflow"): "Data Scientist",
+            ("react", "javascript", "typescript", "vue", "angular"): "Frontend Developer",
+            ("rust", "c++", "c#", "golang", "java"): "Systems Engineer",
+            ("kubernetes", "docker", "aws", "devops"): "DevOps Engineer",
+            ("sql", "postgres", "mongodb", "mysql"): "Database Administrator",
+            
+            # Non-tech roles
+            ("excel", "tableau", "power bi", "looker"): "Business Analyst",
+            ("marketing", "social media", "analytics", "seo"): "Marketing Manager",
+            ("finance", "accounting", "quickbooks", "sap"): "Financial Analyst",
+            ("sales", "crm", "salesforce", "negotiation"): "Sales Manager",
+            ("healthcare", "nursing", "patient care", "medical"): "Healthcare Professional",
+            ("teaching", "education", "curriculum", "training"): "Educator",
+            ("design", "figma", "ui/ux", "photoshop", "sketch"): "Product Designer",
+            ("project management", "agile", "scrum", "confluence"): "Project Manager",
+        }
+        
+        # Check for skill matches (longer skill groups have priority)
+        for skill_group, role in sorted(skill_role_map.items(), key=lambda x: len(x[0]), reverse=True):
+            if any(skill in skills_lower for skill in skill_group):
+                return role
+        
+        return ""
+    
+    def _map_education_to_role(self, education: str) -> str:
+        """
+        Map education background to a likely career role.
+        
+        Examples:
+            "BS Computer Science" → Backend Engineer
+            "MBA" → Project Manager
+            "BA Psychology" → HR Specialist
+            "BS Nursing" → Healthcare Professional
+        
+        Args:
+            education: Education background string
+            
+        Returns:
+            Role name or empty string if no mapping found
+        """
+        education_lower = education.lower()
+        
+        education_role_map = {
+            # STEM degrees
+            ("computer science", "software engineering", "cs", "se"): "Software Engineer",
+            ("data science", "statistics", "mathematics"): "Data Scientist",
+            ("electrical engineering", "ee"): "Systems Engineer",
+            ("information technology", "it degree"): "IT Professional",
+            
+            # Business degrees
+            ("mba", "business administration", "business degree"): "Business Manager",
+            ("finance", "accounting", "cpa"): "Financial Analyst",
+            ("marketing", "communications"): "Marketing Manager",
+            ("economics"): "Economist",
+            
+            # Healthcare degrees
+            ("nursing", "rn", "nurse", "healthcare", "medical", "md", "doctor"): "Healthcare Professional",
+            ("psychology", "counseling"): "HR Specialist",
+            ("biology", "biochemistry"): "Research Scientist",
+            
+            # Other degrees
+            ("education", "teaching", "teacher"): "Educator",
+            ("design", "ux", "ui"): "Product Designer",
+            ("project management", "pmp"): "Project Manager",
+        }
+        
+        for edu_keyword_group, role in sorted(education_role_map.items(), key=lambda x: len(x[0]), reverse=True):
+            if any(keyword in education_lower for keyword in edu_keyword_group):
+                return role
+        
+        return ""
     
     def _build_rag_context_string(self, documents: List[Dict[str, Any]]) -> str:
         """

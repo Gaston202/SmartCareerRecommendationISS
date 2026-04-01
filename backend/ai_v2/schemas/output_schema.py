@@ -172,7 +172,15 @@ class CareerRecommendationOutput(BaseModel):
         skill_gaps (List[SkillGapAnalysis]): Skill gap analysis for each career
         roadmap (List[RoadmapStep]): Career roadmap steps
         confidence_score (float): Overall recommendation confidence (0-1)
+        success (bool): Whether the pipeline executed successfully
+        error (Optional[str]): Error message if pipeline failed
+        error_type (Optional[str]): Type/category of error for debugging
         agent_outputs (Dict[str, AgentOutput]): Individual agent outputs
+        
+    Note:
+        - If success=False, callers should check the error field for details
+        - confidence_score=0.0 with success=False indicates a crash, not "no recommendations"
+        - success=True with empty recommended_careers means the pipeline ran but found no matches
     """
     user_id: str = Field(..., description="User identifier")
     recommended_careers: List[CareerRecommendation] = Field(
@@ -192,6 +200,18 @@ class CareerRecommendationOutput(BaseModel):
         ge=0.0,
         le=1.0,
         description="Confidence score"
+    )
+    success: bool = Field(
+        default=True,
+        description="Whether pipeline executed successfully (False indicates an error occurred)"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Error message if pipeline failed"
+    )
+    error_type: Optional[str] = Field(
+        default=None,
+        description="Error category (ValueError, TimeoutError, etc.) for client-side handling"
     )
     agent_outputs: Dict[str, AgentOutput] = Field(
         default_factory=dict,

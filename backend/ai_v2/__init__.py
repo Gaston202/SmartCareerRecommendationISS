@@ -101,7 +101,7 @@ except ImportError:
     get_pipeline = None
 
 try:
-    from .orchestrator import PipelineOrchestrator
+    from .agents.orchestrator import PipelineOrchestrator
 except ImportError:
     PipelineOrchestrator = None
 

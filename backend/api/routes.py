@@ -25,7 +25,7 @@ import os
 import sys
 import json
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional  # FIXED: Added Optional for LLMService singleton
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,11 +34,13 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 
+from typing import Optional  # FIXED: Import Optional for LLMService singleton type hint
 from services.ai_integration import (
     get_ai_integration_service,
     CVAnalysisRequest,
     AIIntegrationService,
 )
+from ai_v2.services import LLMService  # FIXED: Import LLM service for roadmap generation
 from ai_v2.utils import get_logger
 
 # Setup logging
@@ -60,6 +62,9 @@ CORS(app, resources={
 # Initialize AI service
 ai_service: Optional[AIIntegrationService] = None
 
+# FIXED: Module-level singleton for LLMService to avoid per-request initialization overhead
+_llm_service: Optional[LLMService] = None
+
 
 def get_service() -> AIIntegrationService:
     """Get or create the AI integration service."""
@@ -67,6 +72,15 @@ def get_service() -> AIIntegrationService:
     if ai_service is None:
         ai_service = get_ai_integration_service()
     return ai_service
+
+
+def get_llm_service() -> LLMService:
+    """Get or create module-level LLMService singleton to avoid per-request OpenAI client init."""
+    global _llm_service
+    if _llm_service is None:
+        _llm_service = LLMService()
+        logger.info("[API] LLMService singleton initialized")
+    return _llm_service
 
 
 def _generate_quiz_question(question_number: int, previous_answers: list) -> Dict[str, Any]:
@@ -400,6 +414,23 @@ def recommend_careers():
             preferences=preferences,
         )
         
+        # Check if pipeline failed and return error status
+        if not output.success:
+            logger.warning(
+                f"[API] Pipeline returned failure status",
+                extra={
+                    "user_id": user_id,
+                    "error": output.error,
+                    "error_type": output.error_type,
+                }
+            )
+            return jsonify({
+                "success": False,
+                "error": output.error or "Pipeline failed without error message",
+                "error_type": output.error_type,
+                "code": "PIPELINE_FAILED"
+            }), 500
+        
         # Serialize output (convert Pydantic models to dicts)
         response_data = {
             "user_id": output.user_id,
@@ -552,6 +583,23 @@ def career_matching():
             user_profile=user_profile,
             preferences=preferences,
         )
+        
+        # Check if pipeline failed and return error status
+        if not recommendation_output.success:
+            logger.error(
+                f"[API] Career matching pipeline failed",
+                extra={
+                    "user_id": user_id,
+                    "error": recommendation_output.error,
+                    "error_type": recommendation_output.error_type,
+                }
+            )
+            return jsonify({
+                "success": False,
+                "error": recommendation_output.error or "Pipeline failed without error message",
+                "error_type": recommendation_output.error_type,
+                "code": "PIPELINE_FAILED"
+            }), 500
         
         # Transform ai_v2 output to mobile-friendly format
         top_matches = []
@@ -716,6 +764,23 @@ def generate_quiz():
                 user_profile=user_profile,
             )
             
+            # Check if recommendations pipeline failed
+            if not rec_output.success:
+                logger.error(
+                    f"[API] Quiz results pipeline failed",
+                    extra={
+                        "user_id": user_id,
+                        "error": rec_output.error,
+                        "error_type": rec_output.error_type,
+                    }
+                )
+                return jsonify({
+                    "success": False,
+                    "error": rec_output.error or "Pipeline failed without error message",
+                    "error_type": rec_output.error_type,
+                    "code": "PIPELINE_FAILED"
+                }), 500
+            
             # Transform to quiz results format
             careers = []
             for career in rec_output.recommended_careers[:3]:
@@ -873,73 +938,60 @@ def generate_roadmap():
             }
         )
         
-        # Build structured roadmap with steps
-        roadmap_steps = []
+        # FIXED: Use LLM service instead of hardcoded template data
+        llm = get_llm_service()  # Use singleton to avoid per-request overhead
         
-        # Step 1: Foundation (if needed)
-        if target_skills:
-            roadmap_steps.append({
-                "title": f"Master foundational concepts for {career_title}",
-                "description": f"Study core concepts and principles relevant to {career_title}. This includes understanding best practices, industry standards, and key technologies in the field.",
-                "timeframe": "1-2 months",
-                "resources": [
-                    {"title": f"{career_title} Fundamentals Course", "type": "course"},
-                    {"title": "Industry Best Practices", "type": "guide"},
-                ],
-            })
+        # Extract missing skills (target_skills not in current_skills)
+        missing_skills = [s for s in target_skills if s.lower() not in [c.lower() for c in current_skills]]
         
-        # Step 2: Learn target skills
-        for i, skill in enumerate(target_skills[:3]):  # Top 3 skills
-            roadmap_steps.append({
-                "title": f"Master {skill}",
-                "description": f"Develop deep proficiency in {skill}. Learn core concepts, complete tutorials, and build small projects to solidify understanding.",
-                "timeframe": "1-2 months",
-                "resources": [
-                    {"title": f"{skill} Documentation", "type": "documentation"},
-                    {"title": f"{skill} Tutorial Projects", "type": "course"},
-                ],
-            })
+        # Generate roadmap using LLM (not hardcoded)
+        roadmap_output = llm.generate_learning_roadmap(
+            target_role=career_title,
+            missing_skills=missing_skills or target_skills,  # Use target skills if no delta needed
+            current_experience=experience_level,
+            rag_context=career_description or f"Career path towards {career_title}",
+        )
         
-        # Step 3: Build portfolio projects
-        roadmap_steps.append({
-            "title": "Build portfolio projects",
-            "description": f"Create 2-3 portfolio projects that demonstrate your {career_title} expertise. Use the skills learned to build real applications.",
-            "timeframe": "2-3 months",
-            "resources": [
-                {"title": "Portfolio Project Ideas", "type": "guide"},
-                {"title": "GitHub Portfolio Setup", "type": "guide"},
-            ],
-        })
+        # Check if LLM failed
+        if not roadmap_output.get("success"):
+            logger.error(
+                f"[API] LLM roadmap generation failed",
+                extra={
+                    "user_id": user_id,
+                    "career": career_title,
+                    "error": roadmap_output.get("error", "Unknown error"),
+                }
+            )
+            return jsonify({
+                "success": False,
+                "error": roadmap_output.get("error", "Failed to generate roadmap"),
+                "code": "ROADMAP_GENERATION_FAILED"
+            }), 500
         
-        # Step 4: Network and interview prep
-        roadmap_steps.append({
-            "title": "Prepare for role and network",
-            "description": f"Network with professionals, practice interviews, and complete your resume. Position yourself for {career_title} opportunities.",
-            "timeframe": "1-3 months",
-            "resources": [
-                {"title": "Interview Preparation Guide", "type": "guide"},
-                {"title": "Networking Strategies", "type": "guide"},
-                {"title": "Resume Optimization", "type": "template"},
-            ],
-        })
+        # Extract phases from LLM output and convert to steps format
+        phases = roadmap_output.get("phases", [])
+        total_months = roadmap_output.get("total_months", timeframe_months)
+        resources = roadmap_output.get("resources", [])
         
-        # Step 5: Land the role
-        roadmap_steps.append({
-            "title": "Land the role",
-            "description": f"Apply to {career_title} positions, interview with companies, and negotiate offers. Leverage your portfolio and network.",
-            "timeframe": "1-3 months",
-            "resources": [
-                {"title": "Job Search Strategies", "type": "guide"},
-                {"title": "Salary Negotiation Tips", "type": "guide"},
-            ],
-        })
+        # FIXED: Convert phases to steps with correct field names matching LLM output
+        roadmap_steps = [
+            {
+                "title": phase.get("title", f"Phase {i+1}"),
+                "timeframe": f"{phase.get('duration_months', 2)} months",
+                "resources": phase.get("resources", []),
+                "skills": phase.get("skills", []),
+                "milestones": phase.get("milestones", []),
+            }
+            for i, phase in enumerate(phases)
+        ]
         
         logger.info(
-            "[API] Roadmap generation complete",
+            "[API] Roadmap generation complete (via LLM)",
             extra={
                 "user_id": user_id,
                 "career": career_title,
                 "steps_count": len(roadmap_steps),
+                "source": roadmap_output.get("source", "unknown"),
             }
         )
         
