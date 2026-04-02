@@ -11,6 +11,8 @@ import {
   Platform,
   Image,
   StyleSheet,
+  Pressable,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,6 +51,9 @@ export function GroupChatScreen() {
   const [sending, setSending] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const flatListRef = useRef<FlatList>(null);
+  const sendButtonScale = useRef(new Animated.Value(1)).current;
+
+  const canSend = messageText.trim().length > 0;
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -186,6 +191,10 @@ export function GroupChatScreen() {
             <Ionicons name="chevron-back" size={26} color="#fff" />
           </Pressable>
 
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {chat.title || 'Group Chat'}
+          </Text>
+
           <View style={styles.headerAvatarWrapper}>
             <AppLogo size={18} />
           </View>
@@ -259,8 +268,8 @@ export function GroupChatScreen() {
               ) : (
                 <Ionicons name="send" size={20} color="#fff" />
               )}
-            </LinearGradient>
-          </TouchableOpacity>
+            </Pressable>
+          </Animated.View>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -286,36 +295,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 16,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
   },
-  headerContent: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  headerIcon: {
-    marginRight: 12,
-  },
-  headerTextContainer: {
-    flex: 1,
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '600',
     color: '#fff',
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.85)',
-    marginTop: 2,
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 8,
   },
   mentorInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 4,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignSelf: 'flex-start',
   },
   mentorText: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.9)',
     marginLeft: 4,
+    fontWeight: '500',
   },
   messagesList: {
     paddingVertical: 10,
@@ -437,14 +448,44 @@ const styles = StyleSheet.create({
     maxHeight: 100,
     fontSize: 15,
   },
-  sendButtonWrapper: {
-    borderRadius: 22,
-    overflow: 'hidden',
-  },
   sendButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backBtn: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  headerAvatarWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  charBadge: {
+    position: 'absolute',
+    right: 70,
+    top: -8,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  charText: {
+    fontSize: 11,
+    color: '#6b7280',
+  },
+  sendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: homeColors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
