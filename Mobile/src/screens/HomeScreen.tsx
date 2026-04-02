@@ -370,7 +370,6 @@ export default function HomeScreen(): React.ReactElement {
     
     setStatus("analyzing");
     setError(null);
-    console.log("[CV_TRIGGER] source=HomeScreen handleAnalyze button clicked");
     console.log("[HomeScreen] 👉 Starting client-side CV analysis:", cv.id);
     
     try {
@@ -384,7 +383,6 @@ export default function HomeScreen(): React.ReactElement {
       queryClient.setQueryData(cvQueryKeys.analysis(cv.id), result);
       
       console.log("[HomeScreen] ✅ CV analysis completed and saved!");
-      console.log("[CV_TRIGGER] Analysis completed successfully with", result.extracted_skills?.length || 0, "skills");
       
       // Invalidate queries to show new results
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
@@ -395,11 +393,6 @@ export default function HomeScreen(): React.ReactElement {
       (navigation as any).navigate("CVAnalysis");
     } catch (err: any) {
       console.error("[HomeScreen] ❌ Analysis failed:", err);
-      console.error("[CV_TRIGGER] Analysis error details:", {
-        message: err?.message,
-        status: err?.status,
-        code: err?.code,
-      });
       const errorMsg = err?.message || "Could not analyze CV.";
       setError(errorMsg);
       setStatus("error");

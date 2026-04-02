@@ -24,8 +24,6 @@ import { homeColors } from '../homeTheme';
 import { useJobListings } from '../../features/jobs/hooks';
 import { JobFilters, JobListing, JobEnrichedDetails } from '../../types/job';
 import { fetchJobDetails, extractJobInfo } from '../../api/jobDetails';
-import { AppLogo } from '../../ui/AppLogo';
-import { AppBrand } from '../../ui/AppBrand';
 
 const ALL_SITES = ['indeed', 'linkedin', 'zip_recruiter', 'glassdoor', 'google', 'bayt', 'naukri'];
 // Default to only reliable sites
@@ -471,9 +469,6 @@ export function JobListingsScreen() {
       {/* Header with Search */}
       <View style={[styles.headerRow, { paddingTop: Math.max(insets.top, 20), backgroundColor: homeColors.cardBg }]}>
         <View style={styles.headerContent}>
-          <View style={styles.brandRow}>
-            <AppBrand width={120} height={26} />
-          </View>
           <Text style={styles.headerTitle}>Job Listings</Text>
           <Text style={styles.headerSubtitle}>
             Opportunities for <Text style={{ fontWeight: '700', color: homeColors.primary }}>{specialty}</Text>
@@ -783,11 +778,6 @@ const styles = StyleSheet.create({
   headerContent: {
     flex: 1,
     marginRight: TOKENS.spacing.md,
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: TOKENS.spacing.xs,
   },
   headerTitle: {
     fontSize: 24,

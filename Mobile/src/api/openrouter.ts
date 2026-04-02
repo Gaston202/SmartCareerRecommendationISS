@@ -25,7 +25,7 @@ export function buildOpenRouterHeaders(apiKey: string): Record<string, string> {
   return {
     Authorization: `Bearer ${apiKey}`,
     "HTTP-Referer": "https://smartcareer.app",
-    "X-Title": "MyPath",
+    "X-Title": "Smart Career Recommendation",
     "Content-Type": "application/json",
   };
 }
