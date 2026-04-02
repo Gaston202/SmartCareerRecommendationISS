@@ -27,7 +27,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "../auth/AuthProvider";
 import { getMyUserRow, updateMyUserRow } from "../api/profile";
 import { supabase } from "../api/supabase";
-import { useCvAnalysis } from "../features/cv";
 
 // ✅ Option A (NO QR CODE): Uses Expo Print + Sharing
 // Make sure you installed:
@@ -880,27 +879,6 @@ export default function ProfileScreen() {
   );
 
   const skillsList = useMemo(() => parseSkills(watched.skills), [watched.skills]);
-  const { data: cvAnalysis, isLoading: cvAnalysisLoading } = useCvAnalysis();
-  const cvExtractedSkills = useMemo(() => {
-    const raw = [
-      ...(cvAnalysis?.extracted_skills ?? []),
-      ...(cvAnalysis?.skills_extracted ?? []),
-      ...(cvAnalysis?.skills ?? []),
-    ];
-
-    const seen = new Set<string>();
-    return raw
-      .map((s) => String(s ?? "").trim())
-      .filter(Boolean)
-      .map((s) => s.replace(/\s+/g, " "))
-      .filter((s) => {
-        const key = s.toLowerCase();
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .slice(0, 24);
-  }, [cvAnalysis]);
   const progress = useMemo(() => completeness(watched), [watched]);
 
   const inputRefs = useRef<Partial<Record<FieldName, TextInput | null>>>({});
@@ -1182,7 +1160,7 @@ export default function ProfileScreen() {
     <div class="header">
       <div>
         <h1 class="title">Profile Export</h1>
-        <div class="subtitle">A beautifully formatted snapshot of your MyPath profile.</div>
+        <div class="subtitle">A beautifully formatted snapshot of your SmartCareer profile.</div>
       </div>
       <div class="badge">
         <div style="color:var(--muted);font-size:12px;font-weight:900;">Profile strength</div>
@@ -1246,7 +1224,7 @@ export default function ProfileScreen() {
     </div>
 
     <div class="footer">
-      Generated from MyPath • ${new Date().toLocaleString()}
+      Generated from SmartCareerRecommendationISS • ${new Date().toLocaleString()}
     </div>
   </div>
 </body>
@@ -1458,42 +1436,17 @@ export default function ProfileScreen() {
                   <Ionicons name="sparkles-outline" size={18} color={COLORS.primary} />
                   <Text style={styles.sectionTitle}>Skills</Text>
                 </View>
-
-                <View style={styles.skillsSubsection}>
-                  <Text style={styles.skillsSubheading}>Extracted from your CV</Text>
-                  {cvAnalysisLoading ? (
-                    <Text style={styles.skillsSubHint}>Loading CV skills...</Text>
-                  ) : cvExtractedSkills.length === 0 ? (
-                    <Text style={styles.skillsSubHint}>
-                      No CV skills yet. Upload and analyze your CV to see extracted skills here.
-                    </Text>
-                  ) : (
-                    <View style={styles.skillsGrid}>
-                      {cvExtractedSkills.map((s) => (
-                        <View key={`cv-${s}`} style={styles.cvSkillTag}>
-                          <Text style={styles.cvSkillTagText}>{s}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                {skillsList.length > 0 && (
-                  <View style={styles.skillsSubsection}>
-                    <Text style={styles.skillsSubheading}>Added in profile</Text>
-                    <View style={styles.skillsGrid}>
-                      {skillsList.map((s) => (
-                        <View key={s} style={styles.skillTag}>
-                          <Text style={styles.skillTagText}>{s}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                )}
-
-                {skillsList.length === 0 && cvExtractedSkills.length === 0 && !cvAnalysisLoading && (
+                {skillsList.length === 0 ? (
                   <View style={styles.emptySection}>
-                    <Text style={styles.emptyText}>Add skills or upload a CV to boost your profile</Text>
+                    <Text style={styles.emptyText}>Add skills to boost your profile</Text>
+                  </View>
+                ) : (
+                  <View style={styles.skillsGrid}>
+                    {skillsList.map((s) => (
+                      <View key={s} style={styles.skillTag}>
+                        <Text style={styles.skillTagText}>{s}</Text>
+                      </View>
+                    ))}
                   </View>
                 )}
               </View>
@@ -1904,20 +1857,6 @@ const styles = StyleSheet.create({
   },
 
   // ============ Skills ============
-  skillsSubsection: {
-    marginBottom: 12,
-  },
-  skillsSubheading: {
-    color: COLORS.sub,
-    fontSize: 12.5,
-    fontWeight: "900",
-    marginBottom: 8,
-  },
-  skillsSubHint: {
-    color: COLORS.sub,
-    fontSize: 13,
-    lineHeight: 18,
-  },
   skillsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1934,19 +1873,6 @@ const styles = StyleSheet.create({
   skillTagText: {
     color: COLORS.primaryDark,
     fontWeight: "900",
-    fontSize: 12,
-  },
-  cvSkillTag: {
-    backgroundColor: "rgba(124,77,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(124,77,255,0.2)",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-  },
-  cvSkillTagText: {
-    color: COLORS.primaryDark,
-    fontWeight: "800",
     fontSize: 12,
   },
 

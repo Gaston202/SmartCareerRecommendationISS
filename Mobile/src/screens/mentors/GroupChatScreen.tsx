@@ -22,10 +22,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGroupChat, useChatMessages } from '../../features/mentors/hooks';
 import { useAuth } from '../../auth/AuthProvider';
 import { homeColors } from '../homeTheme';
-import type { ChatMessage } from '../../types/mentor';
-import { AppLogo } from '../../ui/AppLogo';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type MentorsStackParamList = {
   MentorsList: undefined;
@@ -244,24 +240,19 @@ export function GroupChatScreen() {
             style={styles.textInput}
             placeholderTextColor={homeColors.textLight}
           />
-
-          {/* Char counter badge */}
-          {messageText.length > 400 && (
-            <View style={styles.charBadge}>
-              <Text style={[styles.charText, messageText.length > 480 && { color: '#ef4444' }]}>
-                {500 - messageText.length}
-              </Text>
-            </View>
-          )}
-
-          {/* Send / mic button */}
-          <Animated.View style={{ transform: [{ scale: sendButtonScale }] }}>
-            <Pressable
-              onPress={handleSendMessage}
-              disabled={!canSend && !sending}
-              style={({ pressed }) => [styles.sendBtn, pressed && canSend && { opacity: 0.85 }]}
-              accessibilityRole="button"
-              accessibilityLabel={canSend ? 'Send message' : 'Voice input unavailable'}
+          <TouchableOpacity
+            onPress={handleSendMessage}
+            disabled={!messageText.trim() || sending}
+            style={styles.sendButtonWrapper}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={messageText.trim() && !sending
+                ? [homeColors.primary, homeColors.primaryDark]
+                : ['#d1d5db', '#9ca3af']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.sendButton}
             >
               {sending ? (
                 <ActivityIndicator size="small" color="white" />

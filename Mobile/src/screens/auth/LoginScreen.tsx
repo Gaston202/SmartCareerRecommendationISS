@@ -16,7 +16,7 @@ import {
   Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -24,7 +24,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../../auth/AuthProvider';
 import { authColors as colors } from './authTheme';
 import { supabase } from '../../api/supabase';
-import { AppLogo } from '../../ui/AppLogo';
 
 type AuthStackParamList = {
   Welcome: undefined;
@@ -495,7 +494,7 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.card}>
             <View style={styles.logoCircle}>
-              <AppLogo size={42} />
+              <FontAwesome5 name="graduation-cap" size={26} color="#fff" />
             </View>
 
             <Text style={styles.title}>Welcome back</Text>
@@ -725,16 +724,14 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   logoCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: colors.logoBg,
     alignSelf: 'center',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
   },
   title: {
     fontSize: 22,
