@@ -20,26 +20,12 @@ export interface CvAnalysisSnapshot {
   }>;
 }
 
-export interface NovaProfileSnapshot {
-  headline?: string;
-  professionalIdentity?: string;
-  primaryStyle?: string;
-  topMotivators?: string[];
-  decisionStyle?: string;
-  learningStyle?: string;
-  communicationStyle?: string;
-  bestFitEnvironments?: string[];
-  watchouts?: string[];
-  recommendedDevelopmentAxes?: string[];
-}
-
 export interface AiCareerMatchingInput {
   userId: string;
   userSkills: string[];
   quizQuestions: QuizQuestionSnapshot[];
   cvAnalysis?: CvAnalysisSnapshot;
-  novaProfile?: NovaProfileSnapshot;
-  availableCareers?: Array<{
+  availableCareers: Array<{
     id: string;
     title: string;
     description: string;
@@ -54,12 +40,6 @@ export interface AiCareerMatchingInput {
 export interface AiCareerMatchResult {
   careerTitle: string;
   careerDescription: string;
-  careerCategory?: string;
-  requiredSkills?: string[];
-  estimatedSalaryRange?: string;
-  growthRatePercent?: number;
-  demandLevel?: 'low' | 'medium' | 'high' | 'very-high';
-  tags?: string[];
   matchScore: number; // 0-100
   matchingFactors: {
     quizAlignment: string;

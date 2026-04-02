@@ -15,12 +15,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMentors } from '../../features/mentors/hooks';
 import { MentorWithSpecialties, MentorFilters } from '../../types/mentor';
 import { homeColors } from '../homeTheme';
-import { AppLogo } from '../../ui/AppLogo';
-import { AppBrand } from '../../ui/AppBrand';
 
 type MentorsStackParamList = {
   MentorsList: undefined;
@@ -44,7 +41,6 @@ const specialties = [
 
 export function MentorsListScreen() {
   const navigation = useNavigation<MentorsListScreenNavigationProp>();
-  const insets = useSafeAreaInsets();
   const [selectedSpecialty, setSelectedSpecialty] = useState<string | undefined>();
   const [minRating, setMinRating] = useState<number | undefined>();
   const [filters, setFilters] = useState<MentorFilters>({});
@@ -147,15 +143,11 @@ export function MentorsListScreen() {
       />
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} />}
       >
         {/* Header */}
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}> 
-          <View style={styles.brandRow}>
-            <AppBrand width={120} height={26} />
-          </View>
-          <Ionicons name="people" size={28} color={homeColors.primary} />
+        <View style={styles.header}>
+          <Ionicons name="people" size={32} color={homeColors.primary} />
           <Text style={styles.headerTitle}>Find a Mentor</Text>
           <Text style={styles.headerSubtitle}>Learn from experts in your field</Text>
         </View>
@@ -256,13 +248,9 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
+    paddingTop: 20,
     paddingBottom: 16,
     alignItems: 'center',
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
   },
   headerTitle: {
     fontSize: 28,

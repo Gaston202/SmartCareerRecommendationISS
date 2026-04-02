@@ -17,8 +17,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGroupChats } from '../../features/mentors/hooks';
 import { GroupChat } from '../../types/mentor';
 import { homeColors } from '../homeTheme';
-import { AppLogo } from '../../ui/AppLogo';
-import { AppBrand } from '../../ui/AppBrand';
 
 type MentorsStackParamList = {
   MentorsList: undefined;
@@ -113,15 +111,11 @@ export function GroupChatsScreen() {
       />
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} />}
       >
         {/* Header */}
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
-          <View style={styles.brandRow}>
-            <AppBrand width={120} height={26} />
-          </View>
-          <Ionicons name="chatbubbles" size={28} color={homeColors.primary} />
+          <Ionicons name="chatbubbles" size={32} color={homeColors.primary} />
           <Text style={styles.headerTitle}>Group Chats</Text>
           <Text style={styles.headerSubtitle}>Connect with peers and mentors</Text>
         </View>
@@ -194,13 +188,9 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
+    paddingTop: 20,
     paddingBottom: 16,
     alignItems: 'center',
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
   },
   headerTitle: {
     fontSize: 28,

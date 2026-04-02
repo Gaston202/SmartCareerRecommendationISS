@@ -13,6 +13,10 @@ import {
   type AiCareerMatchingOutput,
   type AiCareerMatchResult,
 } from './ai-matching.service';
+import {
+  getCachedCareerMatches,
+  saveCareerMatchResults,
+} from '../../database/quiz-matching.service';
 
 export interface CareerMatch {
   career: CareerWithSkills;
@@ -22,61 +26,6 @@ export interface CareerMatch {
 
 export interface AiPoweredCareerMatch extends CareerMatch {
   aiInsights?: AiCareerMatchResult;
-}
-
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .slice(0, 48);
-}
-
-function toDemandLevel(value: string | undefined): CareerWithSkills['demand_level'] {
-  if (value === 'low' || value === 'medium' || value === 'high' || value === 'very-high') {
-    return value;
-  }
-  return 'high';
-}
-
-function toAverageSalary(salaryRange: string | undefined): number {
-  if (!salaryRange) return 85000;
-
-  const numbers = salaryRange
-    .replace(/,/g, '')
-    .match(/\d{2,6}/g)
-    ?.map((n) => Number(n))
-    .filter((n) => Number.isFinite(n)) || [];
-
-  if (numbers.length === 0) return 85000;
-  if (numbers.length === 1) return numbers[0];
-  return Math.round((numbers[0] + numbers[1]) / 2);
-}
-
-function buildGeneratedCareer(aiResult: AiCareerMatchResult, index: number): CareerWithSkills {
-  const now = new Date().toISOString();
-  const generatedSkills = (aiResult.requiredSkills || []).slice(0, 8);
-
-  return {
-    id: `ai-generated-${index + 1}-${slugify(aiResult.careerTitle) || 'career'}`,
-    title: aiResult.careerTitle,
-    description: aiResult.careerDescription,
-    category: aiResult.careerCategory || 'AI Recommended',
-    required_skills: generatedSkills,
-    average_salary: toAverageSalary(aiResult.estimatedSalaryRange),
-    growth_rate: Math.max(0, Math.min(40, Math.round(aiResult.growthRatePercent || 15))),
-    demand_level: toDemandLevel(aiResult.demandLevel),
-    created_at: now,
-    updated_at: now,
-    skills: generatedSkills.map((skill, skillIndex) => ({
-      id: `ai-skill-${index + 1}-${skillIndex + 1}-${slugify(skill) || 'skill'}`,
-      name: skill,
-      category: 'AI Suggested',
-      created_at: now,
-      importance: 'required',
-    })),
-  };
 }
 
 function normalizeScore(score: number): number {
@@ -232,11 +181,34 @@ export async function calculateAiPoweredCareerMatches(
   allCareers: CareerWithSkills[],
   questionsWithAnswers: QuestionWithAnswer[],
   userSkills: string[],
-  quizResults?: QuizResults,
   cvAnalysis?: CvAnalysis,
   quizSessionId?: string | null
 ): Promise<AiPoweredCareerMatch[]> {
   try {
+    if (cvAnalysis?.id && quizSessionId) {
+      const cached = await getCachedCareerMatches(userId, cvAnalysis.id, quizSessionId);
+      if (cached.length > 0) {
+        const cachedMatches: AiPoweredCareerMatch[] = cached
+          .map((entry) => {
+            const career = allCareers.find((c) => c.id === entry.careerId);
+            if (!career) return null;
+
+            return {
+              career,
+              score: entry.matchScore,
+              matchReasons: Array.isArray(entry.matchReasons) ? entry.matchReasons : [],
+              aiInsights: entry.aiInsights as AiCareerMatchResult,
+            } as AiPoweredCareerMatch;
+          })
+          .filter((m) => m !== null) as AiPoweredCareerMatch[];
+
+        if (cachedMatches.length > 0) {
+          console.log('[Matching] Using cached AI career matches from database');
+          return cachedMatches;
+        }
+      }
+    }
+
     // Prepare input for AI matching service
     const aiInput: AiCareerMatchingInput = {
       userId,
@@ -247,20 +219,6 @@ export async function calculateAiPoweredCareerMatches(
         selectedOption: q.selectedOption,
         allOptions: q.allOptions,
       })),
-      novaProfile: quizResults?.novaProfile
-        ? {
-            headline: quizResults.novaProfile.headline,
-            professionalIdentity: quizResults.novaProfile.professionalIdentity,
-            primaryStyle: quizResults.novaProfile.behavior?.primaryStyle,
-            topMotivators: quizResults.novaProfile.motivations?.topMotivators || [],
-            decisionStyle: quizResults.novaProfile.cognition?.decisionStyle,
-            learningStyle: quizResults.novaProfile.cognition?.learningStyle,
-            communicationStyle: quizResults.novaProfile.cognition?.communicationStyle,
-            bestFitEnvironments: quizResults.novaProfile.careerProjection?.bestFitEnvironments || [],
-            watchouts: quizResults.novaProfile.careerProjection?.watchouts || [],
-            recommendedDevelopmentAxes: quizResults.novaProfile.recommendedDevelopmentAxes || [],
-          }
-        : undefined,
       availableCareers: allCareers.map((c) => ({
         id: c.id,
         title: c.title,
@@ -293,11 +251,18 @@ export async function calculateAiPoweredCareerMatches(
     // Call AI matching service
     const aiOutput: AiCareerMatchingOutput = await generateAiCareerMatches(aiInput);
 
-    // Convert AI results directly to generated careers (not constrained to DB entries)
+    // Convert AI results to CareerMatch format with AI insights
     const matches: AiPoweredCareerMatch[] = aiOutput.topMatches
-      .map((aiResult, index) => {
+      .map((aiResult) => {
+        // Find the corresponding career in allCareers
+        const career = allCareers.find(
+          (c) => c.title.toLowerCase() === aiResult.careerTitle.toLowerCase()
+        );
+
+        if (!career) return null;
+
         return {
-          career: buildGeneratedCareer(aiResult, index),
+          career,
           score: aiResult.matchScore,
           matchReasons: [
             aiResult.matchingFactors.quizAlignment,
@@ -311,23 +276,27 @@ export async function calculateAiPoweredCareerMatches(
       })
       .filter((m) => m !== null) as AiPoweredCareerMatch[];
 
-    if (matches.length === 0 && aiOutput.topMatches.length > 0) {
-      console.warn('[Matching] AI returned empty generated matches; falling back to legacy ranking');
-      return getTopMatchedCareers(calculateCareerMatches(allCareers, userSkills, undefined, cvAnalysis), 5);
-    }
-
-    if (quizSessionId) {
-      console.log('[Matching] Generated AI careers from Nova + Quiz + CV context', {
-        quizSessionId,
+    if (cvAnalysis?.id && quizSessionId && matches.length > 0) {
+      await saveCareerMatchResults(
         userId,
-        generatedCount: matches.length,
-      });
+        cvAnalysis.id,
+        quizSessionId,
+        matches.map((match, index) => ({
+          careerId: match.career.id,
+          matchScore: match.score,
+          matchReasons: match.matchReasons,
+          aiInsights: match.aiInsights ?? {},
+          ranking: index + 1,
+        }))
+      );
+      console.log('[Matching] Cached AI career matches in database');
     }
 
     return matches;
   } catch (error) {
-    console.error("[AI_ONLY] Career matching failed:", error);
-    throw error; // IMPORTANT: do NOT fallback anymore
+    console.error("[Matching] AI-powered matching failed, falling back to legacy:", error);
+    // Fallback to legacy matching if AI fails
+    return calculateCareerMatches(allCareers, userSkills);
   }
 }
 
