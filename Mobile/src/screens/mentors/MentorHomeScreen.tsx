@@ -1,10 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../auth/AuthProvider';
 import { homeColors } from '../homeTheme';
+import { AppLogo } from '../../ui/AppLogo';
 
 export function MentorHomeScreen() {
     const { state } = useAuth();
@@ -34,7 +35,7 @@ export function MentorHomeScreen() {
             >
                 <View style={styles.hero}>
                     <View style={styles.logoBox}>
-                        <FontAwesome5 name="chalkboard-teacher" size={26} color="#fff" />
+                        <AppLogo size={46} />
                     </View>
                     <Text style={styles.heroTitle}>
                         Welcome back,{"\n"}
@@ -107,9 +108,9 @@ const styles = StyleSheet.create({
         marginBottom: 36,
     },
     logoBox: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
+        width: 72,
+        height: 72,
+        borderRadius: 20,
         backgroundColor: homeColors.primary,
         alignItems: "center",
         justifyContent: "center",
@@ -119,6 +120,8 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 8,
         elevation: 5,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.35)',
     },
     heroTitle: {
         fontSize: 26,

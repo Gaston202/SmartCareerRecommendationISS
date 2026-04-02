@@ -1,8 +1,25 @@
-import axios from "axios";
+// API base URL - MUST be explicitly set in environment
+// Development: NEXT_PUBLIC_API_URL=http://localhost:8000/api
+// Production: NEXT_PUBLIC_API_URL=https://your-backend.com/api
 
-// Create axios instance with default config
+import axios from 'axios';
+
+const API_BASE_URL = (() => {
+  const url = process.env.NEXT_PUBLIC_API_URL?.trim();
+  
+  if (!url) {
+    throw new Error(
+      'NEXT_PUBLIC_API_URL environment variable not set.\n' +
+      'Please configure: NEXT_PUBLIC_API_URL=http://localhost:8000/api (development) or your production backend URL'
+    );
+  }
+  
+  return url;
+})();
+
+// Create axios instance with validated config
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api",
+  baseURL: API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
   },

@@ -14,3 +14,12 @@ export interface SavedRoadmap {
   steps: RoadmapStep[];
 }
 
+export interface SavedAiCareer {
+  id: string;
+  careerTitle: string;
+  careerDescription: string;
+  matchPercent?: number;
+  tags?: string[];
+  createdAt: string;
+}
+

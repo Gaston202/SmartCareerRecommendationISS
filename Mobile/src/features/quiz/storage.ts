@@ -19,6 +19,13 @@ const QUIZ_RESULTS_KEY = 'quiz_results_latest';
 const QUIZ_SESSION_KEY = 'quiz_session_latest';
 const QUIZ_QUESTIONS_KEY = 'quiz_questions_latest';
 
+function normalizeQuizSession(raw: QuizSession): QuizSession {
+  return {
+    ...raw,
+    completedAt: raw.completedAt ?? new Date().toISOString(),
+  };
+}
+
 export async function saveQuizResults(results: QuizResults): Promise<void> {
   try {
     await AsyncStorage.setItem(QUIZ_RESULTS_KEY, JSON.stringify(results));
@@ -140,7 +147,7 @@ export async function getQuizSession(): Promise<QuizSession | null> {
     const stored = await AsyncStorage.getItem(QUIZ_SESSION_KEY);
     if (stored) {
       const parsed = JSON.parse(stored) as QuizSession;
-      return parsed;
+      return normalizeQuizSession(parsed);
     }
 
     const questionsWithAnswers = await getQuizQuestionsWithAnswers();
@@ -153,6 +160,7 @@ export async function getQuizSession(): Promise<QuizSession | null> {
     const rebuiltSession: QuizSession = {
       questionsWithAnswers,
       results,
+      completedAt: new Date().toISOString(),
     };
 
     await AsyncStorage.setItem(QUIZ_SESSION_KEY, JSON.stringify(rebuiltSession));

@@ -16,9 +16,15 @@ import type { CareerWithSkills } from "../features/careers";
 import { useCvAnalysis } from "../features/cv/hooks";
 import { getQuizQuestionsWithAnswers } from "../features/quiz/storage";
 import { homeColors } from "./homeTheme";
-import { getSavedRoadmaps } from "../features/roadmaps/storage";
-import type { SavedRoadmap } from "../features/roadmaps/types";
+import {
+  getSavedAiCareers,
+  getSavedRoadmaps,
+  removeSavedAiCareer,
+  saveAiCareer,
+} from "../features/roadmaps/storage";
+import type { SavedAiCareer, SavedRoadmap } from "../features/roadmaps/types";
 import { useAuth } from "../auth/AuthProvider";
+import { AppBrand } from "../ui/AppBrand";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Technology: homeColors.primary,
@@ -50,6 +56,7 @@ export default function RoadmapsScreen(): React.ReactElement {
   const [hasQuizData, setHasQuizData] = useState(false);
   const [checkingRequirements, setCheckingRequirements] = useState(true);
   const [savedRoadmaps, setSavedRoadmaps] = useState<SavedRoadmap[]>([]);
+  const [savedAiCareers, setSavedAiCareers] = useState<SavedAiCareer[]>([]);
   const { state } = useAuth();
 
   // Check if all requirements are met
@@ -64,10 +71,17 @@ export default function RoadmapsScreen(): React.ReactElement {
       (async () => {
         if (!state.user?.id) return;
         const roadmaps = await getSavedRoadmaps(state.user.id);
+        const aiCareers = await getSavedAiCareers(state.user.id);
         if (!isActive) return;
         // Newest first
         setSavedRoadmaps(
           [...roadmaps].sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          ),
+        );
+        setSavedAiCareers(
+          [...aiCareers].sort(
             (a, b) =>
               new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
           ),
@@ -91,6 +105,42 @@ export default function RoadmapsScreen(): React.ReactElement {
 
   const toggleCareer = (careerId: string) => {
     setExpandedCareer(expandedCareer === careerId ? null : careerId);
+  };
+
+  const handleToggleSaveAiCareer = async (match: any) => {
+    if (!state.user?.id) return;
+
+    const title = String(match?.career?.title || "").trim();
+    if (!title) return;
+
+    const existing = savedAiCareers.find(
+      (item) => item.careerTitle.toLocaleLowerCase() === title.toLocaleLowerCase(),
+    );
+
+    if (existing) {
+      await removeSavedAiCareer(state.user.id, title);
+      setSavedAiCareers((prev) =>
+        prev.filter(
+          (item) =>
+            item.careerTitle.toLocaleLowerCase() !== title.toLocaleLowerCase(),
+        ),
+      );
+      return;
+    }
+
+    const saved: SavedAiCareer = {
+      id: `${title}-${Date.now()}`,
+      careerTitle: title,
+      careerDescription: String(match?.career?.description || ""),
+      matchPercent: typeof match?.score === "number" ? match.score : undefined,
+      tags: Array.isArray(match?.career?.tags)
+        ? match.career.tags.filter(Boolean)
+        : undefined,
+      createdAt: new Date().toISOString(),
+    };
+
+    await saveAiCareer(state.user.id, saved);
+    setSavedAiCareers((prev) => [saved, ...prev]);
   };
 
   if (isLoading || matchedLoading) {
@@ -134,6 +184,9 @@ export default function RoadmapsScreen(): React.ReactElement {
       >
         {/* Header */}
         <View style={styles.header}>
+          <View style={styles.headerLogoRow}>
+            <AppBrand width={120} height={26} />
+          </View>
           <Text style={styles.title}>Career Roadmaps</Text>
           <Text style={styles.subtitle}>
             Explore {careers.length} career paths with required skills
@@ -253,6 +306,53 @@ export default function RoadmapsScreen(): React.ReactElement {
           </View>
         )}
 
+        {/* Saved AI careers */}
+        {savedAiCareers.length > 0 && (
+          <View style={styles.savedSection}>
+            <View style={styles.savedHeader}>
+              <Ionicons name="bookmark-outline" size={20} color={homeColors.primary} />
+              <Text style={styles.savedTitle}>Saved AI careers</Text>
+            </View>
+            <Text style={styles.savedSubtitle}>
+              Careers you bookmarked from your AI-matched results.
+            </Text>
+            <View style={styles.savedList}>
+              {savedAiCareers.map((career) => (
+                <View key={career.id} style={styles.savedCard}>
+                  <View style={styles.savedCardHeader}>
+                    <Text style={styles.savedCardTitle}>{career.careerTitle}</Text>
+                    {typeof career.matchPercent === "number" && (
+                      <View style={styles.savedMatchPillOrange}>
+                        <Text style={styles.savedMatchText}>{career.matchPercent}% match</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.savedCardDesc} numberOfLines={2}>
+                    {career.careerDescription}
+                  </Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.savedViewBtn, pressed && styles.pressed]}
+                    onPress={() =>
+                      navigation.navigate("Home", {
+                        screen: "CareerRoadmap",
+                        params: {
+                          careerTitle: career.careerTitle,
+                          careerDescription: career.careerDescription,
+                          matchPercent: career.matchPercent,
+                          tags: career.tags,
+                        },
+                      })
+                    }
+                  >
+                    <Ionicons name="map" size={16} color="#fff" />
+                    <Text style={styles.savedViewBtnText}>Generate roadmap</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* Matched Careers Section */}
         {allRequirementsMet && matchedCareers && matchedCareers.length > 0 && (
           <View style={styles.matchedSection}>
@@ -278,6 +378,14 @@ export default function RoadmapsScreen(): React.ReactElement {
                     isExpanded={expandedCareer === match.career.id}
                     onToggle={() => toggleCareer(match.career.id)}
                     savedRoadmap={savedForCareer}
+                    isCareerSaved={
+                      !!savedAiCareers.find(
+                        (item) =>
+                          item.careerTitle.toLocaleLowerCase() ===
+                          String(match.career.title).toLocaleLowerCase(),
+                      )
+                    }
+                    onToggleSaveCareer={() => handleToggleSaveAiCareer(match)}
                     onGenerateOrViewRoadmap={() => {
                       if (savedForCareer) {
                         navigation.navigate("Home", {
@@ -318,6 +426,8 @@ interface MatchedCareerCardProps {
   isExpanded: boolean;
   onToggle: () => void;
   savedRoadmap?: SavedRoadmap | null;
+  isCareerSaved: boolean;
+  onToggleSaveCareer: () => void;
   onGenerateOrViewRoadmap: () => void;
 }
 
@@ -326,6 +436,8 @@ function MatchedCareerCard({
   isExpanded,
   onToggle,
   savedRoadmap,
+  isCareerSaved,
+  onToggleSaveCareer,
   onGenerateOrViewRoadmap,
 }: MatchedCareerCardProps) {
   const career = match.career;
@@ -374,6 +486,20 @@ function MatchedCareerCard({
         <Ionicons name="map" size={16} color="#fff" />
         <Text style={styles.matchedRoadmapBtnText}>
           {savedRoadmap ? "View roadmap" : "Generate roadmap"}
+        </Text>
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.matchedSaveBtn, pressed && styles.pressed]}
+        onPress={onToggleSaveCareer}
+      >
+        <Ionicons
+          name={isCareerSaved ? "bookmark" : "bookmark-outline"}
+          size={16}
+          color={homeColors.primary}
+        />
+        <Text style={styles.matchedSaveBtnText}>
+          {isCareerSaved ? "Saved" : "Save career"}
         </Text>
       </Pressable>
     </View>
@@ -581,6 +707,11 @@ const styles = StyleSheet.create({
   // Header
   header: {
     marginBottom: 24,
+  },
+  headerLogoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
   },
   title: {
     fontSize: 28,
@@ -845,6 +976,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#fff",
+  },
+  matchedSaveBtn: {
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: homeColors.primary + "50",
+    backgroundColor: "#fff",
+  },
+  matchedSaveBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: homeColors.primary,
   },
 
   // Requirements Check Card

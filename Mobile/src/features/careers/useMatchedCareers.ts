@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import { useCareersWithSkills } from './hooks';
 import { useUserSkills } from '../cv/hooks';
 import { useCvAnalysis } from '../cv/hooks';
-import { getLatestQuizSessionId, getQuizQuestionsWithAnswers } from '../quiz/storage';
+import { getLatestQuizSessionId, getQuizQuestionsWithAnswers, getQuizSession } from '../quiz/storage';
 import { 
   calculateCareerMatches, 
   getTopMatchedCareers,
@@ -38,12 +38,11 @@ export function useMatchedCareers() {
       quizSessionId,
     ],
     queryFn: async (): Promise<(CareerMatch | AiPoweredCareerMatch)[]> => {
-      if (!allCareers || allCareers.length === 0) {
-        return [];
-      }
+      const careersPool = allCareers || [];
 
       // Get quiz questions with answers from storage (full data)
       const quizQuestionsWithAnswers = await getQuizQuestionsWithAnswers();
+      const quizSession = await getQuizSession();
 
       // REQUIREMENT CHECK: User must have taken the quiz AND completed CV analysis
       if (!quizQuestionsWithAnswers || quizQuestionsWithAnswers.length === 0) {
@@ -59,9 +58,16 @@ export function useMatchedCareers() {
       console.log('[useMatchedCareers] ✅ All requirements met: Quiz + CV Analysis + Skills ready');
 
       // Gather user skills: combine confirmed skills + extracted CV skills for comprehensive profile
-      const confirmedUserSkills = (userSkills || []).map((s) => s.name);
-      const extractedCvSkills = (cvAnalysis?.extracted_skills || []) as string[];
-      const allUserSkills = Array.from(new Set([...confirmedUserSkills, ...extractedCvSkills])); // Deduplicate
+      const confirmedUserSkills = (userSkills || [])
+        .filter(s => s && s.name && typeof s.name === 'string')
+        .map((s) => s.name);
+      const extractedCvSkills = Array.isArray(cvAnalysis?.extracted_skills)
+        ? (cvAnalysis.extracted_skills as string[]).filter(s => typeof s === 'string')
+        : [];
+      // Deduplicate using array key pattern (not Set) to avoid issues with non-primitive types
+      const allUserSkills = Array.from(new Map(
+        [...confirmedUserSkills, ...extractedCvSkills].map(skill => [skill, skill])
+      ).values());
 
       // Get current user ID
       const { data: { user } } = await supabase.auth.getUser();
@@ -72,9 +78,10 @@ export function useMatchedCareers() {
         console.log('[useMatchedCareers] Using AI-powered matching with comprehensive data');
         const aiMatches = await calculateAiPoweredCareerMatches(
           userId,
-          allCareers,
+          careersPool,
           quizQuestionsWithAnswers,
           allUserSkills,
+          quizSession?.results,
           cvAnalysis,
           quizSessionId
         );
@@ -89,7 +96,7 @@ export function useMatchedCareers() {
       // Legacy matching as fallback
       console.log('[useMatchedCareers] Using legacy career matching');
       const matches = calculateCareerMatches(
-        allCareers,
+        careersPool,
         allUserSkills,
         undefined,
         cvAnalysis
@@ -99,5 +106,9 @@ export function useMatchedCareers() {
       return getTopMatchedCareers(matches, 5);
     },
     enabled: !careersLoading && !skillsLoading && !cvLoading,
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
