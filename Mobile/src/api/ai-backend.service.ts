@@ -31,6 +31,14 @@ function createError(code: string, message: string, statusCode?: number): AIBack
   return error;
 }
 
+function isTransientNetworkError(error: unknown): boolean {
+  return error instanceof Error && /network request failed/i.test(error.message);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Quiz session state - minimal tracking
 let currentSessionId: string | null = null;
 let currentUserId: string | null = null;
@@ -313,27 +321,43 @@ export async function generateCareerMatches(input: AiCareerMatchingInput): Promi
   });
 
   try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: BackendConfig.getHeaders(),
-      body: JSON.stringify({
-        user_id: input.userId,
-        user_profile: {
-          user_id: input.userId,
-          name: "App User",
-          email: "user@app.com",
-          current_skills: input.userSkills,
-          experience_level: "entry",
-        },
-        cv_text: input.cvAnalysis
-          ? JSON.stringify(input.cvAnalysis)
-          : undefined,
-        preferences: {
-          available_careers: input.availableCareers,
-          quiz_questions: input.quizQuestions,
-        },
-      }),
-    });
+    let response: Response | null = null;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: BackendConfig.getHeaders(),
+          body: JSON.stringify({
+            user_id: input.userId,
+            user_profile: {
+              user_id: input.userId,
+              name: "App User",
+              email: "user@app.com",
+              current_skills: input.userSkills,
+              experience_level: "entry",
+            },
+            cv_text: input.cvAnalysis
+              ? JSON.stringify(input.cvAnalysis)
+              : undefined,
+            preferences: {
+              available_careers: input.availableCareers,
+              quiz_questions: input.quizQuestions,
+            },
+          }),
+        });
+        break;
+      } catch (error) {
+        if (!isTransientNetworkError(error) || attempt === 2) {
+          throw error;
+        }
+        await sleep(400 * (attempt + 1));
+      }
+    }
+
+    if (!response) {
+      throw new Error('Career matching request did not complete');
+    }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -408,22 +432,38 @@ export async function generateCareerRoadmap(
       throw new Error('User not authenticated - cannot generate roadmap');
     }
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: BackendConfig.getHeaders(),
-      body: JSON.stringify({
-        user_id: userId,
-        user_profile: {
-          user_id: userId,
-          name: 'App User',
-          email: 'user@app.example.com',
-          current_skills: [],
-          experience_level: 'entry',
-        },
-        target_career: careerTitle,
-        timeframe_months: 12,
-      }),
-    });
+    let response: Response | null = null;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: BackendConfig.getHeaders(),
+          body: JSON.stringify({
+            user_id: userId,
+            user_profile: {
+              user_id: userId,
+              name: 'App User',
+              email: 'user@app.example.com',
+              current_skills: [],
+              experience_level: 'entry',
+            },
+            target_career: careerTitle,
+            timeframe_months: 12,
+          }),
+        });
+        break;
+      } catch (error) {
+        if (!isTransientNetworkError(error) || attempt === 2) {
+          throw error;
+        }
+        await sleep(400 * (attempt + 1));
+      }
+    }
+
+    if (!response) {
+      throw new Error('Roadmap request did not complete');
+    }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

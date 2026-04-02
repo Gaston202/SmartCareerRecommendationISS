@@ -106,5 +106,9 @@ export function useMatchedCareers() {
       return getTopMatchedCareers(matches, 5);
     },
     enabled: !careersLoading && !skillsLoading && !cvLoading,
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }

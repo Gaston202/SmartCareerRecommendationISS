@@ -80,11 +80,15 @@ class LLMService:
     def __init__(self):
         """Initialize LLM service with OpenRouter client and error handling."""
         self.logger = get_logger(__name__)
-        self.use_mock = not config.OPENROUTER_API_KEY
+        
+        # IMMUTABLE: use_mock mode is determined ONLY on startup
+        # Never mutate at runtime to prevent permanent silent failures from temporary errors
+        self._use_mock = not config.OPENROUTER_API_KEY
+        self._initialization_error = None
         self.client = None
         
         # Try to initialize OpenAI client with OpenRouter endpoint
-        if not self.use_mock:
+        if not self._use_mock:
             try:
                 import openai
                 self.client = openai.OpenAI(
@@ -95,23 +99,37 @@ class LLMService:
                 self.logger.info(
                     f"✓ [REAL_LLM] OpenRouter client initialized with {config.TIMEOUT_SECONDS}s timeout"
                 )
-            except ImportError:
+            except ImportError as e:
                 self.logger.warning(
                     "[FALLBACK_MOCK] OpenAI library not installed, "
                     "will use mock implementations"
                 )
-                self.use_mock = True
+                self._use_mock = True
+                self._initialization_error = str(e)
             except Exception as e:
                 self.logger.error(
                     f"[FALLBACK_MOCK] Failed to initialize OpenRouter client: {e}, "
                     "will use mock implementations"
                 )
-                self.use_mock = True
+                self._use_mock = True
+                self._initialization_error = str(e)
         else:
             self.logger.warning(
                 "[FALLBACK_MOCK] OPENROUTER_API_KEY not configured, "
                 "using mock LLM implementations for testing/development"
             )
+    
+    @property
+    def use_mock(self) -> bool:
+        """
+        Read-only property: use_mock mode (immutable after initialization).
+        
+        This prevents runtime mutations that would cause permanent silent failures.
+        Once set during __init__, the mode never changes during a process lifetime.
+        
+        To switch modes: restart the process with updated OPENROUTER_API_KEY.
+        """
+        return self._use_mock
     
     # ========================================================================
     # Public API Methods

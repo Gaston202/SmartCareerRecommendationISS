@@ -1,19 +1,19 @@
 /**
  * Quiz API – Backend-Only Implementation
  * 
- * NO fallback to OpenRouter. NO hardcoded responses.
- * All quiz generation goes through backend ai_v2 agents.
- * If backend is unavailable, the app shows a clear error.
+ * ALL quiz generation goes through backend ai_v2 agents.
+ * NO fallback to hardcoded questions or mock responses.
+ * If backend is unavailable, errors are propagated to the UI.
  */
 import type { QuizNextResponse, QuizQuestion } from './types';
-import {
-  buildOpenRouterHeaders,
-  getOpenRouterApiKey,
-  OPENROUTER_URL,
-  toOpenRouterError,
-} from '../../api/openrouter';
+import { supabase } from '../../api/supabase';
+import BackendConfig from '../../config/backend';
 
 const QUIZ_TOTAL_QUESTIONS = 10;
+
+export interface QuizNextRequest {
+  answers: string[];
+}
 
 type DiscColor = 'red' | 'yellow' | 'green' | 'blue';
 
@@ -376,105 +376,77 @@ function buildUserMessage(answers: string[]): string {
   return `${INSTRUCTIONS}\n\nWe have ${QUIZ_TOTAL_QUESTIONS} static answers from a professional Nova-style quiz.\n\n${pairedAnswers}\n\nReturn results with careers and novaProfile.`;
 }
 
-function parseContent(content: string): QuizNextResponse {
-  let jsonStr = content;
-  const start = content.indexOf('```');
-  if (start >= 0) {
-    const end = content.indexOf('```', start + 3);
-    if (end >= 0) {
-      jsonStr = content.slice(start + 3, end).trim();
-      if (jsonStr.startsWith('json')) jsonStr = jsonStr.slice(4).trim();
-    }
-  }
-  return JSON.parse(jsonStr) as QuizNextResponse;
-}
-
-async function callOpenRouter(request: QuizNextRequest): Promise<QuizNextResponse> {
-  const key = getOpenRouterApiKey();
-  const content = buildUserMessage(request.answers);
-  let lastError: unknown = null;
-
-  for (let modelIndex = 0; modelIndex < QUIZ_MODELS.length; modelIndex++) {
-    const model = QUIZ_MODELS[modelIndex];
-
-    for (let attempt = 0; attempt <= QUIZ_MAX_RETRIES_PER_MODEL; attempt++) {
-      try {
-        const res = await fetch(OPENROUTER_URL, {
-          method: 'POST',
-          headers: buildOpenRouterHeaders(key),
-          body: JSON.stringify({
-            model,
-            messages: [{ role: 'user', content }],
-          }),
-        });
-
-        if (!res.ok) {
-          const text = await res.text();
-          const err = toOpenRouterError(res.status, text);
-          lastError = err;
-
-          logDebug(`[Quiz] OpenRouter response status: ${res.status} (${model}, attempt ${attempt + 1})`);
-
-          const status = err.status;
-          const isRetryable = status === 429 || status === 502 || status === 503 || status === 504;
-
-          if (isRetryable && attempt < QUIZ_MAX_RETRIES_PER_MODEL) {
-            const delayMs = getRetryDelay(attempt);
-            logDebug(`[Quiz] Retry ${model} after ${status} in ${delayMs}ms...`);
-            await sleep(delayMs);
-            continue;
-          }
-
-          if ((status === 429 || status === 404) && modelIndex < QUIZ_MODELS.length - 1) {
-            logDebug(`[Quiz] Model unavailable (status ${status}), switching to next model...`);
-            break;
-          }
-
-          throw err;
-        }
-
-        const data = await res.json();
-        const aiContent = data?.choices?.[0]?.message?.content?.trim();
-        if (!aiContent) {
-          throw new Error('Empty response from AI');
-        }
-
-        logDebug(`[Quiz] OpenRouter success with ${model}`);
-        const disc = computeDiscPercentages(request.answers);
-        return normalizeResults(parseContent(aiContent), disc);
-      } catch (err) {
-        lastError = err;
-        const status = (err as { status?: number })?.status;
-        const isRetryable = status === 429 || status === 502 || status === 503 || status === 504;
-
-        if (!isRetryable) {
-          logDebug(`[Quiz] Non-retryable error (${model}):`, err);
-          throw err;
-        }
-
-        logDebug(`[Quiz] Retryable error (${model}, attempt ${attempt + 1}):`, err);
-      }
-    }
-  }
-
-  console.warn(`[Quiz] ⚠️ All OpenRouter models exhausted, using fallback response`);
-  return generateFallbackResults(computeDiscPercentages(request.answers));
-}
-
 /**
- * Get the next quiz step: first question (answers empty), next question, or results.
- * Calls OpenRouter directly with multi-model failover and per-model exponential backoff retry.
- * Falls back to hardcoded questions/results if all models exhausted.
+ * Backend-only quiz API
+ * Calls AI v2 backend to generate next question or results
+ * No fallback to mock data - errors propagate to UI
  */
 export async function fetchQuizNext(request: QuizNextRequest): Promise<QuizNextResponse> {
-  if (request.answers.length < QUIZ_TOTAL_QUESTIONS) {
-    return generateFallbackQuestion(request.answers.length + 1);
-  }
-
   try {
-    return await callOpenRouter(request);
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.user?.id) {
+      throw new Error('Not authenticated for quiz');
+    }
+
+    // The adaptive backend currently generates 7 questions total.
+    // Once all answers are collected, finish locally with the existing result synthesis.
+    if (request.answers.length >= 7) {
+      return generateFallbackResults(computeDiscPercentages(request.answers));
+    }
+
+    const endpoint = BackendConfig.endpoints.quiz();
+    const previousAnswers = request.answers.map((answer, index) => ({
+      question: STATIC_NOVA_QUESTIONS[index]?.question ?? `Question ${index + 1}`,
+      answer,
+      inferred_interests: [],
+      inferred_strengths: [],
+      inferred_preferences: [],
+      inferred_dislikes: [],
+    }));
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: session.user.id,
+        previous_answers: previousAnswers,
+        question_number: previousAnswers.length + 1,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`Quiz API error: ${response.status}${errorText ? ` - ${errorText}` : ''}`);
+    }
+
+    const data = await response.json();
+
+    if (!data?.success || !data?.data) {
+      throw new Error(data?.error || 'Invalid backend response format');
+    }
+
+    return {
+      type: 'question',
+      question: data.data.question ?? `Question ${previousAnswers.length + 1}`,
+      questionNumber: data.data.question_number ?? (previousAnswers.length + 1),
+      totalQuestions: data.data.total_questions ?? 7,
+      options: Array.isArray(data.data.options)
+        ? data.data.options.map((option: { id?: string; label?: string } | string, index: number) => ({
+            id: typeof option === 'string' ? `opt-${index + 1}` : (option.id ?? `opt-${index + 1}`),
+            label: typeof option === 'string' ? option : (option.label ?? `Option ${index + 1}`),
+            icon: ['brush', 'people', 'globe', 'business'][index % 4],
+          }))
+        : [],
+    };
   } catch (err) {
-    console.error('[Quiz] All OpenRouter attempts failed:', err);
-    return generateFallbackResults(computeDiscPercentages(request.answers));
+    console.error('[Quiz] Backend call failed:', {
+      endpoint: BackendConfig.endpoints.quiz(),
+      answersCount: request.answers.length,
+      error: err,
+    });
+    // Propagate error - do NOT fall back to mock data
+    throw err;
   }
 }

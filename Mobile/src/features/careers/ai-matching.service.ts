@@ -425,7 +425,7 @@ export async function generateAiCareerMatches(
       availableCareers: input.availableCareers?.length || 0,
     });
 
-    const result = await callOpenRouter(input);
+    const result = await generateCareerMatchesBackend(input);
 
     logDebug(
       `[AI-Matching] Generated ${result.topMatches.length} career matches`

@@ -1,18 +1,12 @@
 /**
  * CV Analysis Service
- * Analyzes CV using OpenRouter API and saves results to Supabase
- * Client-side analysis - no Edge Function required
+ * Analyzes CV using backend AI pipeline (ai_v2 agents)
+ * No client-side OpenRouter calls - all processing goes through backend
  */
 
 import { supabase } from "../../api/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import pako from "pako";
-import {
-  buildOpenRouterHeaders,
-  getOpenRouterApiKey,
-  OPENROUTER_URL,
-  toOpenRouterError,
-} from "../../api/openrouter";
 import type { CvAnalysis } from "./types";
 
 // Types for OpenRouter response
@@ -37,12 +31,6 @@ interface OpenRouterAnalysis {
   extracted_interests: string[];
 }
 
-const OPENROUTER_MAX_RETRIES_PER_MODEL = 2;
-const OPENROUTER_BASE_RETRY_DELAY_MS = 1500;
-const CV_OPENROUTER_MODELS = [
-  "arcee-ai/trinity-large-preview:free",
-  "stepfun/step-3.5-flash:free",
-];
 const EXTRACTED_FIELDS_CACHE_KEY_PREFIX = "cv_analysis_extracted_fields:";
 
 type CachedExtractedFields = {
@@ -58,16 +46,6 @@ function logDebug(message: string, ...args: unknown[]) {
   if (__DEV__) {
     console.log(message, ...args);
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function getRetryDelay(attempt: number): number {
-  const exponential = OPENROUTER_BASE_RETRY_DELAY_MS * Math.pow(2, attempt);
-  const jitter = Math.floor(Math.random() * 250);
-  return exponential + jitter;
 }
 
 function extractMessageContent(data: any): string {
@@ -560,6 +538,7 @@ function generateFallbackAnalysis(cvText: string): OpenRouterAnalysis {
 /**
  * Analyze CV using Backend AI Service (ai_v2 pipeline)
  * Replaces direct OpenRouter calls with multi-agent analysis
+ * Only method for CV analysis - no client-side fallbacks
  */
 async function analyzeCvWithBackend(
   pdfBase64: string,
@@ -598,13 +577,34 @@ async function analyzeCvWithBackend(
     throw new Error("Invalid backend response format");
   }
 
+  const normalizedData: OpenRouterAnalysis = {
+    ...json.data,
+    extracted_skills: normalizeStringArray(
+      json.data.extracted_skills ??
+      json.data.extracted_evidence?.skills
+    ),
+    extracted_interests: normalizeStringArray(
+      json.data.extracted_interests ??
+      json.data.profile_updates?.interests
+    ),
+    career_suggestions: Array.isArray(json.data.career_suggestions)
+      ? json.data.career_suggestions
+      : [],
+    ats_issues: Array.isArray(json.data.ats_issues)
+      ? json.data.ats_issues
+      : [],
+    ats_suggestions: Array.isArray(json.data.ats_suggestions)
+      ? json.data.ats_suggestions
+      : [],
+  };
+  
   BackendConfig.logSuccess('CVAnalysis', {
-    ats_score: json.data.ats_score,
-    skills: json.data.extracted_skills?.length || 0,
-    careers: json.data.career_suggestions?.length || 0,
+    ats_score: normalizedData.ats_score,
+    skills: normalizedData.extracted_skills?.length || 0,
+    careers: normalizedData.career_suggestions?.length || 0,
   });
 
-  return json.data;
+  return normalizedData;
 }
 
 /**
@@ -615,37 +615,27 @@ async function analyzeWithOpenRouter(
   pdfBase64: string,
   fileName: string
 ): Promise<OpenRouterAnalysis> {
-  logDebug(`[cv-analysis] Starting CV analysis with backend (receiving base64 PDF)...`);
+  logDebug(`[cv-analysis] Starting CV analysis via backend...`);
 
   try {
     // Get current user for backend call
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !session) {
-      console.warn("[cv-analysis] No session for backend call, falling back to mock");
-      return generateFallbackAnalysis("PDF file received");
+      throw new Error('Not authenticated - cannot analyze CV');
     }
 
     const userId = session.user?.id;
     if (!userId) {
-      console.warn("[cv-analysis] No user ID, using fallback");
-      return generateFallbackAnalysis("PDF file received");
+      throw new Error('No user ID available for analysis');
     }
 
-    // Try backend first (ai_v2 pipeline with Claude document vision)
     logDebug(`[cv-analysis] Attempting backend analysis for user: ${userId}`);
-    
-    try {
-      return await analyzeCvWithBackend(pdfBase64, userId, undefined, fileName);
-    } catch (backendErr) {
-      console.error(`[cv-analysis] ❌ Backend analysis failed, falling back:`, backendErr);
-      logDebug(`[cv-analysis] Falling back to mock analysis due to backend error`);
-      return generateFallbackAnalysis("PDF file received");
-    }
+    return await analyzeCvWithBackend(pdfBase64, userId, undefined, fileName);
     
   } catch (err) {
-    console.error(`[cv-analysis] ❌ Analysis pipeline failed:`, err);
-    logDebug(`[cv-analysis] Using fallback analysis`);
-    return generateFallbackAnalysis("PDF file received");
+    console.error(`[cv-analysis] ❌ Analysis failed:`, err);
+    // Propagate error - do NOT fall back to mock data
+    throw err;
   }
 }
 

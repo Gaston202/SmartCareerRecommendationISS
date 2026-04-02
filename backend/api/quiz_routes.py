@@ -420,6 +420,9 @@ def create_cv_routes(app: FastAPI) -> None:
             if response.success and response.data:
                 # ✅ Skills are nested under extracted_evidence - CORRECT MAPPING
                 skills = response.data.get('extracted_evidence', {}).get('skills', [])
+                projects = response.data.get('extracted_evidence', {}).get('projects', [])
+                profile_updates = response.data.get('profile_updates', {}) or {}
+                interests = profile_updates.get('interests', [])
                 strengths = response.data.get('strengths', [])
                 improvements = response.data.get('improvements', [])
                 summary = response.data.get('summary', '')
@@ -441,6 +444,25 @@ def create_cv_routes(app: FastAPI) -> None:
                     response.data["ats_score"] = 70  # Default ATS score (no real parser)
                     response.data["careers"] = 0  # Will be filled by career matching endpoint
                     response.data["skills"] = len(skills)  # Number of extracted skills
+                    response.data["extracted_skills"] = skills
+                    response.data["extracted_interests"] = interests
+                    response.data["career_suggestions"] = []
+                    response.data["ats_issues"] = [
+                        {
+                            "type": "info",
+                            "severity": "info",
+                            "description": summary,
+                        }
+                    ] if summary else []
+                    response.data["ats_suggestions"] = [
+                        {
+                            "section": "projects" if projects else "cv",
+                            "suggestion": imp.get("issue", ""),
+                            "example": imp.get("improved_example"),
+                        }
+                        for imp in improvements
+                        if isinstance(imp, dict) and imp.get("issue")
+                    ]
             else:
                 logger.warning(f"⚠️  [CV] Analysis returned success=False")
                 logger.debug(f"   Error: {response.error}")
