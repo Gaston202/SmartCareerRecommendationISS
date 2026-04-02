@@ -25,11 +25,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!baseUser) return null;
       let role: 'user' | 'mentor' = 'user';
       let mentorSpecialty: string | undefined = undefined;
-      let name: string | null = null;
 
       try {
-        const { data: userData } = await supabase.from('users').select('role, name').eq('id', baseUser.id).maybeSingle();
-        name = userData?.name ?? null;
+        const { data: userData } = await supabase.from('users').select('role').eq('id', baseUser.id).maybeSingle();
         if (userData?.role === 'mentor') {
           role = 'mentor';
           const { data: mentorData } = await supabase.from('mentors').select('role').eq('user_id', baseUser.id).maybeSingle();
@@ -44,7 +42,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return {
         id: baseUser.id,
         email: baseUser.email ?? null,
-        name,
         role,
         mentorSpecialty,
       };
