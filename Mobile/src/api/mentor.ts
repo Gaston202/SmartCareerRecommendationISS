@@ -232,6 +232,43 @@ export const pinMessage = async (messageId: string, isPinned: boolean): Promise<
   }
 };
 
+// Check if user is a member of a group chat
+export const checkGroupChatMembership = async (
+  chatId: string,
+  userId: string
+): Promise<boolean> => {
+  try {
+    const { data, error } = await supabase
+      .from('group_chat_members')
+      .select('id')
+      .eq('group_chat_id', chatId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return !!data;
+  } catch (error) {
+    console.error('Error checking membership:', error);
+    return false;
+  }
+};
+
+// Fetch all group chat IDs the user has joined
+export const fetchJoinedGroupChatIds = async (userId: string): Promise<string[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('group_chat_members')
+      .select('group_chat_id')
+      .eq('user_id', userId);
+
+    if (error) throw error;
+    return (data || []).map((row: any) => row.group_chat_id);
+  } catch (error) {
+    console.error('Error fetching joined chats:', error);
+    return [];
+  }
+};
+
 // Join group chat
 export const joinGroupChat = async (
   chatId: string,
