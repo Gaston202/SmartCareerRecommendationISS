@@ -63,6 +63,15 @@ export interface MentorReview {
   created_at?: string;
 }
 
+export interface MentorAvailabilityRule {
+  id: string;
+  mentor_id: string;
+  day_of_week: number; // 0=Sun, 1=Mon, ... 6=Sat
+  start_time: string; // "09:00:00"
+  end_time: string; // "17:00:00"
+  created_at?: string;
+}
+
 export interface MentorSession {
   id: string;
   mentor_id: string;
@@ -71,7 +80,8 @@ export interface MentorSession {
   description?: string;
   scheduled_at?: string;
   duration_minutes?: number;
-  status: 'scheduled' | 'completed' | 'cancelled';
+  status: 'pending' | 'scheduled' | 'completed' | 'cancelled' | 'no-show';
+  confirmation_status: 'pending' | 'confirmed' | 'rejected';
   meeting_link?: string;
   notes?: string;
   created_at?: string;

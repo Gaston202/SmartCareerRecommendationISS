@@ -43,16 +43,11 @@ export function MentorDetailScreen() {
   const profileData = isMentor ? mentor : userProfile;
 
   const { reviews, submitReview } = useMentorReviews(mentor?.id || '');
-  const { scheduleSession } = useMentorSessions(user?.id || '');
 
   const [showReviewModal, setShowReviewModal] = useState(false);
-  const [showSessionModal, setShowSessionModal] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
-  const [sessionTitle, setSessionTitle] = useState('');
-  const [sessionDescription, setSessionDescription] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [schedulingSession, setSchedulingSession] = useState(false);
 
   if (isLoading) {
     return (
@@ -148,38 +143,6 @@ export function MentorDetailScreen() {
     }
   };
 
-  const handleScheduleSession = async () => {
-    if (!user) {
-      Alert.alert('Error', 'You must be logged in to schedule a session');
-      return;
-    }
-
-    if (!mentorProfile?.id) {
-      Alert.alert('Error', 'Invalid mentor');
-      return;
-    }
-
-    if (!sessionTitle.trim()) {
-      Alert.alert('Error', 'Please enter a session title');
-      return;
-    }
-
-    try {
-      setSchedulingSession(true);
-      const scheduledAt = new Date().toISOString();
-      await scheduleSession(mentorProfile.id, sessionTitle, sessionDescription, scheduledAt, 30);
-      Alert.alert('Success', 'Session scheduled successfully');
-      setShowSessionModal(false);
-      setSessionTitle('');
-      setSessionDescription('');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to schedule session. Please try again.');
-      console.error(error);
-    } finally {
-      setSchedulingSession(false);
-    }
-  };
-
   const averageRating = reviews.length > 0
     ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
     : 'N/A';
@@ -193,9 +156,14 @@ export function MentorDetailScreen() {
         end={{ x: 1, y: 1 }}
         style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}
       >
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={[styles.backButton, { top: Math.max(insets.top, 20) + 10 }]} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-back" size={24} color="#fff" />
         </TouchableOpacity>
+        <View style={[styles.headerActions, { top: Math.max(insets.top, 20) + 10 }]}>
+          <TouchableOpacity style={styles.headerActionBtn} onPress={() => navigation.navigate('MySessions')}>
+            <Ionicons name="calendar-outline" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
         <View style={styles.avatarContainer}>
           {mentorProfile.avatar ? (
             <Image
@@ -279,193 +247,140 @@ export function MentorDetailScreen() {
           </View>
         )}
 
-        {/* ACTION BUTTONS */}
-        <View style={styles.actionButtons}>
-          <TouchableOpacity
-            onPress={() => setShowSessionModal(true)}
-            style={styles.primaryButton}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={[homeColors.primary, homeColors.primaryDark]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.buttonGradient}
-            >
-              <Ionicons name="calendar-outline" size={18} color="#fff" />
-              <Text style={styles.primaryButtonText}>Schedule Session</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => {
-              navigation.navigate('GroupChats');
-            }}
-            style={styles.secondaryButton}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="chatbubbles-outline" size={18} color={homeColors.primary} />
-            <Text style={styles.secondaryButtonText}>Group Chat</Text>
-          </TouchableOpacity>
-        </View>
+         {/* ACTION BUTTONS */}
+         <View style={styles.actionButtons}>
+           <TouchableOpacity
+             onPress={() => navigation.navigate('SessionBooking', { mentorId: mentor.id, mentorName: mentor.name })}
+             style={styles.primaryButton}
+             activeOpacity={0.8}
+           >
+             <LinearGradient
+               colors={[homeColors.primary, homeColors.primaryDark]}
+               start={{ x: 0, y: 0 }}
+               end={{ x: 1, y: 0 }}
+               style={styles.buttonGradient}
+             >
+               <Ionicons name="calendar-outline" size={18} color="#fff" />
+               <Text style={styles.primaryButtonText}>Schedule Session</Text>
+             </LinearGradient>
+           </TouchableOpacity>
+           <TouchableOpacity
+             onPress={() => {
+               navigation.navigate('GroupChats');
+             }}
+             style={styles.secondaryButton}
+             activeOpacity={0.8}
+           >
+             <Ionicons name="chatbubbles-outline" size={18} color={homeColors.primary} />
+             <Text style={styles.secondaryButtonText}>Group Chat</Text>
+           </TouchableOpacity>
+         </View>
 
-        {/* REVIEWS SECTION */}
-        <View style={styles.section}>
-          <View style={styles.reviewsHeader}>
-            <Text style={styles.sectionTitle}>Reviews</Text>
-            <TouchableOpacity onPress={() => setShowReviewModal(true)}>
-              <Text style={styles.leaveReviewText}>Leave Review</Text>
-            </TouchableOpacity>
-          </View>
+         {/* REVIEWS SECTION */}
+         <View style={styles.section}>
+           <View style={styles.reviewsHeader}>
+             <Text style={styles.sectionTitle}>Reviews</Text>
+             <TouchableOpacity onPress={() => setShowReviewModal(true)}>
+               <Text style={styles.leaveReviewText}>Leave Review</Text>
+             </TouchableOpacity>
+           </View>
 
-          {reviews.length === 0 ? (
-            <View style={styles.noReviewsCard}>
-              <Text style={styles.noReviewsText}>No reviews yet. Be the first to review!</Text>
-            </View>
-          ) : (
-            reviews.map((review) => (
-              <View key={review.id} style={styles.reviewCard}>
-                <View style={styles.reviewHeader}>
-                  <View style={styles.reviewStars}>
-                    {[...Array(review.rating)].map((_, i) => (
-                      <Ionicons key={i} name="star" size={16} color={homeColors.starYellow} />
-                    ))}
-                  </View>
-                  <Text style={styles.reviewDate}>
-                    {new Date(review.created_at).toLocaleDateString()}
-                  </Text>
-                </View>
-                {review.comment && <Text style={styles.reviewComment}>{review.comment}</Text>}
-              </View>
-            ))
-          )}
-        </View>
-      </View>
+           {reviews.length === 0 ? (
+             <View style={styles.noReviewsCard}>
+               <Text style={styles.noReviewsText}>No reviews yet. Be the first to review!</Text>
+             </View>
+           ) : (
+             reviews.map((review) => (
+               <View key={review.id} style={styles.reviewCard}>
+                 <View style={styles.reviewHeader}>
+                   <View style={styles.reviewStars}>
+                     {[...Array(review.rating)].map((_, i) => (
+                       <Ionicons key={i} name="star" size={16} color={homeColors.starYellow} />
+                     ))}
+                   </View>
+                   <Text style={styles.reviewDate}>
+                     {new Date(review.created_at).toLocaleDateString()}
+                   </Text>
+                 </View>
+                 {review.comment && <Text style={styles.reviewComment}>{review.comment}</Text>}
+               </View>
+             ))
+           )}
+         </View>
+       </View>
 
-      {/* REVIEW MODAL */}
-      <Modal visible={showReviewModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Leave a Review</Text>
-              <TouchableOpacity onPress={() => setShowReviewModal(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
+       {/* REVIEW MODAL */}
+       <Modal visible={showReviewModal} animationType="slide" transparent>
+         <View style={styles.modalOverlay}>
+           <View style={styles.modalContent}>
+             <View style={styles.modalHeader}>
+               <Text style={styles.modalTitle}>Leave a Review</Text>
+               <TouchableOpacity onPress={() => setShowReviewModal(false)}>
+                 <Ionicons name="close" size={24} color="#666" />
+               </TouchableOpacity>
+             </View>
 
-            {/* RATING SELECTOR */}
-            <View style={styles.ratingSelector}>
-              <Text style={styles.ratingLabel}>How would you rate this mentor?</Text>
-              <View style={styles.starsRow}>
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <TouchableOpacity
-                    key={star}
-                    onPress={() => setReviewRating(star)}
-                    style={styles.starButton}
-                  >
-                    <Ionicons 
-                      name={star <= reviewRating ? "star" : "star-outline"} 
-                      size={36} 
-                      color={homeColors.starYellow} 
-                    />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
+             {/* RATING SELECTOR */}
+             <View style={styles.ratingSelector}>
+               <Text style={styles.ratingLabel}>How would you rate this mentor?</Text>
+               <View style={styles.starsRow}>
+                 {[1, 2, 3, 4, 5].map((star) => (
+                   <TouchableOpacity
+                     key={star}
+                     onPress={() => setReviewRating(star)}
+                     style={styles.starButton}
+                   >
+                     <Ionicons 
+                       name={star <= reviewRating ? "star" : "star-outline"} 
+                       size={36} 
+                       color={homeColors.starYellow} 
+                     />
+                   </TouchableOpacity>
+                 ))}
+               </View>
+             </View>
 
-            {/* COMMENT INPUT */}
-            <TextInput
-              placeholder="Share your experience (optional)"
-              placeholderTextColor="#999"
-              value={reviewComment}
-              onChangeText={setReviewComment}
-              multiline
-              numberOfLines={4}
-              maxLength={500}
-              style={styles.textInput}
-              textAlignVertical="top"
-            />
+             {/* COMMENT INPUT */}
+             <TextInput
+               placeholder="Share your experience (optional)"
+               placeholderTextColor="#999"
+               value={reviewComment}
+               onChangeText={setReviewComment}
+               multiline
+               numberOfLines={4}
+               maxLength={500}
+               style={styles.textInput}
+               textAlignVertical="top"
+             />
 
-            <Text style={styles.characterCount}>
-              {reviewComment.length}/500 characters
-            </Text>
+             <Text style={styles.characterCount}>
+               {reviewComment.length}/500 characters
+             </Text>
 
-            <TouchableOpacity
-              onPress={handleSubmitReview}
-              disabled={submittingReview}
-              style={styles.primaryButton}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={[homeColors.primary, homeColors.primaryDark]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.buttonGradient}
-              >
-                {submittingReview ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>Submit Review</Text>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* SESSION MODAL */}
-      <Modal visible={showSessionModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Schedule a Session</Text>
-              <TouchableOpacity onPress={() => setShowSessionModal(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            <TextInput
-              placeholder="Session Title"
-              placeholderTextColor="#999"
-              value={sessionTitle}
-              onChangeText={setSessionTitle}
-              style={styles.textInput}
-            />
-
-            <TextInput
-              placeholder="Description (optional)"
-              placeholderTextColor="#999"
-              value={sessionDescription}
-              onChangeText={setSessionDescription}
-              multiline
-              numberOfLines={3}
-              style={[styles.textInput, { marginBottom: 24 }]}
-              textAlignVertical="top"
-            />
-
-            <TouchableOpacity
-              onPress={handleScheduleSession}
-              disabled={schedulingSession}
-              style={styles.primaryButton}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={[homeColors.primary, homeColors.primaryDark]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.buttonGradient}
-              >
-                {schedulingSession ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>Schedule Session</Text>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </ScrollView>
-  );
+             <TouchableOpacity
+               onPress={handleSubmitReview}
+               disabled={submittingReview}
+               style={styles.primaryButton}
+               activeOpacity={0.8}
+             >
+               <LinearGradient
+                 colors={[homeColors.primary, homeColors.primaryDark]}
+                 start={{ x: 0, y: 0 }}
+                 end={{ x: 1, y: 0 }}
+                 style={styles.buttonGradient}
+               >
+                 {submittingReview ? (
+                   <ActivityIndicator color="white" />
+                 ) : (
+                   <Text style={styles.primaryButtonText}>Submit Review</Text>
+                 )}
+               </LinearGradient>
+             </TouchableOpacity>
+           </View>
+         </View>
+       </Modal>
+     </ScrollView>
+   );
 }
 
 const styles = StyleSheet.create({
@@ -484,24 +399,33 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 12,
   },
-  header: {
-    paddingBottom: 30,
-    paddingHorizontal: 20,
-  },
-  headerGradient: {
-    paddingTop: 60,
-    paddingBottom: 30,
-    paddingHorizontal: 20,
-  },
-  backButton: {
-    marginBottom: 14,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.18)',
-  },
+    header: {
+      paddingBottom: 30,
+      paddingHorizontal: 20,
+      position: 'relative',
+    },
+    headerActions: {
+      position: 'absolute',
+      right: 20,
+    },
+    headerActionBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(255,255,255,0.18)',
+    },
+    backButton: {
+      position: 'absolute',
+      left: 20,
+      width: 36,
+      height: 36,
+     borderRadius: 18,
+     alignItems: 'center',
+     justifyContent: 'center',
+     backgroundColor: 'rgba(255,255,255,0.18)',
+   },
   avatarContainer: {
     alignItems: 'center',
     marginBottom: 16,
