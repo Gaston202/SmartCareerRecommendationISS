@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -25,6 +25,10 @@ import { GroupChatScreen } from '../screens/mentors/GroupChatScreen';
 import { MentorHomeScreen } from '../screens/mentors/MentorHomeScreen';
 import { JobListingsScreen } from '../screens/mentors/JobListingsScreen';
 import { MentorSpecialtyGroupChatsScreen } from '../screens/mentors/MentorSpecialtyGroupChatsScreen';
+import { MentorSessionsScreen } from '../screens/mentors/MentorSessionsScreen';
+import { AvailabilitySettingsScreen } from '../screens/mentors/AvailabilitySettingsScreen';
+import { SessionBookingScreen } from '../screens/mentors/SessionBookingScreen';
+import { MySessionsScreen } from '../screens/mentors/MySessionsScreen';
 
 import { homeColors } from '../screens/homeTheme';
 
@@ -53,6 +57,8 @@ type MentorsStackParamList = {
   MentorDetail: { mentorId: string };
   GroupChats: undefined;
   GroupChat: { chatId: string };
+  SessionBooking: { mentorId: string; mentorName: string };
+  MySessions: undefined;
 };
 
 type MentorGroupChatsStackParamList = {
@@ -61,10 +67,16 @@ type MentorGroupChatsStackParamList = {
   MentorDetail: { mentorId?: string; userId?: string };
 };
 
+type MentorSessionsStackParamList = {
+  MentorSessionsMain: undefined;
+  AvailabilitySettings: undefined;
+};
+
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 const MentorsStack = createNativeStackNavigator<MentorsStackParamList>();
 const MentorGroupChatsStack = createNativeStackNavigator<MentorGroupChatsStackParamList>();
+const MentorSessionsStack = createNativeStackNavigator<MentorSessionsStackParamList>();
 const Tab = createBottomTabNavigator();
 
 function HomeStackNavigator(): React.ReactElement {
@@ -117,6 +129,16 @@ function MentorsStackNavigator(): React.ReactElement {
         component={MentorDetailScreen}
         options={{ title: 'Mentor Profile' }}
       />
+      <MentorsStack.Screen
+        name="SessionBooking"
+        component={SessionBookingScreen}
+        options={{ title: 'Book Session', headerShown: false }}
+      />
+      <MentorsStack.Screen
+        name="MySessions"
+        component={MySessionsScreen}
+        options={{ title: 'My Sessions', headerShown: false }}
+      />
     </MentorsStack.Navigator>
   );
 }
@@ -151,6 +173,31 @@ function MentorGroupChatsStackNavigator(): React.ReactElement {
         options={{ title: 'Profile' }}
       />
     </MentorGroupChatsStack.Navigator>
+  );
+}
+
+function MentorSessionsStackNavigator(): React.ReactElement {
+  return (
+    <MentorSessionsStack.Navigator
+      id="MentorSessionsStack"
+      screenOptions={{
+        headerShown: true,
+        headerStyle: { backgroundColor: homeColors.primary },
+        headerTintColor: '#fff',
+        headerTitleStyle: { fontWeight: 'bold' },
+      }}
+    >
+      <MentorSessionsStack.Screen
+        name="MentorSessionsMain"
+        component={MentorSessionsScreen}
+        options={{ title: 'Sessions', headerShown: false }}
+      />
+      <MentorSessionsStack.Screen
+        name="AvailabilitySettings"
+        component={AvailabilitySettingsScreen}
+        options={{ title: 'Availability', headerShown: false }}
+      />
+    </MentorSessionsStack.Navigator>
   );
 }
 
@@ -241,6 +288,8 @@ export function RootNavigator(): React.ReactElement {
                   iconName = focused ? 'briefcase' : 'briefcase-outline';
                 } else if (route.name === 'MentorGroupChats') {
                   iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+                } else if (route.name === 'MentorSessions') {
+                  iconName = focused ? 'calendar' : 'calendar-outline';
                 } else {
                   iconName = focused ? 'person' : 'person-outline';
                 }
@@ -248,37 +297,38 @@ export function RootNavigator(): React.ReactElement {
               },
             })}
           >
-            <Tab.Screen name="MentorHome" component={MentorHomeScreen} options={{ tabBarLabel: 'Home' }} />
-            <Tab.Screen name="MentorGroupChats" component={MentorGroupChatsStackNavigator} options={{ tabBarLabel: 'Chats' }} />
-            <Tab.Screen name="JobSuggestions" component={JobListingsScreen} options={{ tabBarLabel: 'Jobs' }} />
-            <Tab.Screen name="Profile" component={ProfileScreen} />
+             <Tab.Screen name="MentorHome" component={MentorHomeScreen} options={{ tabBarLabel: 'Home' }} />
+             <Tab.Screen name="MentorGroupChats" component={MentorGroupChatsStackNavigator} options={{ tabBarLabel: 'Chats' }} />
+             <Tab.Screen name="MentorSessions" component={MentorSessionsStackNavigator} options={{ tabBarLabel: 'Sessions' }} />
+             <Tab.Screen name="JobSuggestions" component={JobListingsScreen} options={{ tabBarLabel: 'Jobs' }} />
+             <Tab.Screen name="Profile" component={ProfileScreen} />
           </Tab.Navigator>
         ) : (
-          <Tab.Navigator
-            id="UserTabNavigator"
-            initialRouteName="Home"
-            screenOptions={({ route }) => ({
-              ...sharedTabOptions({ route }),
-              tabBarIcon: ({ focused, color, size }) => {
-                let iconName: keyof typeof Ionicons.glyphMap;
-                if (route.name === 'Home') {
-                  iconName = focused ? 'home' : 'home-outline';
-                } else if (route.name === 'Roadmaps') {
-                  iconName = focused ? 'map' : 'map-outline';
-                } else if (route.name === 'Mentors') {
-                  iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
-                } else {
-                  iconName = focused ? 'person' : 'person-outline';
-                }
-                return <Ionicons name={iconName} size={size} color={color} />;
-              },
-            })}
-          >
-            <Tab.Screen name="Home" component={HomeStackNavigator} />
-            <Tab.Screen name="Roadmaps" component={RoadmapsScreen} />
-            <Tab.Screen name="Mentors" component={MentorsStackNavigator} />
-            <Tab.Screen name="Profile" component={ProfileScreen} />
-          </Tab.Navigator>
+           <Tab.Navigator
+             id="UserTabNavigator"
+             initialRouteName="Home"
+             screenOptions={({ route }) => ({
+               ...sharedTabOptions({ route }),
+               tabBarIcon: ({ focused, color, size }) => {
+                 let iconName: keyof typeof Ionicons.glyphMap;
+                 if (route.name === 'Home') {
+                   iconName = focused ? 'home' : 'home-outline';
+                 } else if (route.name === 'Roadmaps') {
+                   iconName = focused ? 'map' : 'map-outline';
+                 } else if (route.name === 'Mentors') {
+                   iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+                 } else {
+                   iconName = focused ? 'person' : 'person-outline';
+                 }
+                 return <Ionicons name={iconName} size={size} color={color} />;
+               },
+             })}
+           >
+             <Tab.Screen name="Home" component={HomeStackNavigator} />
+             <Tab.Screen name="Roadmaps" component={RoadmapsScreen} />
+             <Tab.Screen name="Mentors" component={MentorsStackNavigator} />
+             <Tab.Screen name="Profile" component={ProfileScreen} />
+           </Tab.Navigator>
         )
       ) : (
         <AuthStack.Navigator

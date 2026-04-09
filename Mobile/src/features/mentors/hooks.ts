@@ -14,6 +14,12 @@ import {
   fetchMentorReviews,
   scheduleMentorSession,
   fetchMentorSessions,
+  fetchMentorAllSessions,
+  confirmMentorSession,
+  rejectMentorSession,
+  completeMentorSession,
+  fetchMentorAvailability,
+  saveMentorAvailability,
 } from '../../api/mentor';
 import {
   Mentor,
@@ -23,6 +29,7 @@ import {
   MentorFilters,
   MentorReview,
   MentorSession,
+  MentorAvailabilityRule,
 } from '../../types/mentor';
 
 // Hook to fetch mentors
@@ -392,4 +399,78 @@ export function useMentorSessions(userId: string) {
   };
 
   return { sessions, loading, error, scheduleSession, refetch };
+}
+
+export function useMentorSessionManagement(mentorId: string) {
+  const [sessions, setSessions] = useState<MentorSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!mentorId) return;
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const data = await fetchMentorAllSessions(mentorId);
+        setSessions(data);
+      } catch (err) {
+        setError(err as Error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [mentorId]);
+
+  const confirmSession = async (sessionId: string) => {
+    const updated = await confirmMentorSession(sessionId);
+    setSessions(sessions.map(s => s.id === sessionId ? updated : s));
+  };
+
+  const rejectSession = async (sessionId: string) => {
+    const updated = await rejectMentorSession(sessionId);
+    setSessions(sessions.map(s => s.id === sessionId ? updated : s));
+  };
+
+  const completeSession = async (sessionId: string) => {
+    const updated = await completeMentorSession(sessionId);
+    setSessions(sessions.map(s => s.id === sessionId ? updated : s));
+  };
+
+  const refetch = async () => {
+    const data = await fetchMentorAllSessions(mentorId);
+    setSessions(data);
+  };
+
+  return { sessions, loading, error, confirmSession, rejectSession, completeSession, refetch };
+}
+
+export function useMentorAvailability(mentorId: string) {
+  const [rules, setRules] = useState<MentorAvailabilityRule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!mentorId) return;
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const data = await fetchMentorAvailability(mentorId);
+        setRules(data);
+      } catch (err) {
+        setError(err as Error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [mentorId]);
+
+  const saveRules = async (newRules: Omit<MentorAvailabilityRule, 'id' | 'mentor_id' | 'created_at'>[]) => {
+    await saveMentorAvailability(mentorId, newRules);
+    const data = await fetchMentorAvailability(mentorId);
+    setRules(data);
+  };
+
+  return { rules, loading, error, saveRules };
 }

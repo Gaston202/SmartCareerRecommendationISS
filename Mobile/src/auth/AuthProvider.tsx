@@ -27,12 +27,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let mentorSpecialty: string | undefined = undefined;
 
       try {
-        const { data: userData } = await supabase.from('users').select('role').eq('id', baseUser.id).maybeSingle();
-        if (userData?.role === 'mentor') {
+        // First check if this user is a mentor by looking in the mentors table
+        const { data: mentorData } = await supabase
+          .from('mentors')
+          .select('role')
+          .eq('user_id', baseUser.id)
+          .maybeSingle();
+
+        if (mentorData) {
           role = 'mentor';
-          const { data: mentorData } = await supabase.from('mentors').select('role').eq('user_id', baseUser.id).maybeSingle();
-          if (mentorData?.role) {
-            mentorSpecialty = mentorData.role;
+          mentorSpecialty = mentorData.role || undefined;
+        } else {
+          // Fallback: check users.role (for users who may have role set but no mentors entry)
+          const { data: userData } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', baseUser.id)
+            .maybeSingle();
+          if (userData?.role === 'mentor') {
+            role = 'mentor';
           }
         }
       } catch (e) {
