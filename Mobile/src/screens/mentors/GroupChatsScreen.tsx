@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Animated,
   Alert,
+  Pressable,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +29,8 @@ type MentorsStackParamList = {
   MentorDetail: { mentorId?: string; userId?: string };
   GroupChats: undefined;
   GroupChat: { chatId: string };
+  SessionBooking: { mentorId: string; mentorName: string };
+  MySessions: undefined;
 };
 
 type GroupChatsScreenNavigationProp = NativeStackNavigationProp<MentorsStackParamList, 'GroupChats'>;
@@ -179,12 +182,34 @@ function ChatCard({
   const gradientColors = (SPECIALTY_COLORS[chat.specialty] ?? [homeColors.primary, homeColors.primaryDark]) as [string, string];
   const iconName = (SPECIALTY_ICONS[chat.specialty] ?? 'chatbubbles') as any;
   const isLoadingThis = joiningId === chat.id;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.timing(scaleAnim, {
+      toValue: 0.98,
+      duration: 100,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.timing(scaleAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  };
 
   return (
-    <TouchableOpacity
+    <Pressable
       onPress={onOpen}
-      style={[styles.chatCard, isJoined && styles.chatCardJoined]}
-      activeOpacity={0.75}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      style={({ pressed }) => [
+        styles.chatCard, 
+        isJoined && styles.chatCardJoined,
+        pressed && styles.chatCardPressed
+      ]}
     >
       {isJoined && <View style={styles.joinedStrip} />}
 
@@ -250,7 +275,7 @@ function ChatCard({
           </TouchableOpacity>
         )}
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
@@ -259,6 +284,7 @@ export function GroupChatsScreen() {
   const insets = useSafeAreaInsets();
   const { state } = useAuth();
   const userId = state.user?.id;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const [selectedSpecialty, setSelectedSpecialty] = useState<string | undefined>();
   const [joiningId, setJoiningId] = useState<string | null>(null);
@@ -266,6 +292,18 @@ export function GroupChatsScreen() {
 
   const { chats, loading, error, refetch } = useGroupChats(selectedSpecialty);
   const { joinedIds, loadingJoined, markJoined, markLeft } = useJoinedGroupChats(userId);
+
+  const animatePress = () => {
+    Animated.sequence([
+      Animated.timing(scaleAnim, { toValue: 0.95, duration: 80, useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const handleTabChange = (tab: 'all' | 'joined') => {
+    animatePress();
+    setActiveTab(tab);
+  };
 
   const handleToggleJoin = useCallback(
     async (chatId: string, currentlyJoined: boolean) => {
@@ -349,59 +387,82 @@ export function GroupChatsScreen() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} tintColor={homeColors.primary} />}
       >
         {/* Header */}
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
-          <View style={styles.headerIconRow}>
-            <LinearGradient
-              colors={[homeColors.primary, homeColors.primaryDark]}
-              style={styles.headerIconBg}
+        <Animated.View style={[styles.header, { paddingTop: Math.max(insets.top, 20), transform: [{ scale: scaleAnim }] }]}>
+          <View style={styles.headerTopRow}>
+            <View style={styles.headerIconRow}>
+              <LinearGradient
+                colors={[homeColors.primary, homeColors.primaryDark]}
+                style={styles.headerIconBg}
+              >
+                <Ionicons name="chatbubbles" size={26} color="#fff" />
+              </LinearGradient>
+            </View>
+            <Pressable 
+              style={({ pressed }) => [
+                styles.mySessionsButton,
+                pressed && styles.mySessionsButtonPressed
+              ]}
+              onPress={() => navigation.navigate('MySessions')}
             >
-              <Ionicons name="chatbubbles" size={26} color="#fff" />
-            </LinearGradient>
+              <Ionicons name="calendar" size={20} color={homeColors.primary} />
+              <Text style={styles.mySessionsText}>My Sessions</Text>
+            </Pressable>
           </View>
           <Text style={styles.headerTitle}>Group Chats</Text>
           <Text style={styles.headerSubtitle}>Connect with peers and mentors</Text>
 
           {joinedCount > 0 && (
-            <View style={styles.statsBadge}>
+            <Animated.View style={styles.statsBadge}>
               <Ionicons name="people" size={14} color={homeColors.primary} />
               <Text style={styles.statsBadgeText}>
                 You joined {joinedCount} chat{joinedCount !== 1 ? 's' : ''}
               </Text>
-            </View>
+            </Animated.View>
           )}
-        </View>
+        </Animated.View>
 
         {/* Tab Toggle */}
-        <View style={styles.tabRow}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'all' && styles.tabActive]}
-            onPress={() => setActiveTab('all')}
-          >
-            <Text style={[styles.tabText, activeTab === 'all' && styles.tabTextActive]}>All Chats</Text>
-            <View style={[styles.tabCount, activeTab === 'all' && styles.tabCountActive]}>
-              <Text style={[styles.tabCountText, activeTab === 'all' && styles.tabCountTextActive]}>
-                {chats.length}
-              </Text>
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'joined' && styles.tabActive]}
-            onPress={() => setActiveTab('joined')}
-          >
-            <Ionicons
-              name="checkmark-circle"
-              size={14}
-              color={activeTab === 'joined' ? homeColors.accentGreen : homeColors.textMuted}
-            />
-            <Text style={[styles.tabText, activeTab === 'joined' && styles.tabTextActive]}>Joined</Text>
-            {joinedCount > 0 && (
-              <View style={[styles.tabCount, styles.tabCountGreen, activeTab === 'joined' && styles.tabCountGreenActive]}>
-                <Text style={[styles.tabCountText, activeTab === 'joined' && styles.tabCountTextActive]}>
-                  {joinedCount}
+        <View style={styles.tabContainer}>
+          <View style={styles.tabRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.tab, 
+                activeTab === 'all' && styles.tabActive,
+                pressed && styles.tabPressed
+              ]}
+              onPress={() => handleTabChange('all')}
+            >
+              <Text style={[styles.tabText, activeTab === 'all' && styles.tabTextActive]}>All Chats</Text>
+              <View style={[styles.tabCount, activeTab === 'all' && styles.tabCountActive]}>
+                <Text style={[styles.tabCountText, activeTab === 'all' && styles.tabCountTextActive]}>
+                  {chats.length}
                 </Text>
               </View>
-            )}
-          </TouchableOpacity>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.tab, 
+                activeTab === 'joined' && styles.tabActive,
+                pressed && styles.tabPressed
+              ]}
+              onPress={() => handleTabChange('joined')}
+            >
+              <Ionicons
+                name="checkmark-circle"
+                size={14}
+                color={activeTab === 'joined' ? homeColors.accentGreen : homeColors.textMuted}
+              />
+              <Text style={[styles.tabText, activeTab === 'joined' && styles.tabTextActive]}>Joined</Text>
+              {joinedCount > 0 && (
+                <View style={[styles.tabCount, styles.tabCountGreen, activeTab === 'joined' && styles.tabCountGreenActive]}>
+                  <Text style={[styles.tabCountText, activeTab === 'joined' && styles.tabCountTextActive]}>
+                    {joinedCount}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
+          <View style={[styles.tabIndicator, { left: activeTab === 'all' ? '2%' : '52%' }]} />
         </View>
 
         {/* Specialty Filter */}
@@ -507,70 +568,123 @@ const styles = StyleSheet.create({
   },
   loadingText: { color: homeColors.textMuted, fontSize: 15, marginTop: 4 },
   header: {
-    paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
     alignItems: 'center',
   },
-  headerIconRow: { marginBottom: 12 },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 20,
+  },
+  headerIconRow: { marginBottom: 0 },
+  mySessionsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(124, 77, 255, 0.1)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 28,
+  },
+  mySessionsButtonPressed: {
+    backgroundColor: 'rgba(124, 77, 255, 0.18)',
+    transform: [{ scale: 0.97 }],
+  },
+  mySessionsText: {
+    color: '#7C4DFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   headerIconBg: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: homeColors.primary,
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: '#7C4DFF',
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowRadius: 16,
+    elevation: 12,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 34,
+    fontWeight: '800',
     color: homeColors.textDark,
-    marginBottom: 4,
+    marginBottom: 8,
+    letterSpacing: -0.8,
   },
-  headerSubtitle: { color: homeColors.textMuted, fontSize: 15, marginBottom: 10 },
+  headerSubtitle: { 
+    color: homeColors.textMuted, 
+    fontSize: 16, 
+    marginBottom: 16,
+    fontWeight: '500',
+  },
   statsBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(124, 77, 255, 0.1)',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    gap: 6,
-    marginTop: 4,
+    backgroundColor: 'rgba(124, 77, 255, 0.12)',
+    borderRadius: 28,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    gap: 8,
+    marginTop: 8,
   },
-  statsBadgeText: { color: homeColors.primary, fontWeight: '600', fontSize: 13 },
+  statsBadgeText: { 
+    color: '#7C4DFF', 
+    fontWeight: '700', 
+    fontSize: 14,
+  },
+  tabContainer: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    position: 'relative',
+  },
   tabRow: {
     flexDirection: 'row',
-    marginHorizontal: 16,
-    marginBottom: 4,
-    backgroundColor: 'rgba(255,255,255,0.5)',
-    borderRadius: 14,
-    padding: 4,
-    borderWidth: 1,
-    borderColor: homeColors.cardBorder,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 20,
+    padding: 8,
+    position: 'relative',
+  },
+  tabIndicator: {
+    position: 'absolute',
+    top: 8,
+    bottom: 8,
+    width: '47%',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
   tab: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
-    gap: 6,
+    paddingVertical: 14,
+    borderRadius: 16,
+    gap: 8,
+    zIndex: 1,
   },
-  tabActive: {
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+  tabPressed: {
+    opacity: 0.92,
   },
-  tabText: { fontSize: 14, fontWeight: '500', color: homeColors.textMuted },
-  tabTextActive: { color: homeColors.textDark, fontWeight: '700' },
+  tabText: { 
+    fontSize: 15, 
+    fontWeight: '600', 
+    color: '#64748B' 
+  },
+  tabTextActive: { 
+    color: '#0F172A', 
+    fontWeight: '700' 
+  },
   tabCount: {
     backgroundColor: homeColors.cardBorder,
     borderRadius: 10,
@@ -584,14 +698,14 @@ const styles = StyleSheet.create({
   tabCountGreenActive: { backgroundColor: homeColors.accentGreen },
   tabCountText: { fontSize: 11, fontWeight: '700', color: homeColors.textMuted },
   tabCountTextActive: { color: '#fff' },
-  filterSection: { paddingHorizontal: 16, paddingVertical: 14 },
+  filterSection: { paddingHorizontal: 16, paddingVertical: 16 },
   filterLabel: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
     color: homeColors.textMuted,
-    marginBottom: 10,
+    marginBottom: 12,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   filterScroll: { flexDirection: 'row' },
   filterChip: {
@@ -660,24 +774,30 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   chatCard: {
-    backgroundColor: homeColors.cardBg,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
-    elevation: 3,
-    borderWidth: 1.5,
-    borderColor: homeColors.cardBorder,
+    backgroundColor: '#ffffff',
+    borderRadius: 22,
+    padding: 20,
+    marginBottom: 18,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
     overflow: 'hidden',
   },
   chatCardJoined: {
-    borderColor: homeColors.accentGreen,
-    backgroundColor: '#f0fdf4',
-    shadowColor: homeColors.accentGreen,
+    borderColor: '#10B981',
+    backgroundColor: '#ECFDF5',
+    shadowColor: '#10B981',
     shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  chatCardPressed: {
+    transform: [{ scale: 0.98 }],
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
   },
   joinedStrip: {
     position: 'absolute',

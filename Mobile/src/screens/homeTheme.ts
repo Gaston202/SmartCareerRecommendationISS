@@ -4,9 +4,9 @@
  */
 export const homeColors = {
   // Background
-  backgroundStart: '#E8E4F0',
-  backgroundEnd: '#C9C4D8',
-  backgroundMuted: '#EAEAF2',
+  backgroundStart: '#F5F3FF',
+  backgroundEnd: '#EDE9FE',
+  backgroundMuted: '#F5F3FF',
 
   // Cards & surfaces
   cardBg: '#F9F9FB',
