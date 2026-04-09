@@ -14,142 +14,179 @@ const QUIZ_TOTAL_QUESTIONS = 10;
 
 type DiscColor = 'red' | 'yellow' | 'green' | 'blue';
 
-const STATIC_NOVA_QUESTIONS: QuizQuestion[] = [
+export const STATIC_NOVA_QUESTIONS: QuizQuestion[] = [
   {
     type: 'question',
-    question: 'When facing a professional challenge, what is your most natural reaction?',
+    question: 'Do you prefer working independently or as part of a team?',
     questionNumber: 1,
     totalQuestions: QUIZ_TOTAL_QUESTIONS,
     options: [
-      { id: 'red', label: 'I move straight to action and decide quickly', icon: 'flash' },
-      { id: 'blue', label: 'I analyze carefully before acting', icon: 'analytics' },
-      { id: 'green', label: 'I consult others and seek alignment', icon: 'people' },
-      { id: 'yellow', label: 'I generate fresh ideas and options', icon: 'brush' },
+      { id: 'blue', label: 'I do my best work alone, focused and self-directed', icon: 'code' },
+      { id: 'green', label: 'I enjoy teamwork but also value some independent tasks', icon: 'people' },
+      { id: 'red', label: 'I thrive in teams, especially when leading or competing', icon: 'target' },
+      { id: 'yellow', label: 'I prefer spontaneous collaborations over structured teamwork', icon: 'globe' },
     ],
   },
   {
     type: 'question',
-    question: 'In a trusted environment, your natural work style is mostly:',
+    question: 'What kind of work environment helps you thrive most?',
     questionNumber: 2,
     totalQuestions: QUIZ_TOTAL_QUESTIONS,
     options: [
-      { id: 'red', label: 'Fast pace with ambitious targets', icon: 'target' },
-      { id: 'blue', label: 'Structured framework with clear methods', icon: 'construct' },
-      { id: 'green', label: 'Strong collaboration and team harmony', icon: 'handshake' },
-      { id: 'yellow', label: 'Flexible rhythm with experimentation', icon: 'globe' },
+      { id: 'blue', label: 'A quiet, structured office with clear processes', icon: 'construct' },
+      { id: 'green', label: 'A collaborative team space where I can support others', icon: 'handshake' },
+      { id: 'red', label: 'A fast-paced, competitive setting with rapid decisions', icon: 'flash' },
+      { id: 'yellow', label: 'A flexible, dynamic environment with variety and experimentation', icon: 'globe' },
     ],
   },
   {
     type: 'question',
-    question: 'Under pressure (deadlines, stakes, company culture), your adapted style becomes:',
+    question: 'What type of problems do you enjoy solving?',
     questionNumber: 3,
     totalQuestions: QUIZ_TOTAL_QUESTIONS,
     options: [
-      { id: 'red', label: 'More directive, I take control', icon: 'business' },
-      { id: 'blue', label: 'More cautious, I reduce risk', icon: 'analytics' },
-      { id: 'green', label: 'More diplomatic, I protect team balance', icon: 'people' },
-      { id: 'yellow', label: 'More opportunistic, I pivot quickly', icon: 'brush' },
+      { id: 'blue', label: 'Complex analytical problems that require research and data', icon: 'analytics' },
+      { id: 'green', label: 'People problems: conflicts, relationships, team dynamics', icon: 'people' },
+      { id: 'red', label: 'Action problems: quick decisions, crisis management, obstacles to overcome', icon: 'business' },
+      { id: 'yellow', label: 'Creative problems: designing, innovating, brainstorming new ideas', icon: 'brush' },
     ],
   },
   {
     type: 'question',
-    question: 'Which deep motivation (your core why) drives your long-term career progress?',
+    question: 'How important is it for your job to directly help or serve others?',
     questionNumber: 4,
     totalQuestions: QUIZ_TOTAL_QUESTIONS,
     options: [
-      { id: 'red', label: 'Achievement, status, and visible impact', icon: 'trophy' },
-      { id: 'green', label: 'Purpose, contribution, and meaning', icon: 'flash' },
-      { id: 'blue', label: 'Mastery, quality, and professional growth', icon: 'code' },
-      { id: 'yellow', label: 'Freedom, autonomy, and variety', icon: 'globe' },
+      { id: 'blue', label: 'Not important; I prefer technical or analytical work', icon: 'analytics' },
+      { id: 'green', label: 'Very important; I want to make a positive difference in people\'s lives', icon: 'people' },
+      { id: 'red', label: 'Somewhat important; helping others should align with achieving results', icon: 'target' },
+      { id: 'yellow', label: 'It depends; I enjoy inspiring or entertaining others in creative ways', icon: 'brush' },
     ],
   },
   {
     type: 'question',
-    question: 'How do you prefer making an important decision?',
+    question: 'Do you prefer clear instructions and structure or freedom to innovate?',
     questionNumber: 5,
     totalQuestions: QUIZ_TOTAL_QUESTIONS,
     options: [
-      { id: 'blue', label: 'I gather evidence and compare options', icon: 'analytics' },
-      { id: 'red', label: 'I decide quickly on what matters most', icon: 'flash' },
-      { id: 'green', label: 'I discuss and align key stakeholders', icon: 'people' },
-      { id: 'yellow', label: 'I prioritize vision and intuition', icon: 'target' },
+      { id: 'blue', label: 'Clear instructions and well-defined processes are essential', icon: 'construct' },
+      { id: 'green', label: 'I like some structure but also room to adapt and collaborate', icon: 'handshake' },
+      { id: 'red', label: 'I want freedom to make decisions and chart my own course', icon: 'flash' },
+      { id: 'yellow', label: 'Give me the vision and let me innovate freely with minimal rules', icon: 'globe' },
     ],
   },
   {
     type: 'question',
-    question: 'Your preferred communication style in a team is:',
+    question: 'Which of these work activities sounds most appealing to you?',
     questionNumber: 6,
     totalQuestions: QUIZ_TOTAL_QUESTIONS,
     options: [
-      { id: 'red', label: 'Clear, direct, and outcome-focused', icon: 'business' },
-      { id: 'blue', label: 'Precise, detailed, and structured', icon: 'construct' },
-      { id: 'green', label: 'Empathetic, calm, and relational', icon: 'people' },
-      { id: 'yellow', label: 'Inspiring, energetic, and expressive', icon: 'brush' },
+      { id: 'blue', label: 'Analyzing data, writing reports, ensuring quality and accuracy', icon: 'analytics' },
+      { id: 'green', label: 'Supporting, mentoring, or caring for people in some way', icon: 'people' },
+      { id: 'red', label: 'Leading projects, meeting targets, making strategic decisions', icon: 'business' },
+      { id: 'yellow', label: 'Creating designs, developing new concepts, expressing ideas', icon: 'brush' },
     ],
   },
   {
     type: 'question',
-    question: 'When major change happens at work, your usual reaction is:',
+    question: 'What is your preferred pace of work?',
     questionNumber: 7,
     totalQuestions: QUIZ_TOTAL_QUESTIONS,
     options: [
-      { id: 'red', label: 'I lead the change immediately', icon: 'flash' },
-      { id: 'blue', label: 'I assess risks before committing', icon: 'analytics' },
-      { id: 'green', label: 'I support others through the transition', icon: 'handshake' },
-      { id: 'yellow', label: 'I explore new opportunities quickly', icon: 'globe' },
+      { id: 'blue', label: 'Steady, methodical pace with time to perfect my work', icon: 'construct' },
+      { id: 'green', label: 'Moderate pace that allows for collaboration and relationship-building', icon: 'handshake' },
+      { id: 'red', label: 'Fast-paced with quick turnarounds and high energy', icon: 'flash' },
+      { id: 'yellow', label: 'Variable pace; sometimes intense bursts, sometimes relaxed exploration', icon: 'globe' },
     ],
   },
   {
     type: 'question',
-    question: 'Which future professional path fits you best?',
+    question: 'When choosing a job, what matters most to you?',
     questionNumber: 8,
     totalQuestions: QUIZ_TOTAL_QUESTIONS,
     options: [
-      { id: 'blue', label: 'Domain expert with deep mastery', icon: 'code' },
-      { id: 'red', label: 'Strategic leader focused on performance', icon: 'business' },
-      { id: 'green', label: 'People manager and talent developer', icon: 'people' },
-      { id: 'yellow', label: 'Intrapreneur or entrepreneurial innovator', icon: 'trophy' },
+      { id: 'blue', label: 'Job security, stability, and clear career progression path', icon: 'ribbon' },
+      { id: 'green', label: 'Positive workplace culture and strong relationships with colleagues', icon: 'people' },
+      { id: 'red', label: 'High salary, advancement opportunities, and visible recognition', icon: 'trophy' },
+      { id: 'yellow', label: 'Creative freedom, variety of tasks, and opportunity to experiment', icon: 'brush' },
     ],
   },
   {
     type: 'question',
-    question: 'In learning situations, you progress the most when:',
+    question: 'What kind of people do you enjoy working with most?',
     questionNumber: 9,
     totalQuestions: QUIZ_TOTAL_QUESTIONS,
     options: [
-      { id: 'red', label: 'I am challenged with concrete goals', icon: 'target' },
-      { id: 'blue', label: 'Content is structured and demanding', icon: 'analytics' },
-      { id: 'green', label: 'I receive regular coaching and feedback', icon: 'handshake' },
-      { id: 'yellow', label: 'I can experiment creatively and iteratively', icon: 'brush' },
+      { id: 'blue', label: 'Detail-oriented experts who value precision and quality', icon: 'analytics' },
+      { id: 'green', label: 'Supportive, empathetic team players who create positive environments', icon: 'people' },
+      { id: 'red', label: 'Ambitious, driven go-getters who push for results', icon: 'target' },
+      { id: 'yellow', label: 'Creative, energetic innovators who think outside the box', icon: 'globe' },
     ],
   },
   {
     type: 'question',
-    question: 'When conflict appears in your team, your first reflex is:',
+    question: 'How do you like to receive feedback on your work?',
     questionNumber: 10,
     totalQuestions: QUIZ_TOTAL_QUESTIONS,
     options: [
-      { id: 'red', label: 'Reset direction quickly to move forward', icon: 'business' },
-      { id: 'blue', label: 'Clarify facts, roles, and rules', icon: 'construct' },
-      { id: 'green', label: 'De-escalate and rebuild trust', icon: 'people' },
-      { id: 'yellow', label: 'Reframe positively and mobilize energy', icon: 'flash' },
+      { id: 'blue', label: 'Detailed, specific feedback with clear examples and data', icon: 'analytics' },
+      { id: 'green', label: 'Encouraging, supportive feedback that considers my feelings', icon: 'people' },
+      { id: 'red', label: 'Direct, concise feedback focused on results and improvement', icon: 'business' },
+      { id: 'yellow', label: 'Brainstorming sessions where feedback flows as creative dialogue', icon: 'brush' },
     ],
   },
 ];
 
-const INSTRUCTIONS = `You are an AI Career Assistant specialized in Nova-style psychometric profiling for professional career futures.
-Output ONLY valid JSON. No markdown. No code fences.
+const INSTRUCTIONS = `You are an expert career coach generating quiz questions to discover a person's ideal job characteristics and work preferences.
+
+CRITICAL: Output ONLY valid JSON. No markdown. No code fences. No explanations before or after. No extra text. Just the raw JSON object.
+
+If answers.length < ${QUIZ_TOTAL_QUESTIONS}, return ONE question:
+{"type":"question","questionNumber":{{questionNumber}},"totalQuestions":10,"question":"...","options":[{"id":"red|blue|green|yellow","label":"...","icon":"..."},{...},{...},{...}]}
 
 If answers.length === ${QUIZ_TOTAL_QUESTIONS}, return results:
-{"type":"results","careers":[{"title":"...","description":"...","matchPercent":85,"tags":["Tag1","Tag2"]},{"title":"...","description":"...","matchPercent":82,"tags":["Tag1","Tag2"]},{"title":"...","description":"...","matchPercent":80,"tags":["Tag1","Tag2"]}],"novaProfile":{"headline":"...","professionalIdentity":"...","behavior":{"primaryStyle":"...","secondaryStyle":"...","traits":["..."],"discBlend":"..."},"styleComparison":{"naturalStyleSummary":"...","adaptedStyleSummary":"...","adaptationDrivers":["..."],"stressSignals":["..."]},"motivations":{"topMotivators":["..."],"demotivators":["..."],"valuesSummary":"..."},"cognition":{"decisionStyle":"...","thinkingStyle":"...","learningStyle":"...","communicationStyle":"..."},"careerProjection":{"bestFitEnvironments":["..."],"leadershipStyle":"...","watchouts":["..."],"futureFocus":"..."},"recommendedDevelopmentAxes":["...","...","..."]}}
+{"type":"results","careers":[{"title":"...","description":"...","matchPercent":85,"tags":["Tag1","Tag2"]},{"title":"...","description":"...","matchPercent":82,"tags":["Tag1","Tag2"]},{"title":"...","description":"...","matchPercent":80,"tags":["Tag1","Tag2"]}],"novaProfile":{"headline":"...","professionalIdentity":"...","behavior":{"primaryStyle":"...","secondaryStyle":"...","traits":["..."],"discBlend":"...","discPercentages":{"red":25,"yellow":25,"green":25,"blue":25}},"styleComparison":{"naturalStyleSummary":"...","adaptedStyleSummary":"...","adaptationDrivers":["..."],"stressSignals":["..."]},"motivations":{"topMotivators":["..."],"demotivators":["..."],"valuesSummary":"..."},"cognition":{"decisionStyle":"...","thinkingStyle":"...","learningStyle":"...","communicationStyle":"..."},"careerProjection":{"bestFitEnvironments":["..."],"leadershipStyle":"...","watchouts":["..."],"futureFocus":"..."},"recommendedDevelopmentAxes":["...","...","..."]}}
 
-Rules:
-- Ask Nova-style psychometric questions across behavior, motivations, cognition, communication, adaptation, and leadership potential.
-- Tailor wording to professional context (career fit, team dynamics, growth trajectory, future role alignment).
-- Exactly 3 careers. matchPercent between 75 and 98.
-- Include 2-4 tags per career.
-- Keep novaProfile concise, practical, and career-oriented.
-- Icons allowed: brush, people, globe, business, ribbon, flash, trophy, construct, target, handshake, analytics, code.`;
+QUESTION GENERATION RULES:
+1. ONLY ask about work PREFERENCES and DESIRES. DO NOT ask about:
+   - Resumes, CVs, cover letters, job applications, interviews
+   - Past experiences or education
+   - Stress reactions or pressure situations
+   - Personality under stress
+
+2. ONLY ask about these topics:
+   - Teamwork vs independent work
+   - Work environment (office, remote, field, pace)
+   - Types of tasks (analytical, creative, administrative, technical, helping)
+   - Interaction with people (client-facing, collaborative, solo)
+   - Work values (achievement, creativity, stability, income, impact, balance)
+   - Decision-making freedom vs structure
+   - Learning preferences
+   - Problem-solving interests
+   - Career goals and motivations
+
+3. Example good questions:
+   - "Do you prefer working alone or in a team?"
+   - "What kind of problems do you find most satisfying?"
+   - "How important is helping others in your job?"
+   - "Do you like fast-paced or steady work?"
+   - "What motivates you more: money, creativity, or making a difference?"
+
+4. Each question MUST have:
+   - questionNumber (the current number)
+   - totalQuestions (always 10)
+   - clear question text
+   - exactly 4 options with id (red/blue/green/yellow), label, and icon
+
+5. Use previous answers to adapt: if they like analytical tasks, ask about data; if they like helping, ask about people-focused work; if they like creativity, ask about design/innovation.
+
+6. Map options to DISC colors for later psychometric analysis:
+   - red: action-oriented, decisive, competitive, results-focused
+   - blue: analytical, precise, quality-focused, systematic
+   - green: collaborative, supportive, harmonious
+   - yellow: innovative, expressive, spontaneous, big-picture
+
+NEVER stray from career preference questions.`;
 
 export interface QuizNextRequest {
   answers: string[];
@@ -180,7 +217,13 @@ function logDebug(message: string, ...args: unknown[]) {
 
 function generateFallbackQuestion(questionNumber: number): QuizNextResponse {
   const normedQuestion = Math.max(0, Math.min(questionNumber - 1, STATIC_NOVA_QUESTIONS.length - 1));
-  return STATIC_NOVA_QUESTIONS[normedQuestion] as QuizNextResponse;
+  const question = STATIC_NOVA_QUESTIONS[normedQuestion] as QuizNextResponse;
+  // Ensure questionNumber and totalQuestions are correctly set
+  return {
+    ...question,
+    questionNumber,
+    totalQuestions: QUIZ_TOTAL_QUESTIONS,
+  };
 }
 
 function getDiscFromOptionId(optionId: string): DiscColor {
@@ -190,7 +233,7 @@ function getDiscFromOptionId(optionId: string): DiscColor {
   return 'blue';
 }
 
-function computeDiscPercentages(answers: string[]): {
+export function computeDiscPercentages(answers: string[]): {
   red: number;
   yellow: number;
   green: number;
@@ -239,7 +282,7 @@ function computeDiscPercentages(answers: string[]): {
   return { ...percentages, dominant };
 }
 
-function generateFallbackResults(disc?: ReturnType<typeof computeDiscPercentages>): QuizNextResponse {
+export function generateFallbackResults(disc?: ReturnType<typeof computeDiscPercentages>): QuizNextResponse {
   const discData =
     disc ?? ({ red: 25, yellow: 25, green: 25, blue: 25, dominant: 'blue' } as ReturnType<typeof computeDiscPercentages>);
   return {
@@ -375,15 +418,76 @@ function buildUserMessage(answers: string[]): string {
 
 function parseContent(content: string): QuizNextResponse {
   let jsonStr = content;
+
+  // Try to extract from code block first (markdown)
   const start = content.indexOf('```');
   if (start >= 0) {
     const end = content.indexOf('```', start + 3);
     if (end >= 0) {
       jsonStr = content.slice(start + 3, end).trim();
       if (jsonStr.startsWith('json')) jsonStr = jsonStr.slice(4).trim();
+      try {
+        return JSON.parse(jsonStr) as QuizNextResponse;
+      } catch (e) {
+        console.warn('Failed to parse JSON from code block, trying other methods', e);
+      }
     }
   }
-  return JSON.parse(jsonStr) as QuizNextResponse;
+
+  // Find first { and parse character by character to find matching closing brace
+  const firstBrace = content.indexOf('{');
+  if (firstBrace !== -1) {
+    let depth = 0;
+    let inString = false;
+    let escapeNext = false;
+
+    for (let i = firstBrace; i < content.length; i++) {
+      const char = content[i];
+
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        inString = !inString;
+        continue;
+      }
+
+      if (!inString) {
+        if (char === '{') {
+          depth++;
+        } else if (char === '}') {
+          depth--;
+          if (depth === 0) {
+            jsonStr = content.substring(firstBrace, i + 1).trim();
+            try {
+              return JSON.parse(jsonStr) as QuizNextResponse;
+            } catch (e) {
+              console.warn('Failed to parse extracted JSON', e);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // If content itself looks like JSON, try parsing it directly
+  try {
+    const trimmed = content.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      return JSON.parse(trimmed) as QuizNextResponse;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  throw new Error(`Could not extract valid JSON from AI response. Content preview: ${content.substring(0, 200)}...`);
 }
 
 async function callOpenRouter(request: QuizNextRequest): Promise<QuizNextResponse> {
