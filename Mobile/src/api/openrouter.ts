@@ -34,7 +34,7 @@ function normalizeApiKey(value: string | undefined): string {
 }
 
 export function getOpenRouterApiKey(): string {
-  const rawValue = (process.env as Record<string, string | undefined>)[OPENROUTER_API_KEY_ENV];
+  const rawValue = process.env.EXPO_PUBLIC_OPENROUTER_API_KEY;
   const key = normalizeApiKey(rawValue);
 
   if (!key || !key.startsWith("sk-")) {

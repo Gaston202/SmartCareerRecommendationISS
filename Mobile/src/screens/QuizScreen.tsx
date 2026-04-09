@@ -26,6 +26,7 @@ import type {
   ChatMessage,
   QuestionWithAnswer,
   NovaProfileSummary,
+  CareerRecommendation,
 } from "../features/quiz/types";
 
 const QUIZ_COLORS = {
@@ -838,6 +839,21 @@ export default function QuizScreen(): React.ReactElement {
               {isResults && results && (
                 <View style={styles.resultsBlock}>
                   {results.novaProfile ? <NovaProfileCard profile={results.novaProfile} styles={styles} /> : null}
+                  {results.careers?.map((career, index) => (
+                    <CareerCard
+                      key={index}
+                      career={career}
+                      styles={styles}
+                      onGenerateRoadmap={() => {
+                        (navigation as any).navigate('CareerRoadmap', { 
+                          careerTitle: career.title, 
+                          careerDescription: career.description,
+                          matchPercent: career.matchPercent,
+                          tags: career.tags
+                        });
+                      }}
+                    />
+                  ))}
                   <Pressable
                     style={({ pressed }) => [styles.restartButton, pressed && styles.pressed]}
                     accessibilityRole="button"
@@ -1021,13 +1037,13 @@ function NovaProfileCard({
           Adapted: {profile.styleComparison.adaptedStyleSummary}
         </Text>
         <Text style={styles.novaSectionText}>
-          Adaptation drivers: {profile.styleComparison.adaptationDrivers.join(", ")}
+          Adaptation drivers: {profile.styleComparison.adaptationDrivers?.join(", ") || "None"}
         </Text>
         <Text style={styles.novaSectionText}>
-          Stress signals: {profile.styleComparison.stressSignals.join(", ")}
+          Stress signals: {profile.styleComparison.stressSignals?.join(", ") || "None"}
         </Text>
         <View style={styles.tagsRow}>
-          {profile.behavior.traits.slice(0, 4).map((trait, i) => (
+          {profile.behavior.traits?.slice(0, 4).map((trait, i) => (
             <View key={`trait-${i}`} style={styles.tag}>
               <Text style={styles.tagText}>{trait}</Text>
             </View>
@@ -1039,14 +1055,14 @@ function NovaProfileCard({
         <Text style={styles.novaSectionTitle}>Deep Motivations (Your Why)</Text>
         <Text style={styles.novaSectionText}>{profile.motivations.valuesSummary}</Text>
         <View style={styles.tagsRow}>
-          {profile.motivations.topMotivators.slice(0, 3).map((item, i) => (
+          {profile.motivations.topMotivators?.slice(0, 3).map((item, i) => (
             <View key={`mot-${i}`} style={styles.tag}>
               <Text style={styles.tagText}>{item}</Text>
             </View>
           ))}
         </View>
         <Text style={styles.novaSectionText}>
-          Demotivators: {profile.motivations.demotivators.join(", ")}
+          Demotivators: {profile.motivations.demotivators?.join(", ") || "None"}
         </Text>
       </View>
 
@@ -1065,19 +1081,19 @@ function NovaProfileCard({
           Communication style: {profile.cognition.communicationStyle}
         </Text>
         <Text style={styles.novaSectionText}>
-          Best-fit environments: {profile.careerProjection.bestFitEnvironments.join(", ")}
+          Best-fit environments: {profile.careerProjection.bestFitEnvironments?.join(", ") || "None"}
         </Text>
         <Text style={styles.novaSectionText}>
           Leadership style: {profile.careerProjection.leadershipStyle}
         </Text>
         <Text style={styles.novaSectionText}>
-          Watchouts: {profile.careerProjection.watchouts.join(", ")}
+          Watchouts: {profile.careerProjection.watchouts?.join(", ") || "None"}
         </Text>
         <Text style={styles.novaSectionText}>
           Future projection: {profile.careerProjection.futureFocus}
         </Text>
         <Text style={styles.novaSectionText}>
-          Development axes: {profile.recommendedDevelopmentAxes.join(", ")}
+          Development axes: {profile.recommendedDevelopmentAxes?.join(", ") || "None"}
         </Text>
       </View>
     </View>

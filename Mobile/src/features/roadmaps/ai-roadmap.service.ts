@@ -8,7 +8,7 @@ import {
 import { getQuizSession } from '../quiz/storage';
 import type { SavedRoadmap, RoadmapStep } from './types';
 
-const ROADMAP_MODEL = 'stepfun/step-3.5-flash:free';
+const ROADMAP_MODEL = 'arcee-ai/trinity-large-preview:free';
 
 function buildUserMessage(
   careerTitle: string,
