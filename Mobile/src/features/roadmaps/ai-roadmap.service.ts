@@ -1,6 +1,7 @@
 import {
   buildOpenRouterHeaders,
   getOpenRouterApiKey,
+  normalizeOpenRouterMessageContent,
   OPENROUTER_URL,
   toOpenRouterError,
 } from '../../api/openrouter';
@@ -105,8 +106,9 @@ ${quizSummary}
   }
 
   const data = await res.json();
-  const aiContent: string | undefined =
-    data?.choices?.[0]?.message?.content?.trim();
+  const aiContent = normalizeOpenRouterMessageContent(
+    data?.choices?.[0]?.message?.content
+  );
 
   if (!aiContent) {
     throw new Error('Empty response from AI when generating roadmap');

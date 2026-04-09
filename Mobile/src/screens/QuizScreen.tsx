@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { fetchQuizNext } from "../features/quiz/api";
+import { buildStaticQuizQuestionsWithAnswers, fetchQuizNext } from "../features/quiz/api";
 import { clearQuizSession, getQuizSession, saveQuizSession } from "../features/quiz/storage";
 import { AppLogo } from "../ui/AppLogo";
 import type {
@@ -623,13 +623,9 @@ export default function QuizScreen(): React.ReactElement {
         setCurrentQuestion(null);
         setResults(response);
         
-        // Build complete quiz session with questions and answers
-        const questionsWithAnswers: QuestionWithAnswer[] = questionsAsked.map((q, idx) => ({
-          questionNumber: q.questionNumber,
-          question: q.question,
-          selectedOption: nextAnswers[idx] || "",
-          allOptions: q.options,
-        }));
+        // Persist from static question bank + answers (avoids stale questionsAsked when the AI request finishes)
+        const questionsWithAnswers: QuestionWithAnswer[] =
+          buildStaticQuizQuestionsWithAnswers(nextAnswers);
         
         // Save complete session
         await saveQuizSession({

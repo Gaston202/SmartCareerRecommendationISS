@@ -6,9 +6,11 @@ import type { QuizNextResponse, QuizQuestion } from './types';
 import {
   buildOpenRouterHeaders,
   getOpenRouterApiKey,
+  normalizeOpenRouterMessageContent,
   OPENROUTER_URL,
   toOpenRouterError,
 } from '../../api/openrouter';
+import type { QuestionWithAnswer } from './types';
 
 const QUIZ_TOTAL_QUESTIONS = 10;
 
@@ -153,6 +155,24 @@ Rules:
 
 export interface QuizNextRequest {
   answers: string[];
+}
+
+/**
+ * Build Q&A rows from static Nova questions (same source as the UI). Avoids relying on
+ * React state that can be stale when the final OpenRouter call resolves.
+ */
+export function buildStaticQuizQuestionsWithAnswers(
+  answers: string[]
+): QuestionWithAnswer[] {
+  return answers.map((selectedOption, idx) => {
+    const q = STATIC_NOVA_QUESTIONS[idx];
+    return {
+      questionNumber: idx + 1,
+      question: q?.question ?? '',
+      selectedOption,
+      allOptions: q?.options.map((o) => o.label) ?? [],
+    };
+  });
 }
 
 const QUIZ_MAX_RETRIES_PER_MODEL = 2;
@@ -431,7 +451,8 @@ async function callOpenRouter(request: QuizNextRequest): Promise<QuizNextRespons
         }
 
         const data = await res.json();
-        const aiContent = data?.choices?.[0]?.message?.content?.trim();
+        const rawContent = data?.choices?.[0]?.message?.content;
+        const aiContent = normalizeOpenRouterMessageContent(rawContent);
         if (!aiContent) {
           throw new Error('Empty response from AI');
         }

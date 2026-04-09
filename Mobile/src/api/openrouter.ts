@@ -2,6 +2,31 @@ const OPENROUTER_API_KEY_ENV = "EXPO_PUBLIC_OPENROUTER_API_KEY";
 
 export const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
+/**
+ * OpenRouter / some models return `content` as a string, null, or a parts array
+ * (e.g. [{ type: "text", text: "..." }]). Calling `.trim()` on an array throws.
+ */
+export function normalizeOpenRouterMessageContent(content: unknown): string {
+  if (content == null) return "";
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    const chunks: string[] = [];
+    for (const part of content) {
+      if (typeof part === "string") {
+        chunks.push(part);
+        continue;
+      }
+      if (part && typeof part === "object") {
+        const o = part as Record<string, unknown>;
+        if (typeof o.text === "string") chunks.push(o.text);
+        else if (typeof o.content === "string") chunks.push(o.content);
+      }
+    }
+    return chunks.join("\n").trim();
+  }
+  return String(content).trim();
+}
+
 function normalizeApiKey(value: string | undefined): string {
   const trimmed = value?.trim();
   if (!trimmed) return "";
