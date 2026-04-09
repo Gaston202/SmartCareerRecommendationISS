@@ -255,8 +255,13 @@ export class QuizService {
 
       this.logger.log(`[Quiz] Started new session ${session.id} for user ${userId}`);
 
-      // Return first static question (deterministic, no AI)
-      const question = STATIC_QUESTIONS[0];
+      // Generate first adaptive question (10-question flow)
+      const generatedQuestion = await this.aiOrchestrator.generateQuizNext([], 1);
+      const question = {
+        question: generatedQuestion.question,
+        options: generatedQuestion.options,
+        question_number: generatedQuestion.questionNumber ?? 1,
+      };
       this.logger.log(`[Quiz] Q1: ${question.question}`);
 
       // Cache session state
@@ -299,11 +304,15 @@ export class QuizService {
       // Use current question from session if not provided
       const qNum = questionNumber ?? session.current_question;
 
-      // Save answer to user_quiz_responses (need question text and options)
-      // Find the question text and options from static questions
-      const currentQuestionObj = STATIC_QUESTIONS.find(q => q.questionNumber === qNum);
+      // Rebuild current question from previous answers so we can persist exact asked question snapshot.
+      const previousAnswers = (session.answers || [])
+        .sort((a, b) => a.question_number - b.question_number)
+        .map((a) => a.answer);
+      const currentQuestionObj = await this.aiOrchestrator.generateQuizNext(previousAnswers, qNum);
       const questionText = currentQuestionObj?.question || '';
-      const allOptions = currentQuestionObj?.options.map(o => o.label) || [];
+      const allOptions = Array.isArray(currentQuestionObj?.options)
+        ? currentQuestionObj.options.map((o: any) => o.label).filter(Boolean)
+        : [];
 
       const { error: answerError } = await this.db.supabase
         .from('user_quiz_responses')
@@ -318,7 +327,15 @@ export class QuizService {
       if (answerError) throw answerError;
 
       // Update session with answers array and current_question
-      const answers = [...(session.answers || []), { question_number: qNum, answer }];
+      const answers = [
+        ...(session.answers || []),
+        {
+          question_number: qNum,
+          answer,
+          question: questionText,
+          options: allOptions,
+        },
+      ];
       const nextQuestionNumber = qNum + 1;
 
       if (nextQuestionNumber > QUIZ_TOTAL_QUESTIONS) {
@@ -377,11 +394,15 @@ export class QuizService {
         this.logger.log(`[Quiz] Completed. Returning ${matches.length} career matches.`);
         return { results };
       } else {
-        // Get next static question
-        const nextQuestion = STATIC_QUESTIONS.find(q => q.questionNumber === nextQuestionNumber);
-        if (!nextQuestion) {
-          throw new BadRequestException(`Question ${nextQuestionNumber} not found`);
-        }
+        const nextQuestionRaw = await this.aiOrchestrator.generateQuizNext(
+          answers.map((a) => a.answer),
+          nextQuestionNumber,
+        );
+        const nextQuestion = {
+          question: nextQuestionRaw.question,
+          options: nextQuestionRaw.options,
+          question_number: nextQuestionRaw.questionNumber ?? nextQuestionNumber,
+        };
 
         const { data: updatedSession, error: updateError } = await this.db.supabase
           .from('user_quiz_sessions')

@@ -6,12 +6,21 @@ import { ConfigService } from '@nestjs/config';
 export class CacheService implements OnModuleDestroy {
   private readonly logger = new Logger(CacheService.name);
   private redis: Redis | null = null;
+  private redisErrorLogged = false;
 
   constructor(private configService: ConfigService) {
     this.initializeRedis();
   }
 
   private initializeRedis() {
+    const disabled =
+      this.configService.get<string>('REDIS_DISABLED') === 'true' ||
+      this.configService.get<string>('REDIS_DISABLED') === '1';
+    if (disabled) {
+      this.logger.log('Redis disabled (REDIS_DISABLED); caching skipped');
+      return;
+    }
+
     const redisUrl = this.configService.get<string>('REDIS_URL');
     if (!redisUrl) {
       this.logger.warn('REDIS_URL not set, caching disabled');
@@ -19,21 +28,45 @@ export class CacheService implements OnModuleDestroy {
     }
 
     try {
+      const maxReconnectAttempts = 5;
       this.redis = new Redis(redisUrl, {
         maxRetriesPerRequest: null,
-        retryStrategy: (times) => Math.min(times * 50, 2000),
+        enableOfflineQueue: false,
+        retryStrategy: (times) => {
+          if (times > maxReconnectAttempts) {
+            this.logger.warn(
+              `Redis unreachable after ${maxReconnectAttempts} reconnect attempts; caching disabled. Start Redis (e.g. docker compose up -d redis) or set REDIS_DISABLED=true.`,
+            );
+            setImmediate(() => {
+              try {
+                this.redis?.disconnect();
+              } catch {
+                /* ignore */
+              }
+              this.redis = null;
+            });
+            return null;
+          }
+          return Math.min(times * 50, 2000);
+        },
       });
 
       this.redis.on('connect', () => {
         this.logger.log('Redis connected');
+        this.redisErrorLogged = false;
       });
 
       this.redis.on('error', (err) => {
-        this.logger.error('Redis error', err);
+        if (!this.redisErrorLogged) {
+          this.redisErrorLogged = true;
+          this.logger.warn(
+            `Redis error (further errors suppressed until reconnect): ${err?.message ?? err}`,
+          );
+        }
       });
 
       this.redis.on('close', () => {
-        this.logger.warn('Redis disconnected');
+        this.logger.debug('Redis connection closed');
       });
     } catch (err) {
       this.logger.error('Failed to initialize Redis', err);
