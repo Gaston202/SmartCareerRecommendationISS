@@ -9,6 +9,7 @@ import {
   HttpStatus,
   UploadedFile,
   BadRequestException,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiConsumes } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -25,6 +26,7 @@ export class CvController {
 
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload CV PDF for analysis' })
   @ApiResponse({ status: 201, description: 'CV uploaded successfully, processing started' })
@@ -38,18 +40,6 @@ export class CvController {
     return {
       success: true,
       data: result,
-    };
-  }
-
-  @Get('result/:analysisId')
-  @ApiOperation({ summary: 'Get CV analysis result by ID' })
-  @ApiResponse({ status: 200, description: 'CV analysis result' })
-  async getResult(@Req() req: Request, @Param('analysisId') analysisId: string) {
-    const userId = (req as any).user?.id;
-    const analysis = await this.cvService.getAnalysis(userId, analysisId);
-    return {
-      success: true,
-      data: analysis,
     };
   }
 
@@ -67,6 +57,18 @@ export class CvController {
       };
     }
 
+    return {
+      success: true,
+      data: analysis,
+    };
+  }
+
+  @Get('result/:analysisId')
+  @ApiOperation({ summary: 'Get CV analysis result by ID' })
+  @ApiResponse({ status: 200, description: 'CV analysis result' })
+  async getResult(@Req() req: Request, @Param('analysisId') analysisId: string) {
+    const userId = (req as any).user?.id;
+    const analysis = await this.cvService.getAnalysis(userId, analysisId);
     return {
       success: true,
       data: analysis,

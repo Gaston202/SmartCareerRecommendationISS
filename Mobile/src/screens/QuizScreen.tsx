@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { startQuiz, submitAnswer } from "../features/quiz/api-backend";
+import { startQuiz, submitAnswer, setSessionId } from "../features/quiz/api-backend";
 import { clearQuizSession, getQuizSession, saveQuizSession } from "../features/quiz/storage";
 import { AppLogo } from "../ui/AppLogo";
 import { supabase } from "../api/supabase";
@@ -683,7 +683,7 @@ export default function QuizScreen(): React.ReactElement {
         const result = await startQuiz();
         response = result.question;
         // Store backend session ID for future requests (do not save incomplete quiz session)
-        await AsyncStorage.setItem('quiz_backend_session_id', result.session.id);
+        await setSessionId(result.session.id);
         console.log('[QuizScreen] Started new backend session:', result.session.id);
       } else {
         // Submitting an answer
@@ -763,7 +763,7 @@ export default function QuizScreen(): React.ReactElement {
             id: `results-intro-${Date.now()}`,
             role: "ai",
             content:
-              "Your Nova report is ready. Here are your top career matches based on your responses.",
+              "Your Nova report is ready. Review your profile insights below.",
           },
         ]);
       }
@@ -871,6 +871,20 @@ export default function QuizScreen(): React.ReactElement {
         if (!mounted) return;
 
         if (savedSession?.results?.novaProfile) {
+          const savedCareers = savedSession.results.careers || [];
+          const hasNonZeroCareerMatch = savedCareers.some(
+            (career) => typeof career.matchPercent === 'number' && career.matchPercent > 0,
+          );
+          const savedDisc = savedSession.results.novaProfile?.behavior?.discPercentages;
+          const hasNonZeroDisc = !!savedDisc &&
+            [savedDisc.red, savedDisc.yellow, savedDisc.green, savedDisc.blue].some(
+              (value) => typeof value === 'number' && value > 0,
+            );
+
+          // Ignore stale local sessions captured before percentage fixes.
+          if (!hasNonZeroCareerMatch && !hasNonZeroDisc) {
+            await clearQuizSession();
+          } else {
           // We have saved results, display them
           setResults(savedSession.results);
           setCurrentQuestion(null);
@@ -892,6 +906,7 @@ export default function QuizScreen(): React.ReactElement {
             },
           ]);
           return;
+          }
         }
 
         // Check if we have a backend session ID - try to get results
@@ -1075,33 +1090,6 @@ export default function QuizScreen(): React.ReactElement {
                 <View style={styles.resultsBlock}>
                   {results.novaProfile ? <NovaProfileCard profile={results.novaProfile} styles={styles} /> : null}
 
-                  {/* Career Recommendations */}
-                  {results.careers && results.careers.length > 0 && (
-                    <View style={styles.careersSection}>
-                      <Text style={styles.careersTitle}>Your Top Career Matches</Text>
-                      {results.careers.map((career, index) => (
-                        <View key={index} style={styles.careerCard}>
-                          <View style={styles.careerHeader}>
-                            <Text style={styles.careerTitle}>{career.title}</Text>
-                            <View style={styles.matchBadge}>
-                              <Text style={styles.matchPercent}>{career.matchPercent}%</Text>
-                            </View>
-                          </View>
-                          <Text style={styles.careerDescription}>{career.description}</Text>
-                          {career.tags && career.tags.length > 0 && (
-                            <View style={styles.tagsContainer}>
-                              {career.tags.map((tag, tagIdx) => (
-                                <View key={tagIdx} style={styles.tag}>
-                                  <Text style={styles.tagText}>{tag}</Text>
-                                </View>
-                              ))}
-                            </View>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  )}
-
                   <Pressable
                     style={({ pressed }) => [styles.restartButton, pressed && styles.pressed]}
                     accessibilityRole="button"
@@ -1250,7 +1238,7 @@ function NovaProfileCard({
           Dominant style: {DISC_META[dominantDisc].label}
         </Text>
         <Text style={styles.novaSectionHint}>
-          Note: DISC percentages are independent indicators and do not need to total 100%.
+          Note: These DISC percentages are independent indicators, so they do not have to add up to 100%.
         </Text>
 
         {(["red", "yellow", "green", "blue"] as const).map((key) => (

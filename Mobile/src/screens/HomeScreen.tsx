@@ -19,8 +19,10 @@ import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUploadCv, useLatestCvUpload, useDeleteCv, cvQueryKeys } from "../features/cv/hooks";
 import type { CvUpload } from "../features/cv/types";
-import { analyzeCvWithOpenRouter } from "../features/cv/cv-analysis.service";
-import { supabase } from "../api/supabase";
+import {
+  getCvAnalysisStatusFromBackend,
+  getLatestCvAnalysisFromBackend,
+} from "../features/cv/api-backend";
 import { homeColors } from "./homeTheme";
 import { AppLogo } from "../ui/AppLogo";
 
@@ -232,7 +234,10 @@ export default function HomeScreen(): React.ReactElement {
             setCv(uploaded);
             setStatus("idle");
             setError(null);
-            Alert.alert("Success", "CV uploaded! Tap 'Analyze' to analyze it.");
+            Alert.alert(
+              "Success",
+              "CV uploaded! Analysis has started on the backend. Tap 'Analyze CV' to check progress."
+            );
           },
           onError: (err: any) => {
             console.error("[HomeScreen] ❌ Upload failed:", err);
@@ -432,38 +437,34 @@ export default function HomeScreen(): React.ReactElement {
       return;
     }
 
-    // Verify session exists before attempting analysis
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !session) {
-      console.error("[HomeScreen] ❌ No session found. User not authenticated.");
-      const errorMsg = "Session expired. Please sign in again.";
-      setError(errorMsg);
-      setStatus("error");
-      Alert.alert("Not Authenticated", errorMsg);
-      setStatus("idle");
-      return;
-    }
-
-    console.log("[HomeScreen] ✅ Session verified", {
-      userId: session.user?.id,
-      tokenLength: session.access_token?.length,
-    });
-
     setStatus("analyzing");
     setError(null);
-    console.log("[HomeScreen] 👉 Starting client-side CV analysis:", cv.id);
+    console.log("[HomeScreen] 👉 Checking backend CV analysis status:", cv.id);
 
     try {
-      // ⭐ Client-side analysis with OpenRouter (no Edge Function)
-      const result = await analyzeCvWithOpenRouter(
-        cv.id,
-        cv.storage_path,
-        cv.filename
-      );
+      const latest = await getLatestCvAnalysisFromBackend();
+      if (!latest) {
+        setStatus("idle");
+        Alert.alert(
+          "Analysis in progress",
+          "Your CV is still being processed. Please try again in a few seconds."
+        );
+        return;
+      }
 
-      queryClient.setQueryData(cvQueryKeys.analysis(cv.id), result);
+      const analysisStatus = (latest as any).status as string | undefined;
+      if (analysisStatus === "pending" || analysisStatus === "processing") {
+        const statusPayload = await getCvAnalysisStatusFromBackend(latest.id).catch(() => null);
+        const progress = statusPayload?.progress ?? 50;
+        setStatus("idle");
+        Alert.alert(
+          "Analysis in progress",
+          `Backend is still analyzing your CV (${progress}%). Please retry shortly.`
+        );
+        return;
+      }
 
-      console.log("[HomeScreen] ✅ CV analysis completed and saved!");
+      console.log("[HomeScreen] ✅ CV analysis available from backend");
 
       // Invalidate queries to show new results
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });

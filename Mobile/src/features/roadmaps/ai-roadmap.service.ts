@@ -6,8 +6,9 @@ import {
 } from '../../api/openrouter';
 import { getQuizSession } from '../quiz/storage';
 import type { SavedRoadmap, RoadmapStep } from './types';
+import { generateRoadmapFromBackend } from './api-backend';
 
-const ROADMAP_MODEL = 'stepfun/step-3.5-flash:free';
+const ROADMAP_MODEL = 'arcee-ai/trinity-large-preview:free';
 
 function buildUserMessage(
   careerTitle: string,
@@ -69,7 +70,37 @@ export async function generateCareerRoadmap(
   careerDescription: string,
   tags?: string[],
   matchPercent?: number,
+  careerId?: string,
 ): Promise<SavedRoadmap> {
+  if (careerId) {
+    try {
+      const backendRoadmap = await generateRoadmapFromBackend(careerId);
+      const steps: RoadmapStep[] = Array.isArray(backendRoadmap.milestones)
+        ? backendRoadmap.milestones.map((m) => ({
+            title: m.title,
+            description: m.description,
+            timeframe:
+              typeof m.duration_weeks === 'number'
+                ? `${m.duration_weeks} week${m.duration_weeks > 1 ? 's' : ''}`
+                : undefined,
+          }))
+        : [];
+
+      return {
+        id: String(backendRoadmap.id || `${careerTitle}-${Date.now()}`),
+        careerId,
+        careerTitle,
+        careerDescription,
+        matchPercent,
+        tags,
+        createdAt: backendRoadmap.created_at || new Date().toISOString(),
+        steps,
+      };
+    } catch (error) {
+      console.warn('[roadmaps] Backend generation failed, falling back to OpenRouter', error);
+    }
+  }
+
   const key = getOpenRouterApiKey();
 
   // Load latest quiz session to give more context (if available)
@@ -153,6 +184,7 @@ ${quizSummary}
 
   const roadmap: SavedRoadmap = {
     id: `${careerTitle}-${Date.now()}`,
+    careerId,
     careerTitle,
     careerDescription,
     matchPercent,

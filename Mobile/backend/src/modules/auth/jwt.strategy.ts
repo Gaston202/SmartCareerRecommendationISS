@@ -13,10 +13,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     private authService: AuthService,
     private configService: ConfigService,
   ) {
-    const secret = configService.get<string>('JWT_SECRET');
-    if (!secret) {
-      throw new Error('JWT_SECRET is required for JWT validation');
-    }
+    const secret = configService.get<string>('JWT_SECRET') || 'supabase-jwt-validation-only';
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),

@@ -28,6 +28,7 @@ type HomeStackParamList = {
   CVAnalysis: undefined;
   CareerRoadmap: {
     roadmapId?: string;
+    careerId?: string;
     careerTitle: string;
     careerDescription: string;
     matchPercent?: number;
@@ -93,6 +94,7 @@ export default function CareerRoadmapScreen(): React.ReactElement {
         params.careerDescription,
         params.tags,
         params.matchPercent,
+        params.careerId,
       );
       setRoadmap(generated);
     } catch (error: any) {

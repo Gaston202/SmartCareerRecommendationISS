@@ -130,6 +130,7 @@ export default function RoadmapsScreen(): React.ReactElement {
 
     const saved: SavedAiCareer = {
       id: `${title}-${Date.now()}`,
+      careerId: String(match?.career?.id || "") || undefined,
       careerTitle: title,
       careerDescription: String(match?.career?.description || ""),
       matchPercent: typeof match?.score === "number" ? match.score : undefined,
@@ -288,6 +289,7 @@ export default function RoadmapsScreen(): React.ReactElement {
                           screen: "CareerRoadmap",
                           params: {
                             roadmapId: roadmap.id,
+                            careerId: roadmap.careerId,
                             careerTitle: roadmap.careerTitle,
                             careerDescription: roadmap.careerDescription,
                             matchPercent: roadmap.matchPercent,
@@ -336,6 +338,7 @@ export default function RoadmapsScreen(): React.ReactElement {
                       navigation.navigate("Home", {
                         screen: "CareerRoadmap",
                         params: {
+                          careerId: career.careerId,
                           careerTitle: career.careerTitle,
                           careerDescription: career.careerDescription,
                           matchPercent: career.matchPercent,
@@ -392,6 +395,7 @@ export default function RoadmapsScreen(): React.ReactElement {
                           screen: "CareerRoadmap",
                           params: {
                             roadmapId: savedForCareer.id,
+                            careerId: savedForCareer.careerId,
                             careerTitle: savedForCareer.careerTitle,
                             careerDescription: savedForCareer.careerDescription,
                             matchPercent: savedForCareer.matchPercent,
@@ -402,6 +406,7 @@ export default function RoadmapsScreen(): React.ReactElement {
                         navigation.navigate("Home", {
                           screen: "CareerRoadmap",
                           params: {
+                            careerId: match.career.id,
                             careerTitle: match.career.title,
                             careerDescription: match.career.description,
                             matchPercent: match.score,

@@ -256,7 +256,7 @@ export class QuizService {
       this.logger.log(`[Quiz] Started new session ${session.id} for user ${userId}`);
 
       // Generate first adaptive question (10-question flow)
-      const generatedQuestion = await this.aiOrchestrator.generateQuizNext([], 1);
+      const generatedQuestion = await this.aiOrchestrator.generateQuizNext([], 1, []);
       const question = {
         question: generatedQuestion.question,
         options: generatedQuestion.options,
@@ -308,7 +308,11 @@ export class QuizService {
       const previousAnswers = (session.answers || [])
         .sort((a, b) => a.question_number - b.question_number)
         .map((a) => a.answer);
-      const currentQuestionObj = await this.aiOrchestrator.generateQuizNext(previousAnswers, qNum);
+      const previousQuestions = (session.answers || [])
+        .sort((a, b) => a.question_number - b.question_number)
+        .map((a) => a.question)
+        .filter((q) => typeof q === 'string' && q.trim().length > 0);
+      const currentQuestionObj = await this.aiOrchestrator.generateQuizNext(previousAnswers, qNum, previousQuestions);
       const questionText = currentQuestionObj?.question || '';
       const allOptions = Array.isArray(currentQuestionObj?.options)
         ? currentQuestionObj.options.map((o: any) => o.label).filter(Boolean)
@@ -388,7 +392,7 @@ export class QuizService {
         };
 
         // Cache results
-        const resultsCacheKey = `quiz:results:${userId}:${sessionId}`;
+        const resultsCacheKey = `quiz:results:v2:${userId}:${sessionId}`;
         await this.cacheService.set(resultsCacheKey, results, 86400);
 
         this.logger.log(`[Quiz] Completed. Returning ${matches.length} career matches.`);
@@ -397,6 +401,7 @@ export class QuizService {
         const nextQuestionRaw = await this.aiOrchestrator.generateQuizNext(
           answers.map((a) => a.answer),
           nextQuestionNumber,
+          answers.map((a) => a.question).filter((q) => typeof q === 'string' && q.trim().length > 0),
         );
         const nextQuestion = {
           question: nextQuestionRaw.question,
@@ -465,12 +470,14 @@ export class QuizService {
   ): { red: number; yellow: number; green: number; blue: number; dominant: string } {
     const counts = { red: 0, blue: 0, green: 0, yellow: 0 };
     for (const ans of answers) {
-      const disc = QuizService.LABEL_TO_DISC[ans.questionNumber]?.[ans.selectedLabel];
+      const disc =
+        QuizService.LABEL_TO_DISC[ans.questionNumber]?.[ans.selectedLabel] ||
+        this.inferDiscFromAnswerLabel(ans.selectedLabel);
       if (disc) {
         counts[disc] += 1;
       }
     }
-    const total = answers.length || 1;
+    const total = counts.red + counts.blue + counts.green + counts.yellow || 1;
     const red = Math.round((counts.red / total) * 100);
     const blue = Math.round((counts.blue / total) * 100);
     const green = Math.round((counts.green / total) * 100);
@@ -484,6 +491,83 @@ export class QuizService {
     ].sort((a, b) => b.value - a.value);
     const dominant = entries[0].color as any;
     return { red, blue, green, yellow, dominant };
+  }
+
+  private inferDiscFromAnswerLabel(label: string): 'red' | 'blue' | 'green' | 'yellow' {
+    const text = (label || '').toLowerCase();
+
+    const keywordSets: Record<'red' | 'blue' | 'green' | 'yellow', string[]> = {
+      red: [
+        'lead',
+        'control',
+        'result',
+        'target',
+        'goal',
+        'decis',
+        'action',
+        'perform',
+        'accountability',
+        'ownership',
+        'drive',
+      ],
+      blue: [
+        'analy',
+        'evidence',
+        'precision',
+        'detail',
+        'quality',
+        'accuracy',
+        'logic',
+        'structured',
+        'data',
+        'expert',
+        'mastery',
+      ],
+      green: [
+        'support',
+        'collab',
+        'team',
+        'trust',
+        'empat',
+        'coach',
+        'harmony',
+        'relationship',
+        'encouragement',
+      ],
+      yellow: [
+        'creative',
+        'innovation',
+        'idea',
+        'inspire',
+        'express',
+        'possibilit',
+        'experimentation',
+        'variety',
+        'dialogue',
+        'vision',
+      ],
+    };
+
+    const scores: Record<'red' | 'blue' | 'green' | 'yellow', number> = {
+      red: 0,
+      blue: 0,
+      green: 0,
+      yellow: 0,
+    };
+
+    for (const color of Object.keys(keywordSets) as Array<'red' | 'blue' | 'green' | 'yellow'>) {
+      for (const kw of keywordSets[color]) {
+        if (text.includes(kw)) {
+          scores[color] += 1;
+        }
+      }
+    }
+
+    const ranked = (Object.entries(scores) as Array<['red' | 'blue' | 'green' | 'yellow', number]>).sort(
+      (a, b) => b[1] - a[1],
+    );
+
+    return ranked[0][1] > 0 ? ranked[0][0] : 'blue';
   }
 
   /**
@@ -584,7 +668,7 @@ export class QuizService {
 
   async getQuizResult(userId: string, sessionId: string): Promise<any> {
     try {
-      const cacheKey = `quiz:results:${userId}:${sessionId}`;
+      const cacheKey = `quiz:results:v2:${userId}:${sessionId}`;
       const cached = await this.cacheService.get(cacheKey);
       if (cached) return cached;
 

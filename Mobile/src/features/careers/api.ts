@@ -5,8 +5,9 @@
 
 import type { CareerMatch } from './matching';
 import type { Career } from './types';
+import { getBackendApiBaseUrl } from '../../api/backend';
 
-const BACKEND_API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api/v1';
+const BACKEND_API_URL = getBackendApiBaseUrl();
 
 /**
  * Get personalized career recommendations from backend

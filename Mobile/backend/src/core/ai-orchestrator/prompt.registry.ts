@@ -17,7 +17,7 @@ export class PromptRegistry {
   constructor() {
     this.registerPrompts();
     console.log('='.repeat(60));
-    console.log('✅ PROMPT REGISTRY LOADED - Quiz prompts updated for career preferences');
+    console.log('✅ PROMPT REGISTRY LOADED - Quiz prompts aligned to Nova Profile dimensions');
     const quizPrompt = this.prompts.get('quiz-question');
     if (quizPrompt) {
       console.log('📝 Quiz question prompt preview:');
@@ -27,43 +27,53 @@ export class PromptRegistry {
   }
 
   private registerPrompts() {
-    // Quiz Question Generation - Career Preference Focused
+    // Quiz Question Generation - Nova Profile Focused
     this.prompts.set('quiz-question', {
       name: 'quiz-question',
-      template: `You are an expert career assessment AI generating quiz questions to discover a person's ideal job characteristics.
+      template: `You are an expert psychometric assessment AI generating Nova Profile questions.
 
-CRITICAL: Your questions determine career matches. Make them COUNT.
+CRITICAL: Your questions must measure Nova Profile dimensions for personal and professional development.
 
 USER'S PREVIOUS ANSWERS (understand their preferences from these):
 {{#each answers}}
   Q{{@index}}: {{this}}
 {{/each}}
 
+PREVIOUS QUESTIONS ALREADY ASKED (DO NOT REPEAT OR PARAPHRASE):
+{{#if previousQuestions.length}}
+{{#each previousQuestions}}
+  - {{this}}
+{{/each}}
+{{else}}
+  - None yet
+{{/if}}
+
 CURRENT QUESTION NUMBER: {{questionNumber}} / 10
 
 YOUR MISSION:
-Generate the NEXT question that EXPLORES A NEW ASPECT of their work preferences. DO NOT repeat themes already covered. BUILD on what you've learned.
+Generate the NEXT question that explores a NEW Nova dimension. DO NOT repeat themes already covered. BUILD on what you've learned.
+The next question must be semantically different from all previous questions above (not just different wording).
 
 STEP 1 - Analyze previous answers to deduce their preferences:
-- Look for patterns: Do they lean toward analytical (blue) or creative (yellow) or people-focused (green) or action-oriented (red)?
-- What topics have they NOT yet discussed? (use the checklist below)
-- Choose a NEW topic that will help differentiate their ideal career path
+- Infer likely DISC tendencies and style patterns (natural vs adapted)
+- Identify which Nova dimensions are still unmeasured (use checklist below)
+- Choose one NEW dimension that improves profile depth
 
-STEP 2 - Select a NEW topic from this checklist (mark off as you go):
-□ Teamwork vs independent work
-□ Work environment (office/remote/field, structured/flexible, pace)
-□ Task types (analytical, creative, technical, administrative, helping)
-□ People interaction (client-facing, team collaboration, solo)
-□ Work values (achievement, creativity, stability, income, impact, balance)
-□ Decision-making autonomy (freedom vs guidance)
-□ Learning style (structured courses vs hands-on vs self-directed)
-□ Problem-solving approach (data-driven, intuitive, experimental, research)
-□ Career goals (short-term vs long-term, mastery vs leadership vs innovation)
-□ Stress tolerance (tight deadlines vs steady workload)
+STEP 2 - Select a NEW topic from this Nova checklist (exactly one per question):
+□ Dominance vs influence vs steadiness vs compliance preference (DISC)
+□ Natural style (default behavior when relaxed)
+□ Adapted style (behavior in formal/high-expectation settings)
+□ Motivation drivers (recognition, mastery, impact, autonomy, stability)
+□ Core work values (results, harmony, innovation, precision)
+□ Communication style (direct, diplomatic, expressive, analytical)
+□ Cognitive preference (structured analysis vs experimentation vs relational judgment)
+□ Decision style (speed/action vs consensus vs evidence depth)
+□ Learning & development preference (coaching, hands-on, independent study, structured path)
+□ Leadership/team dynamic preference (leading, supporting, collaborating, expert role)
 
 STEP 3 - Write a clear, simple question about that NEW topic. The question should:
 - Be 10-18 words
-- Ask directly about PREFERENCES (not behaviors or past experiences)
+- Ask directly about PREFERENCES (not past events or interview scenarios)
 - Example format: "Do you prefer [option A] or [option B]?" or "What is most important to you: X, Y, or Z?"
 
 STEP 4 - Create exactly 4 preference options labeled with DISC colors:
@@ -88,11 +98,12 @@ RULES - NEVER VIOLATE:
 - ❌ NO questions about past experience, education, training
 - ❌ NO questions about stress responses or conflict handling
 - ❌ NO “what is your greatest weakness” or “describe a time”
-- ❌ NO questions that don't reveal work preferences
-- ✓ ONLY questions that help match to careers (work activities, environment, values, interests)
-- ✓ Each answer should map to specific career dimensions (O*NET work styles, values, activities)
+- ❌ NO repeated/paraphrased questions about the same theme
+- ❌ NO questions that don't reveal psychometric preferences
+- ✓ Questions should measure Nova dimensions: behavior, cognition, motivation, values, communication
+- ✓ Each answer option should map clearly to one DISC color tendency
 
-IMPORTANT: The user will see 10 questions total. Make each one count. Probe a different dimension each time.
+IMPORTANT: The user will see 10 questions total. Cover different Nova dimensions across the full sequence.
 
 Now generate the next question based on what's already been asked:`,
       model: 'arcee-ai/trinity-large-preview:free',
@@ -188,7 +199,7 @@ CRITICAL: Return ONLY valid JSON with no additional text or explanations.
   ],
   "summary": "Brief summary"
 }`,
-      model: 'stepfun/step-3.5-flash:free',
+      model: 'arcee-ai/trinity-large-preview:free',
       temperature: 0.3,
       maxTokens: 1500,
     });
@@ -212,7 +223,7 @@ CRITICAL: Return ONLY valid JSON with no additional text or explanations.
     { "section": "...", "suggestion": "...", "example": "..." }
   ]
 }`,
-      model: 'stepfun/step-3.5-flash:free',
+      model: 'arcee-ai/trinity-large-preview:free',
       temperature: 0.5,
       maxTokens: 1000,
     });

@@ -6,6 +6,7 @@ export interface RoadmapStep {
 
 export interface SavedRoadmap {
   id: string;
+  careerId?: string;
   careerTitle: string;
   careerDescription: string;
   matchPercent?: number;
@@ -16,6 +17,7 @@ export interface SavedRoadmap {
 
 export interface SavedAiCareer {
   id: string;
+  careerId?: string;
   careerTitle: string;
   careerDescription: string;
   matchPercent?: number;

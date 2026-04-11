@@ -10,19 +10,10 @@ const ExplanationSchema = z.string();
 export class AiOrchestratorService {
   private readonly logger = new Logger(AiOrchestratorService.name);
   private readonly MODELS = {
-    quiz: [
-      "arcee-ai/trinity-large-preview:free",
-      "stepfun/step-3.5-flash:free",
-    ],
-    cv: ["stepfun/step-3.5-flash:free", "arcee-ai/trinity-large-preview:free"],
-    roadmap: [
-      "arcee-ai/trinity-large-preview:free",
-      "stepfun/step-3.5-flash:free",
-    ],
-    explanation: [
-      "stepfun/step-3.5-flash:free",
-      "arcee-ai/trinity-large-preview:free",
-    ],
+    quiz: ["arcee-ai/trinity-large-preview:free"],
+    cv: ["arcee-ai/trinity-large-preview:free"],
+    roadmap: ["arcee-ai/trinity-large-preview:free"],
+    explanation: ["arcee-ai/trinity-large-preview:free"],
   };
 
   constructor(
@@ -120,6 +111,7 @@ Write an encouraging, specific explanation that references at least one skill or
   async generateQuizNext(
     answers: string[],
     questionNumber: number,
+    previousQuestions: string[] = [],
     cacheTtl: number = 3600,
   ): Promise<any> {
     this.logger.log(
@@ -128,13 +120,16 @@ Write an encouraging, specific explanation that references at least one skill or
     this.logger.log(`[Quiz] Previous answers: ${JSON.stringify(answers)}`);
 
     // Use versioned cache key to avoid stale cached questions
-    const cacheKey = `quiz:next:v5:${Buffer.from(answers.join(",")).toString("base64")}:${questionNumber}`;
+    const cacheKey = `quiz:next:v6:${Buffer.from(answers.join(",")).toString("base64")}:${questionNumber}`;
 
     if (this.cacheService) {
       const cached = await this.cacheService.get(cacheKey);
       if (cached) {
         this.logger.log(`[Quiz] Cache hit for Q${questionNumber}`);
-        if (this.isValidPreferenceQuestion(cached, questionNumber)) {
+        if (
+          this.isValidPreferenceQuestion(cached, questionNumber) &&
+          !this.isQuestionTooSimilar((cached as any).question, previousQuestions)
+        ) {
           this.logger.log(
             `[Quiz] ✅ Using cached question: "${(cached as any).question.substring(0, 60)}..."`,
           );
@@ -151,6 +146,7 @@ Write an encouraging, specific explanation that references at least one skill or
     const prompt = this.promptRegistry.compile("quiz-question", {
       answers,
       questionNumber,
+      previousQuestions,
     });
     this.logger.debug(`[Quiz] Prompt snippet: ${prompt.substring(0, 400)}...`);
 
@@ -184,14 +180,93 @@ Write an encouraging, specific explanation that references at least one skill or
     // Validate and sanitize
     result = this.validateAndSanitizeQuestion(result, questionNumber);
 
+    if (this.isQuestionTooSimilar(result.question, previousQuestions)) {
+      this.logger.warn(
+        `[Quiz] ❌ Repeated/similar question detected for Q${questionNumber}. Using fallback to enforce variety.`,
+      );
+      result = this.getFallbackQuestion(questionNumber);
+    }
+
     if (this.cacheService) {
       await this.cacheService.set(cacheKey, result, cacheTtl);
-      this.logger.log(`[Quiz] Cached result with key prefix: quiz:next:v5`);
+      this.logger.log(`[Quiz] Cached result with key prefix: quiz:next:v6`);
     }
 
     this.logger.log(`[Quiz] ✅ FINAL QUESTION: "${result.question}"`);
     this.logger.log(`[Quiz] ========== END Q${questionNumber} ==========\n`);
     return result;
+  }
+
+  private isQuestionTooSimilar(
+    questionText: string,
+    previousQuestions: string[] = [],
+  ): boolean {
+    if (!questionText || previousQuestions.length === 0) return false;
+
+    const normalize = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const stopWords = new Set([
+      "what",
+      "which",
+      "who",
+      "where",
+      "when",
+      "why",
+      "how",
+      "is",
+      "are",
+      "do",
+      "does",
+      "you",
+      "your",
+      "most",
+      "kind",
+      "type",
+      "work",
+      "job",
+      "at",
+      "in",
+      "of",
+      "to",
+      "the",
+      "a",
+      "an",
+      "or",
+      "and",
+    ]);
+
+    const tokenSet = (s: string) =>
+      new Set(
+        normalize(s)
+          .split(" ")
+          .filter((w) => w.length > 2 && !stopWords.has(w)),
+      );
+
+    const currentNorm = normalize(questionText);
+    const currentTokens = tokenSet(questionText);
+
+    return previousQuestions.some((q) => {
+      const prevNorm = normalize(q);
+      if (!prevNorm) return false;
+
+      if (prevNorm === currentNorm) return true;
+
+      const prevTokens = tokenSet(q);
+      if (prevTokens.size === 0 || currentTokens.size === 0) return false;
+
+      let intersection = 0;
+      for (const t of currentTokens) {
+        if (prevTokens.has(t)) intersection += 1;
+      }
+
+      const similarity = intersection / Math.max(currentTokens.size, prevTokens.size);
+      return similarity >= 0.6;
+    });
   }
 
   private isValidPreferenceQuestion(
@@ -522,7 +597,7 @@ Write an encouraging, specific explanation that references at least one skill or
             };
           } else {
             if (!Array.isArray(np.motivations.topMotivators))
-              np.motivators.topMotivators = [];
+              np.motivations.topMotivators = [];
             if (!Array.isArray(np.motivations.demotivators))
               np.motivations.demotivators = [];
           }
@@ -771,310 +846,285 @@ Write an encouraging, specific explanation that references at least one skill or
   }
 
   private getFallbackQuestion(questionNumber: number): any {
-    // Complete set of 10 preference-focused static questions
+    // Complete set of 10 Nova Profile-oriented fallback questions
     const staticQuestions = [
       {
         type: "question" as const,
-        question: "Do you prefer working independently or as part of a team?",
+        question: "When work pressure rises, what is your most natural first response?",
         questionNumber: 1,
         totalQuestions: 10,
         options: [
           {
-            id: "blue",
-            label: "I do my best work alone, focused and self-directed",
-            icon: "code",
-          },
-          {
-            id: "green",
-            label: "I enjoy teamwork but also value some independent tasks",
-            icon: "people",
-          },
-          {
             id: "red",
-            label: "I thrive in teams, especially when leading or competing",
-            icon: "target",
+            label: "Take control quickly and drive immediate action",
+            icon: "flash",
           },
           {
             id: "yellow",
-            label:
-              "I prefer spontaneous collaborations over structured teamwork",
+            label: "Energize others and generate fast creative momentum",
             icon: "globe",
+          },
+          {
+            id: "green",
+            label: "Stabilize the team and keep collaboration calm",
+            icon: "people",
+          },
+          {
+            id: "blue",
+            label: "Pause to analyze facts before deciding next steps",
+            icon: "analytics",
           },
         ],
       },
       {
         type: "question" as const,
-        question: "What kind of work environment helps you thrive most?",
+        question: "In formal environments, how do you usually adapt your style?",
         questionNumber: 2,
         totalQuestions: 10,
         options: [
           {
             id: "blue",
-            label: "A quiet, structured office with clear processes",
+            label: "I become more precise, careful, and detail-focused",
             icon: "construct",
           },
           {
             id: "green",
-            label: "A collaborative team space where I can support others",
+            label: "I become more patient and relationship-oriented",
             icon: "handshake",
           },
           {
             id: "red",
-            label: "A fast-paced, competitive setting with rapid decisions",
+            label: "I become more directive and results-focused",
             icon: "flash",
           },
           {
             id: "yellow",
-            label:
-              "A flexible, dynamic environment with variety and experimentation",
+            label: "I become more expressive and persuasive with others",
             icon: "globe",
           },
         ],
       },
       {
         type: "question" as const,
-        question: "What type of problems do you enjoy solving?",
+        question: "Which decision-making approach feels most natural to you?",
         questionNumber: 3,
         totalQuestions: 10,
         options: [
           {
-            id: "blue",
-            label: "Complex analytical problems that require research and data",
-            icon: "analytics",
-          },
-          {
-            id: "green",
-            label: "People problems: conflicts, relationships, team dynamics",
-            icon: "people",
-          },
-          {
             id: "red",
-            label:
-              "Action problems: quick decisions, crisis management, obstacles to overcome",
-            icon: "business",
+            label: "Decide fast and adjust as new information appears",
+            icon: "target",
           },
           {
             id: "yellow",
-            label:
-              "Creative problems: designing, innovating, brainstorming new ideas",
-            icon: "brush",
+            label: "Discuss broadly to spark possibilities before deciding",
+            icon: "globe",
+          },
+          {
+            id: "green",
+            label: "Seek alignment so people can support the decision",
+            icon: "people",
+          },
+          {
+            id: "blue",
+            label: "Review evidence deeply before making final conclusions",
+            icon: "analytics",
           },
         ],
       },
       {
         type: "question" as const,
-        question:
-          "How important is it for your job to directly help or serve others?",
+        question: "What communication style helps you perform at your best?",
         questionNumber: 4,
         totalQuestions: 10,
         options: [
           {
-            id: "blue",
-            label: "Not important; I prefer technical or analytical work",
-            icon: "analytics",
-          },
-          {
-            id: "green",
-            label:
-              "Very important; I want to make a positive difference in people's lives",
-            icon: "people",
-          },
-          {
             id: "red",
-            label:
-              "Somewhat important; helping others should align with achieving results",
-            icon: "target",
+            label: "Direct, concise communication focused on outcomes",
+            icon: "business",
           },
           {
             id: "yellow",
-            label:
-              "It depends; I enjoy inspiring or entertaining others in creative ways",
-            icon: "brush",
+            label: "Energetic, expressive dialogue that inspires momentum",
+            icon: "globe",
+          },
+          {
+            id: "green",
+            label: "Warm, empathetic communication that builds trust",
+            icon: "handshake",
+          },
+          {
+            id: "blue",
+            label: "Structured, fact-based communication with clear logic",
+            icon: "analytics",
           },
         ],
       },
       {
         type: "question" as const,
-        question:
-          "Do you prefer clear instructions and structure or freedom to innovate?",
+        question: "What most consistently motivates your best professional performance?",
         questionNumber: 5,
         totalQuestions: 10,
         options: [
           {
-            id: "blue",
-            label:
-              "Clear instructions and well-defined processes are essential",
-            icon: "construct",
-          },
-          {
-            id: "green",
-            label:
-              "I like some structure but also room to adapt and collaborate",
-            icon: "handshake",
-          },
-          {
             id: "red",
-            label: "I want freedom to make decisions and chart my own course",
-            icon: "flash",
-          },
-          {
-            id: "yellow",
-            label:
-              "Give me the vision and let me innovate freely with minimal rules",
-            icon: "globe",
-          },
-        ],
-      },
-      {
-        type: "question" as const,
-        question:
-          "Which of these work activities sounds most appealing to you?",
-        questionNumber: 6,
-        totalQuestions: 10,
-        options: [
-          {
-            id: "blue",
-            label:
-              "Analyzing data, writing reports, ensuring quality and accuracy",
-            icon: "analytics",
-          },
-          {
-            id: "green",
-            label: "Supporting, mentoring, or caring for people in some way",
-            icon: "people",
-          },
-          {
-            id: "red",
-            label:
-              "Leading projects, meeting targets, making strategic decisions",
-            icon: "business",
-          },
-          {
-            id: "yellow",
-            label:
-              "Creating designs, developing new concepts, expressing ideas",
-            icon: "brush",
-          },
-        ],
-      },
-      {
-        type: "question" as const,
-        question: "What is your preferred pace of work?",
-        questionNumber: 7,
-        totalQuestions: 10,
-        options: [
-          {
-            id: "blue",
-            label: "Steady, methodical pace with time to perfect my work",
-            icon: "construct",
-          },
-          {
-            id: "green",
-            label:
-              "Moderate pace that allows for collaboration and relationship-building",
-            icon: "handshake",
-          },
-          {
-            id: "red",
-            label: "Fast-paced with quick turnarounds and high energy",
-            icon: "flash",
-          },
-          {
-            id: "yellow",
-            label:
-              "Variable pace; sometimes intense bursts, sometimes relaxed exploration",
-            icon: "globe",
-          },
-        ],
-      },
-      {
-        type: "question" as const,
-        question: "When choosing a job, what matters most to you?",
-        questionNumber: 8,
-        totalQuestions: 10,
-        options: [
-          {
-            id: "blue",
-            label: "Job security, stability, and clear career progression path",
-            icon: "ribbon",
-          },
-          {
-            id: "green",
-            label:
-              "Positive workplace culture and strong relationships with colleagues",
-            icon: "people",
-          },
-          {
-            id: "red",
-            label:
-              "High salary, advancement opportunities, and visible recognition",
+            label: "Stretch targets, ownership, and visible achievement",
             icon: "trophy",
           },
           {
             id: "yellow",
-            label:
-              "Creative freedom, variety of tasks, and opportunity to experiment",
+            label: "Creative freedom, novelty, and recognition of ideas",
             icon: "brush",
+          },
+          {
+            id: "green",
+            label: "Meaningful contribution, connection, and helping others succeed",
+            icon: "people",
+          },
+          {
+            id: "blue",
+            label: "Mastery, quality, and confidence in technical competence",
+            icon: "code",
           },
         ],
       },
       {
         type: "question" as const,
-        question: "What kind of people do you enjoy working with most?",
-        questionNumber: 9,
+        question: "Which value should never be compromised in your work environment?",
+        questionNumber: 6,
         totalQuestions: 10,
         options: [
           {
-            id: "blue",
-            label: "Detail-oriented experts who value precision and quality",
-            icon: "analytics",
-          },
-          {
-            id: "green",
-            label:
-              "Supportive, empathetic team players who create positive environments",
-            icon: "people",
-          },
-          {
             id: "red",
-            label: "Ambitious, driven go-getters who push for results",
+            label: "Clear accountability and strong performance standards",
             icon: "target",
           },
           {
             id: "yellow",
-            label: "Creative, energetic innovators who think outside the box",
-            icon: "globe",
+            label: "Innovation, experimentation, and room for fresh thinking",
+            icon: "brush",
+          },
+          {
+            id: "green",
+            label: "Respectful relationships and a collaborative team culture",
+            icon: "handshake",
+          },
+          {
+            id: "blue",
+            label: "Accuracy, rigor, and evidence-based quality decisions",
+            icon: "analytics",
           },
         ],
       },
       {
         type: "question" as const,
-        question: "How do you like to receive feedback on your work?",
-        questionNumber: 10,
+        question: "How do you prefer to learn and develop new professional skills?",
+        questionNumber: 7,
         totalQuestions: 10,
         options: [
           {
-            id: "blue",
-            label: "Detailed, specific feedback with clear examples and data",
-            icon: "analytics",
-          },
-          {
-            id: "green",
-            label:
-              "Encouraging, supportive feedback that considers my feelings",
-            icon: "people",
-          },
-          {
             id: "red",
-            label:
-              "Direct, concise feedback focused on results and improvement",
+            label: "Learn quickly by leading real projects and challenges",
             icon: "business",
           },
           {
             id: "yellow",
-            label:
-              "Brainstorming sessions where feedback flows as creative dialogue",
+            label: "Learn through exploration, variety, and creative experimentation",
+            icon: "globe",
+          },
+          {
+            id: "green",
+            label: "Learn with coaching, practice, and collaborative feedback",
+            icon: "people",
+          },
+          {
+            id: "blue",
+            label: "Learn through structured study, models, and deep analysis",
+            icon: "code",
+          },
+        ],
+      },
+      {
+        type: "question" as const,
+        question: "Which team role feels most aligned with your natural strengths?",
+        questionNumber: 8,
+        totalQuestions: 10,
+        options: [
+          {
+            id: "red",
+            label: "Driving direction, decisions, and execution pace",
+            icon: "target",
+          },
+          {
+            id: "yellow",
+            label: "Connecting people, ideas, and future opportunities",
+            icon: "globe",
+          },
+          {
+            id: "green",
+            label: "Supporting cohesion, trust, and sustainable teamwork",
+            icon: "handshake",
+          },
+          {
+            id: "blue",
+            label: "Ensuring quality, logic, and technical excellence",
+            icon: "analytics",
+          },
+        ],
+      },
+      {
+        type: "question" as const,
+        question: "In uncertain situations, what best describes your cognitive approach?",
+        questionNumber: 9,
+        totalQuestions: 10,
+        options: [
+          {
+            id: "red",
+            label: "Act decisively with available information and adjust fast",
+            icon: "flash",
+          },
+          {
+            id: "yellow",
+            label: "Generate multiple possibilities before narrowing choices",
             icon: "brush",
+          },
+          {
+            id: "green",
+            label: "Gauge people impact first, then align on best path",
+            icon: "people",
+          },
+          {
+            id: "blue",
+            label: "Break down variables and decide from evidence",
+            icon: "analytics",
+          },
+        ],
+      },
+      {
+        type: "question" as const,
+        question: "What type of feedback best accelerates your professional growth?",
+        questionNumber: 10,
+        totalQuestions: 10,
+        options: [
+          {
+            id: "red",
+            label: "Direct challenge with clear next performance target",
+            icon: "business",
+          },
+          {
+            id: "yellow",
+            label: "Interactive dialogue that sparks new ideas and options",
+            icon: "globe",
+          },
+          {
+            id: "green",
+            label: "Supportive coaching with practical steps and encouragement",
+            icon: "handshake",
+          },
+          {
+            id: "blue",
+            label: "Structured feedback with precise examples and quality criteria",
+            icon: "analytics",
           },
         ],
       },

@@ -6,6 +6,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useCareersWithSkills } from './hooks';
+import { useCvAnalysis } from '../cv';
 import { getLatestQuizSessionId } from '../quiz/storage';
 import { recommendCareers, getAllCareers } from './api';
 import type { CareerMatch } from './matching';

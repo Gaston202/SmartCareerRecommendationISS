@@ -3,10 +3,11 @@
  * Uses stateful session management with session_id tracking
  */
 
-import type { QuizNextResponse, QuizQuestion } from './types';
+import type { QuizNextResponse, QuizQuestion, QuizResults } from './types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getBackendApiBaseUrl } from '../../api/backend';
 
-const BACKEND_API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000/api/v1';
+const BACKEND_API_URL = getBackendApiBaseUrl();
 const SESSION_ID_KEY = 'quiz_backend_session_id';
 
 console.log('[Quiz API] BACKEND_API_URL:', BACKEND_API_URL);
@@ -25,6 +26,50 @@ export interface QuizStartResponse {
 export interface QuizAnswerResponse {
   question?: QuizQuestion;
   results?: QuizNextResponse;
+}
+
+function normalizeQuizQuestion(raw: any): QuizQuestion {
+  return {
+    type: 'question',
+    question: String(raw?.question ?? ''),
+    questionNumber: Number(raw?.questionNumber ?? raw?.question_number ?? 1),
+    totalQuestions: Number(raw?.totalQuestions ?? raw?.total_questions ?? 10),
+    options: Array.isArray(raw?.options) ? raw.options : [],
+  };
+}
+
+function normalizeQuizResults(raw: any): QuizResults {
+  const source = raw?.results ?? raw;
+  const careers = Array.isArray(source?.careers)
+    ? source.careers.map((c: any) => ({
+        title: String(c?.title ?? 'Career'),
+        description: String(c?.description ?? ''),
+        matchPercent: Number(c?.matchPercent ?? c?.match_percent ?? c?.match_score ?? c?.score ?? 0),
+        tags: Array.isArray(c?.tags) ? c.tags.filter(Boolean) : [],
+      }))
+    : [];
+
+  const novaProfile = source?.novaProfile ?? source?.nova_profile;
+
+  return {
+    type: 'results',
+    careers,
+    novaProfile,
+  };
+}
+
+async function parseBackendError(response: Response, fallback: string): Promise<string> {
+  try {
+    const payload = await response.json();
+    if (typeof payload?.message === 'string' && payload.message.trim()) return payload.message;
+    if (typeof payload?.error === 'string' && payload.error.trim()) return payload.error;
+    if (Array.isArray(payload?.message) && payload.message.length > 0) {
+      return String(payload.message[0]);
+    }
+  } catch {
+    // Ignore parse errors and use fallback
+  }
+  return `${fallback} (HTTP ${response.status})`;
 }
 
 /**
@@ -81,8 +126,11 @@ export async function startQuiz(): Promise<QuizStartResponse> {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to start quiz');
+      if (response.status === 401) {
+        await clearSessionId();
+      }
+      const errorMessage = await parseBackendError(response, 'Failed to start quiz');
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();
@@ -95,7 +143,7 @@ export async function startQuiz(): Promise<QuizStartResponse> {
 
     return {
       session: data.data.session,
-      question: data.data.question,
+      question: normalizeQuizQuestion(data.data.question),
     };
   } catch (error: any) {
     console.error('[Quiz] Failed to start quiz:', error);
@@ -129,8 +177,11 @@ export async function submitAnswer(answer: string): Promise<QuizAnswerResponse> 
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to submit answer');
+      if (response.status === 401) {
+        await clearSessionId();
+      }
+      const errorMessage = await parseBackendError(response, 'Failed to submit answer');
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();
@@ -141,9 +192,14 @@ export async function submitAnswer(answer: string): Promise<QuizAnswerResponse> 
     // If quiz completed, clear session ID
     if (data.data.results) {
       await clearSessionId();
+      return {
+        results: normalizeQuizResults(data.data.results),
+      };
     }
 
-    return data.data;
+    return {
+      question: normalizeQuizQuestion(data.data.question),
+    };
   } catch (error: any) {
     console.error('[Quiz] Failed to submit answer:', error);
     throw error;
@@ -173,8 +229,8 @@ export async function getQuizResults(sessionId?: string): Promise<QuizNextRespon
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to fetch quiz results');
+      const errorMessage = await parseBackendError(response, 'Failed to fetch quiz results');
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();
@@ -182,7 +238,7 @@ export async function getQuizResults(sessionId?: string): Promise<QuizNextRespon
       throw new Error('Invalid response from server');
     }
 
-    return data.data;
+    return normalizeQuizResults(data.data);
   } catch (error: any) {
     console.error('[Quiz] Failed to get quiz results:', error);
     throw error;
@@ -207,8 +263,8 @@ export async function getQuizHistory(): Promise<any[]> {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to fetch quiz history');
+      const errorMessage = await parseBackendError(response, 'Failed to fetch quiz history');
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();
@@ -226,14 +282,17 @@ export async function getQuizHistory(): Promise<any[]> {
 /**
  * Get the current session from storage to resume
  */
-export async function getCurrentSession(): Promise<QuizStartResponse | null> {
+export async function getCurrentSession(): Promise<{
+  session: QuizStartResponse['session'];
+  question: QuizQuestion | null;
+} | null> {
   const sessionId = await getSessionId();
   if (!sessionId) {
     return null;
   }
 
   try {
-    const results = await getQuizResults(sessionId);
+    await getQuizResults(sessionId);
     return {
       session: { id: sessionId, user_id: '', status: 'completed', current_question: 10, created_at: '' },
       question: null,

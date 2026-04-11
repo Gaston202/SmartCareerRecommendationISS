@@ -18,8 +18,8 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "migration:deploy": "supabase db push",
     "migration:new": "supabase migration new",
-    "worker:cv": "ts-node -r tsconfig-paths/register src/workers/cv.worker.ts",
-    "worker:ai": "ts-node -r tsconfig-paths/register src/workers/ai.worker.ts",
+    "worker:cv": "ts-node -r tsconfig-paths/register src/workers/cv.analysis.worker.ts",
+    "worker:ai": "ts-node -r tsconfig-paths/register src/workers/ai.processing.worker.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f"

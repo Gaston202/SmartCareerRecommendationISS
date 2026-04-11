@@ -248,13 +248,26 @@ export class CareerService {
     const quizAnswers = answers.map((a: QuizAnswerRow) => a.selected_option);
     const quizProfile = this.deriveProfileFromQuiz(answers as QuizAnswerRow[]);
 
+    let resolvedCvAnalysisId = cvAnalysisId;
+    if (!resolvedCvAnalysisId) {
+      const { data: latestCv } = await this.db.supabase
+        .from('cv_analysis')
+        .select('id')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      resolvedCvAnalysisId = latestCv?.id;
+    }
+
     let cvSkills: string[] = [];
     let cvInterests: string[] = [];
-    if (cvAnalysisId) {
+    if (resolvedCvAnalysisId) {
       const { data: cvData } = await this.db.supabase
         .from('cv_analysis')
         .select('extracted_skills, extracted_interests')
-        .eq('id', cvAnalysisId)
+        .eq('id', resolvedCvAnalysisId)
         .single();
       if (cvData) {
         cvSkills = Array.isArray(cvData.extracted_skills) ? cvData.extracted_skills : [];
@@ -285,23 +298,27 @@ export class CareerService {
       .slice(0, 5);
 
     // Store deterministic ranking first.
-    try {
-      await this.db.supabase.from('career_match_results').upsert(
-        deterministicMatches.map((m, idx) => ({
-          user_id: userId,
-          quiz_session_id: quizSessionId,
-          cv_analysis_id: cvAnalysisId,
-          career_id: m.career.id,
-          match_score: m.match_score,
-          match_reasons: m.match_reasons,
-          ai_insights: { explanation: null, status: 'pending' },
-          ranking: idx + 1,
-          generated_at: new Date().toISOString(),
-        })),
-        { onConflict: 'user_id,quiz_session_id,career_id' },
-      );
-    } catch (error) {
-      this.logger.error(`[${traceId}] Failed to save deterministic matches`, error);
+    if (resolvedCvAnalysisId) {
+      try {
+        await this.db.supabase.from('career_match_results').upsert(
+          deterministicMatches.map((m, idx) => ({
+            user_id: userId,
+            quiz_session_id: quizSessionId,
+            cv_analysis_id: resolvedCvAnalysisId,
+            career_id: m.career.id,
+            match_score: m.match_score,
+            match_reasons: m.match_reasons,
+            ai_insights: { explanation: null, status: 'pending' },
+            ranking: idx + 1,
+            generated_at: new Date().toISOString(),
+          })),
+          { onConflict: 'user_id,quiz_session_id,career_id' },
+        );
+      } catch (error) {
+        this.logger.error(`[${traceId}] Failed to save deterministic matches`, error);
+      }
+    } else {
+      this.logger.warn(`[${traceId}] No cv_analysis_id available, skipping career_match_results persistence`);
     }
 
     // AI is used only for "why it fits" explanation.
@@ -312,23 +329,25 @@ export class CareerService {
       quizProfile.disc,
     );
 
-    try {
-      await this.db.supabase.from('career_match_results').upsert(
-        enhancedMatches.map((m, idx) => ({
-          user_id: userId,
-          quiz_session_id: quizSessionId,
-          cv_analysis_id: cvAnalysisId,
-          career_id: m.career.id,
-          match_score: m.match_score,
-          match_reasons: m.match_reasons,
-          ai_insights: { explanation: m.ai_explanation, status: 'completed' },
-          ranking: idx + 1,
-          generated_at: new Date().toISOString(),
-        })),
-        { onConflict: 'user_id,quiz_session_id,career_id' },
-      );
-    } catch (error) {
-      this.logger.error(`[${traceId}] Failed to save AI-enhanced matches`, error);
+    if (resolvedCvAnalysisId) {
+      try {
+        await this.db.supabase.from('career_match_results').upsert(
+          enhancedMatches.map((m, idx) => ({
+            user_id: userId,
+            quiz_session_id: quizSessionId,
+            cv_analysis_id: resolvedCvAnalysisId,
+            career_id: m.career.id,
+            match_score: m.match_score,
+            match_reasons: m.match_reasons,
+            ai_insights: { explanation: m.ai_explanation, status: 'completed' },
+            ranking: idx + 1,
+            generated_at: new Date().toISOString(),
+          })),
+          { onConflict: 'user_id,quiz_session_id,career_id' },
+        );
+      } catch (error) {
+        this.logger.error(`[${traceId}] Failed to save AI-enhanced matches`, error);
+      }
     }
 
     await this.cacheService.set(cacheKey, enhancedMatches, 21600);
