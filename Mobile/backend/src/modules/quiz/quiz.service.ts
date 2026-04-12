@@ -373,29 +373,18 @@ export class QuizService {
           interests: [] as any[],
         };
 
-        // Get career matches from CareerService (deterministic scoring + AI explanations)
-        const matches = await this.careerService.getCareerRecommendations(userId, sessionId);
-
         // Build results object compatible with frontend
         const results = {
           type: 'results' as const,
-          careers: matches.map((m) => ({
-            title: m.career.title,
-            description: m.career.description,
-            matchPercent: m.match_score,
-            tags: m.career.tags,
-            aiExplanation: m.ai_explanation,
-            matchDetails: {}, // Not available from this service
-            reasoning: m.match_reasons,
-          })),
+          careers: [],
           novaProfile: this.buildNovaProfileFromDeterministic(userProfile),
         };
 
         // Cache results
-        const resultsCacheKey = `quiz:results:v2:${userId}:${sessionId}`;
+        const resultsCacheKey = `quiz:results:v3:${userId}:${sessionId}`;
         await this.cacheService.set(resultsCacheKey, results, 86400);
 
-        this.logger.log(`[Quiz] Completed. Returning ${matches.length} career matches.`);
+        this.logger.log('[Quiz] Completed. Returning Nova profile without career matches.');
         return { results };
       } else {
         const nextQuestionRaw = await this.aiOrchestrator.generateQuizNext(
@@ -469,19 +458,26 @@ export class QuizService {
     answers: Array<{ questionNumber: number; selectedLabel: string }>
   ): { red: number; yellow: number; green: number; blue: number; dominant: string } {
     const counts = { red: 0, blue: 0, green: 0, yellow: 0 };
+    const totalAnswers = answers.length || 1;
+
     for (const ans of answers) {
-      const disc =
-        QuizService.LABEL_TO_DISC[ans.questionNumber]?.[ans.selectedLabel] ||
-        this.inferDiscFromAnswerLabel(ans.selectedLabel);
-      if (disc) {
-        counts[disc] += 1;
+      const mappedDisc = QuizService.LABEL_TO_DISC[ans.questionNumber]?.[ans.selectedLabel];
+      if (mappedDisc) {
+        counts[mappedDisc] += 1;
+      }
+
+      const signalScores = this.inferDiscSignalScoresFromAnswerLabel(ans.selectedLabel);
+      for (const color of Object.keys(signalScores) as Array<'red' | 'blue' | 'green' | 'yellow'>) {
+        // Independent DISC indicators: each answer can contribute to multiple colors.
+        counts[color] += Math.min(1, signalScores[color] / 2);
       }
     }
-    const total = counts.red + counts.blue + counts.green + counts.yellow || 1;
-    const red = Math.round((counts.red / total) * 100);
-    const blue = Math.round((counts.blue / total) * 100);
-    const green = Math.round((counts.green / total) * 100);
-    const yellow = Math.round((counts.yellow / total) * 100);
+
+    const red = Math.min(100, Math.round((counts.red / totalAnswers) * 100));
+    const blue = Math.min(100, Math.round((counts.blue / totalAnswers) * 100));
+    const green = Math.min(100, Math.round((counts.green / totalAnswers) * 100));
+    const yellow = Math.min(100, Math.round((counts.yellow / totalAnswers) * 100));
+
     // Determine dominant
     const entries = [
       { color: 'red', value: red },
@@ -493,7 +489,9 @@ export class QuizService {
     return { red, blue, green, yellow, dominant };
   }
 
-  private inferDiscFromAnswerLabel(label: string): 'red' | 'blue' | 'green' | 'yellow' {
+  private inferDiscSignalScoresFromAnswerLabel(
+    label: string,
+  ): Record<'red' | 'blue' | 'green' | 'yellow', number> {
     const text = (label || '').toLowerCase();
 
     const keywordSets: Record<'red' | 'blue' | 'green' | 'yellow', string[]> = {
@@ -563,11 +561,7 @@ export class QuizService {
       }
     }
 
-    const ranked = (Object.entries(scores) as Array<['red' | 'blue' | 'green' | 'yellow', number]>).sort(
-      (a, b) => b[1] - a[1],
-    );
-
-    return ranked[0][1] > 0 ? ranked[0][0] : 'blue';
+    return scores;
   }
 
   /**
@@ -668,7 +662,7 @@ export class QuizService {
 
   async getQuizResult(userId: string, sessionId: string): Promise<any> {
     try {
-      const cacheKey = `quiz:results:v2:${userId}:${sessionId}`;
+      const cacheKey = `quiz:results:v3:${userId}:${sessionId}`;
       const cached = await this.cacheService.get(cacheKey);
       if (cached) return cached;
 
@@ -696,24 +690,13 @@ export class QuizService {
           allOptions: a.all_options || [],
         }));
 
-      // Get career matches from CareerService (deterministic + AI)
-      const matches = await this.careerService.getCareerRecommendations(userId, session.id);
-
       // Compute DISC for Nova profile
       const discPercentages = this.computeDiscFromAnswers(fullAnswers);
       const userProfile = { disc: discPercentages, skills: [], interests: [] };
 
       const results = {
         type: 'results' as const,
-        careers: matches.map((m) => ({
-          title: m.career.title,
-          description: m.career.description,
-          matchPercent: m.match_score,
-          tags: m.career.tags,
-          aiExplanation: m.ai_explanation,
-          matchDetails: {}, // Not provided by this service
-          reasoning: m.match_reasons,
-        })),
+        careers: [],
         novaProfile: this.buildNovaProfileFromDeterministic(userProfile),
       };
 

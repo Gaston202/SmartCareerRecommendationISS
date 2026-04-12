@@ -4,28 +4,22 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { useCareersWithSkills } from './hooks';
 import { useCvAnalysis } from '../cv';
 import { getLatestQuizSessionId } from '../quiz/storage';
-import { recommendCareers, getAllCareers } from './api';
+import { recommendCareers } from './api';
 import type { CareerMatch } from './matching';
 
 export function useMatchedCareers() {
   const { data: cvAnalysis, isLoading: cvLoading } = useCvAnalysis();
-  const [quizSessionId, setQuizSessionId] = useState<string | null>(null);
-
-  useEffect(() => {
-    getLatestQuizSessionId().then((id) => setQuizSessionId(id));
-  }, []);
 
   return useQuery({
     queryKey: [
       'matched-careers',
-      quizSessionId,
       cvAnalysis?.id,
     ],
     queryFn: async (): Promise<CareerMatch[]> => {
+      const quizSessionId = await getLatestQuizSessionId();
+
       // REQUIREMENT CHECK: User must have completed the quiz
       if (!quizSessionId) {
         console.log('[useMatchedCareers] ⏭️ Skipping: Quiz not completed yet');
@@ -46,6 +40,6 @@ export function useMatchedCareers() {
       // Return top 5 (backend already returns top 5)
       return matches;
     },
-    enabled: !cvLoading && !!quizSessionId,
+    enabled: !cvLoading,
   });
 }

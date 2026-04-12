@@ -14,10 +14,14 @@ export interface Career {
   id: string;
   title: string;
   description: string;
+  category: string;
   required_skills: string[];
   preferred_interests: string[];
   typical_traits: string[];
   tags: string[];
+  average_salary: number;
+  growth_rate: number;
+  demand_level: string;
   salary_range_min: number;
   salary_range_max: number;
   growth_potential: string;
@@ -38,9 +42,37 @@ interface DerivedQuizProfile {
   disc: Record<DiscColor, number>;
 }
 
+interface UserProfileDetails {
+  educationLevel?: string;
+  fieldOfStudy?: string;
+  careerGoal?: string;
+  bio?: string;
+  declaredSkills?: string[];
+}
+
 @Injectable()
 export class CareerService {
   private readonly logger = new Logger(CareerService.name);
+
+  private mapCareerRow(c: any): Career {
+    return {
+      id: c.id,
+      title: c.title,
+      description: c.description,
+      category: c.category || 'General',
+      required_skills: Array.isArray(c.required_skills) ? c.required_skills : [],
+      preferred_interests: Array.isArray(c.preferred_interests) ? c.preferred_interests : [],
+      typical_traits: Array.isArray(c.typical_traits) ? c.typical_traits : [],
+      tags: Array.isArray(c.tags) ? c.tags : [],
+      average_salary: c.average_salary ?? 0,
+      growth_rate: c.growth_rate ?? 0,
+      demand_level: c.demand_level || 'medium',
+      salary_range_min: c.salary_range_min ?? 0,
+      salary_range_max: c.salary_range_max ?? 0,
+      growth_potential: c.growth_potential || 'medium',
+      is_active: c.is_active !== false,
+    };
+  }
 
   // Deterministic mapping from quiz work-style choices -> profile signals.
   private static readonly COLOR_SIGNALS: Record<
@@ -98,22 +130,49 @@ export class CareerService {
       return [];
     }
 
-    const careers: Career[] = (data || []).map((c: any) => ({
-      id: c.id,
-      title: c.title,
-      description: c.description,
-      required_skills: Array.isArray(c.required_skills) ? c.required_skills : [],
-      preferred_interests: Array.isArray(c.preferred_interests) ? c.preferred_interests : [],
-      typical_traits: Array.isArray(c.typical_traits) ? c.typical_traits : [],
-      tags: Array.isArray(c.tags) ? c.tags : [],
-      salary_range_min: c.salary_range_min ?? 0,
-      salary_range_max: c.salary_range_max ?? 0,
-      growth_potential: c.growth_potential || 'medium',
-      is_active: c.is_active !== false,
-    }));
+    const careers: Career[] = (data || []).map((c: any) => this.mapCareerRow(c));
 
     await this.cacheService.set(cacheKey, careers, 3600);
     return careers;
+  }
+
+  private async selectAiCareersFromDatabase(
+    quizAnswers: string[],
+    dbCareers: Career[],
+    userSkills: string[],
+    userInterests: string[],
+    userTraits: string[],
+    disc: Record<DiscColor, number>,
+    novaProfile?: any,
+    userProfileDetails?: UserProfileDetails,
+  ): Promise<Career[]> {
+    const generated = await this.aiOrchestrator.generateCareersFromProfile({
+      quizAnswers,
+      skills: userSkills,
+      interests: userInterests,
+      traits: userTraits,
+      disc,
+      novaProfile,
+      candidateCareers: dbCareers.map((c) => ({
+        id: c.id,
+        title: c.title,
+        description: c.description,
+        category: c.category,
+        required_skills: c.required_skills,
+        tags: c.tags,
+      })),
+      userProfileDetails,
+    });
+
+    if (!generated.length) return [];
+
+    const byTitle = new Map(dbCareers.map((c) => [c.title.toLowerCase().trim(), c]));
+
+    const matched = generated
+      .map((g) => byTitle.get(g.title.toLowerCase().trim()))
+      .filter(Boolean) as Career[];
+
+    return matched.length > 0 ? matched : dbCareers;
   }
 
   private detectDiscColor(answer: string): DiscColor {
@@ -227,6 +286,7 @@ export class CareerService {
     userId: string,
     quizSessionId: string,
     cvAnalysisId?: string,
+    novaProfile?: any,
   ): Promise<CareerMatch[]> {
     const traceId = `rec:${userId}:${quizSessionId.slice(0, 8)}`;
     const cacheKey = `career:matches:${userId}:${cvAnalysisId || 'none'}:${quizSessionId}`;
@@ -278,7 +338,51 @@ export class CareerService {
     const userSkills = [...new Set([...quizProfile.skills, ...cvSkills])];
     const userInterests = [...new Set([...quizProfile.interests, ...cvInterests])];
 
-    const careers = await this.getAllCareers();
+    let userProfileDetails: UserProfileDetails = {};
+    try {
+      const { data: userProfileRow } = await this.db.supabase
+        .from('users')
+        .select('education_level, field_of_study, career_goal, bio, skills')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (userProfileRow) {
+        userProfileDetails = {
+          educationLevel: userProfileRow.education_level || undefined,
+          fieldOfStudy: userProfileRow.field_of_study || undefined,
+          careerGoal: userProfileRow.career_goal || undefined,
+          bio: userProfileRow.bio || undefined,
+          declaredSkills:
+            typeof userProfileRow.skills === 'string'
+              ? userProfileRow.skills
+                  .split(',')
+                  .map((s: string) => s.trim())
+                  .filter(Boolean)
+              : [],
+        };
+      }
+    } catch (error) {
+      this.logger.warn(`[${traceId}] Could not load user profile details from users table`, error);
+    }
+
+    const mergedSkills = [...new Set([...(userProfileDetails.declaredSkills || []), ...userSkills])];
+
+    const dbCareers = await this.getAllCareers();
+
+    let careers = await this.selectAiCareersFromDatabase(
+      quizAnswers,
+      dbCareers,
+      mergedSkills,
+      userInterests,
+      quizProfile.traits,
+      quizProfile.disc,
+      novaProfile,
+      userProfileDetails,
+    );
+    if (!careers.length) {
+      careers = dbCareers;
+    }
+
     const deterministicMatches: CareerMatch[] = careers
       .map((career) => {
         const { score, reasons } = this.scoreCareerDeterministically(

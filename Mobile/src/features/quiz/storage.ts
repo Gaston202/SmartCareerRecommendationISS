@@ -179,6 +179,12 @@ export async function getQuizSession(): Promise<QuizSession | null> {
 
 export async function getLatestQuizSessionId(): Promise<string | null> {
   try {
+    // Prefer backend session id used by mobile quiz API.
+    const backendSessionId = await getBackendSessionId();
+    if (backendSessionId) {
+      return backendSessionId;
+    }
+
     const {
       data: { user },
     } = await supabase.auth.getUser();

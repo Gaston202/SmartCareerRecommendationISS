@@ -6,6 +6,23 @@ import { z } from "zod";
 
 const ExplanationSchema = z.string();
 
+const GeneratedCareerSchema = z.object({
+  title: z.string().min(2),
+  description: z.string().min(10),
+  category: z.string().optional(),
+  required_skills: z.array(z.string()).optional(),
+  preferred_interests: z.array(z.string()).optional(),
+  typical_traits: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  growth_potential: z.string().optional(),
+  salary_range_min: z.number().optional(),
+  salary_range_max: z.number().optional(),
+});
+
+const GeneratedCareersSchema = z.object({
+  careers: z.array(GeneratedCareerSchema).min(3).max(8),
+});
+
 @Injectable()
 export class AiOrchestratorService {
   private readonly logger = new Logger(AiOrchestratorService.name);
@@ -102,6 +119,177 @@ Write an encouraging, specific explanation that references at least one skill or
       const topReason =
         career.match_reasons?.[0]?.replace(/^Skills matched: /, "") || "";
       return `Great ${career.match_score || "match"}% fit! Your ${topSkill} skill${topReason ? ` and ${topReason}` : ""} align well with this role.`;
+    }
+  }
+
+  async generateCareersFromProfile(
+    profile: {
+      quizAnswers: string[];
+      skills: string[];
+      interests: string[];
+      traits: string[];
+      disc: { red: number; yellow: number; green: number; blue: number };
+      novaProfile?: any;
+      candidateCareers?: Array<{
+        id: string;
+        title: string;
+        description: string;
+        category?: string;
+        required_skills?: string[];
+        tags?: string[];
+      }>;
+      userProfileDetails?: {
+        educationLevel?: string;
+        fieldOfStudy?: string;
+        careerGoal?: string;
+        bio?: string;
+        declaredSkills?: string[];
+      };
+    },
+    cacheTtl: number = 21600,
+  ): Promise<
+    Array<{
+      title: string;
+      description: string;
+      category: string;
+      required_skills: string[];
+      preferred_interests: string[];
+      typical_traits: string[];
+      tags: string[];
+      growth_potential: string;
+      salary_range_min?: number;
+      salary_range_max?: number;
+    }>
+  > {
+    const hashSeed = JSON.stringify({
+      q: profile.quizAnswers.slice(0, 10),
+      s: profile.skills.slice(0, 20),
+      i: profile.interests.slice(0, 20),
+      t: profile.traits.slice(0, 20),
+      d: profile.disc,
+      n: profile.novaProfile || null,
+      c: (profile.candidateCareers || []).map((x) => x.id),
+      u: profile.userProfileDetails || null,
+    });
+    const cacheKey = `career:generated:${Buffer.from(hashSeed).toString("base64")}`;
+
+    const cached = await this.cacheService.get<any[]>(cacheKey);
+    if (cached) return cached;
+
+    const prompt = `You are a career intelligence AI.
+
+  Based on this user profile, generate 5 realistic career suggestions.
+
+  WEIGHTING RULES (MUST FOLLOW):
+  - CV + extracted skills + demonstrated interests: 60% of decision weight
+  - User profile details (education level, field of study, career goal, bio, declared skills): 25% of decision weight
+  - Full Nova report (behavior, cognition, motivation, projection): 15% of decision weight
+  - If inputs conflict, prioritize CV/skills first, then profile details, then Nova style adjustments
+
+PROFILE:
+- Quiz answers: ${profile.quizAnswers.join(" | ")}
+- Skills: ${profile.skills.join(", ") || "none"}
+- Interests: ${profile.interests.join(", ") || "none"}
+- Traits: ${profile.traits.join(", ") || "none"}
+- DISC: red=${profile.disc.red}, yellow=${profile.disc.yellow}, green=${profile.disc.green}, blue=${profile.disc.blue}
+- User profile details: ${profile.userProfileDetails ? JSON.stringify(profile.userProfileDetails) : "not available"}
+  - Full Nova report JSON: ${profile.novaProfile ? JSON.stringify(profile.novaProfile) : "not available"}
+
+CANDIDATE CAREERS FROM DATABASE (you MUST select from these only):
+${JSON.stringify(
+      (profile.candidateCareers || []).map((c) => ({
+        id: c.id,
+        title: c.title,
+        category: c.category,
+        required_skills: c.required_skills || [],
+        tags: c.tags || [],
+      })),
+    )}
+
+Return ONLY valid JSON in this exact shape:
+{
+  "careers": [
+    {
+      "title": "string",
+      "description": "string",
+      "category": "Technology|Business|Design|Data|Marketing|Operations|Education|Healthcare|General",
+      "required_skills": ["string"],
+      "preferred_interests": ["string"],
+      "typical_traits": ["string"],
+      "tags": ["string"],
+      "growth_potential": "high|medium|low",
+      "salary_range_min": number,
+      "salary_range_max": number
+    }
+  ]
+}
+
+Rules:
+- 5 careers exactly
+- Every career title MUST be chosen from the candidate careers list above
+- Avoid duplicates or near-duplicates
+- Keep descriptions concise (1-2 sentences)
+- Skills/interests/traits/tags should each have 3-6 items
+- salary_range_min <= salary_range_max
+- Use globally understandable career titles
+- Ensure each career is realistically reachable based on listed skills (do not suggest unrelated senior-only paths)
+- Ensure recommendations align with career_goal and education/field where possible (unless CV evidence strongly suggests better fit)`;
+
+    try {
+      const response = await this.openRouter.chatWithRetry(
+        this.MODELS.explanation,
+        [{ role: "user", content: prompt }],
+        0.55,
+        1800,
+      );
+
+      const content = response.choices[0]?.message?.content?.trim() || "";
+      const jsonStr = this.extractJson(content);
+      const parsed = JSON.parse(jsonStr);
+      const validated = GeneratedCareersSchema.parse(parsed);
+
+      const normalized = validated.careers.slice(0, 5).map((c) => ({
+        title: c.title.trim(),
+        description: c.description.trim(),
+        category: (c.category || "General").trim(),
+        required_skills: Array.isArray(c.required_skills)
+          ? c.required_skills.filter(Boolean).slice(0, 8)
+          : [],
+        preferred_interests: Array.isArray(c.preferred_interests)
+          ? c.preferred_interests.filter(Boolean).slice(0, 8)
+          : [],
+        typical_traits: Array.isArray(c.typical_traits)
+          ? c.typical_traits.filter(Boolean).slice(0, 8)
+          : [],
+        tags: Array.isArray(c.tags) ? c.tags.filter(Boolean).slice(0, 8) : [],
+        growth_potential: ["high", "medium", "low"].includes(c.growth_potential || "")
+          ? (c.growth_potential as string)
+          : "medium",
+        salary_range_min:
+          typeof c.salary_range_min === "number" ? Math.max(0, c.salary_range_min) : undefined,
+        salary_range_max:
+          typeof c.salary_range_max === "number" ? Math.max(0, c.salary_range_max) : undefined,
+      }));
+
+      await this.cacheService.set(cacheKey, normalized, cacheTtl);
+      return normalized;
+    } catch (error) {
+      this.logger.warn("Failed to generate careers from profile, using fallback list", error);
+
+      const fallback = (profile.candidateCareers || []).slice(0, 5).map((c) => ({
+        title: c.title,
+        description: c.description,
+        category: c.category || "General",
+        required_skills: c.required_skills || [],
+        preferred_interests: [],
+        typical_traits: [],
+        tags: c.tags || [],
+        growth_potential: "medium",
+        salary_range_min: undefined,
+        salary_range_max: undefined,
+      }));
+
+      return fallback;
     }
   }
 

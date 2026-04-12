@@ -6,6 +6,7 @@
 import type { CareerMatch } from './matching';
 import type { Career } from './types';
 import { getBackendApiBaseUrl } from '../../api/backend';
+import { getQuizSession } from '../quiz/storage';
 
 const BACKEND_API_URL = getBackendApiBaseUrl();
 
@@ -23,6 +24,9 @@ export async function recommendCareers(
       throw new Error('Not authenticated. Please log in.');
     }
 
+    const quizSession = await getQuizSession().catch(() => null);
+    const novaProfile = quizSession?.results?.novaProfile;
+
     const response = await fetch(`${BACKEND_API_URL}/career/recommend`, {
       method: 'POST',
       headers: {
@@ -32,6 +36,7 @@ export async function recommendCareers(
       body: JSON.stringify({
         quiz_session_id: quizSessionId,
         cv_analysis_id: cvAnalysisId,
+        nova_profile: novaProfile,
       }),
     });
 

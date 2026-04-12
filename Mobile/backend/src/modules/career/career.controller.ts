@@ -17,6 +17,7 @@ import type { Request } from 'express';
 interface RecommendCareersRequest {
   quiz_session_id: string;
   cv_analysis_id?: string;
+  nova_profile?: any;
 }
 
 @ApiTags('Career')
@@ -36,6 +37,7 @@ export class CareerController {
       userId,
       body.quiz_session_id,
       body.cv_analysis_id,
+      body.nova_profile,
     );
     return {
       success: true,

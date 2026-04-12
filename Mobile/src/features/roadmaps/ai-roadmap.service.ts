@@ -6,14 +6,54 @@ import {
 } from '../../api/openrouter';
 import { getQuizSession } from '../quiz/storage';
 import type { SavedRoadmap, RoadmapStep } from './types';
-import { generateRoadmapFromBackend } from './api-backend';
+import { getLatestCvAnalysisFromBackend } from '../cv/api-backend';
 
 const ROADMAP_MODEL = 'arcee-ai/trinity-large-preview:free';
+
+async function buildRoadmapUserProfile(): Promise<{
+  skills?: string[];
+  novaProfile?: any;
+  cvSummary?: string;
+}> {
+  const [quizSession, cvAnalysis] = await Promise.all([
+    getQuizSession().catch(() => null),
+    getLatestCvAnalysisFromBackend().catch(() => null),
+  ]);
+
+  const quizNovaProfile = quizSession?.results?.novaProfile;
+
+  const extractedSkills = Array.isArray(cvAnalysis?.extracted_skills)
+    ? cvAnalysis.extracted_skills
+    : [];
+  const extractedInterests = Array.isArray(cvAnalysis?.extracted_interests)
+    ? cvAnalysis.extracted_interests
+    : [];
+
+  const uniqueSkills = Array.from(
+    new Set([...extractedSkills, ...extractedInterests].filter(Boolean)),
+  );
+
+  const cvSummaryParts = [
+    typeof cvAnalysis?.ats_score === 'number'
+      ? `ATS score: ${cvAnalysis.ats_score}/100.`
+      : null,
+    uniqueSkills.length > 0
+      ? `Extracted strengths: ${uniqueSkills.slice(0, 12).join(', ')}.`
+      : null,
+  ].filter(Boolean) as string[];
+
+  return {
+    skills: uniqueSkills,
+    novaProfile: quizNovaProfile,
+    cvSummary: cvSummaryParts.join(' '),
+  };
+}
 
 function buildUserMessage(
   careerTitle: string,
   careerDescription: string,
   tags: string[] | undefined,
+  userProfile: { skills?: string[]; novaProfile?: any; cvSummary?: string },
 ): string {
   return `
 You are an expert career coach. Create a clear, actionable learning and experience roadmap for this target career.
@@ -22,6 +62,11 @@ TARGET CAREER:
 - Title: ${careerTitle}
 - Description: ${careerDescription}
 - Tags: ${tags && tags.length > 0 ? tags.join(', ') : 'none'}
+
+USER PROFILE:
+- Skills: ${userProfile.skills?.join(', ') || 'unknown'}
+- CV Summary: ${userProfile.cvSummary || 'not available'}
+- Nova Profile: ${userProfile.novaProfile ? JSON.stringify(userProfile.novaProfile) : 'not available'}
 
 RESPONSE FORMAT:
 Return ONLY valid JSON, no markdown, with this exact structure:
@@ -72,36 +117,8 @@ export async function generateCareerRoadmap(
   matchPercent?: number,
   careerId?: string,
 ): Promise<SavedRoadmap> {
-  if (careerId) {
-    try {
-      const backendRoadmap = await generateRoadmapFromBackend(careerId);
-      const steps: RoadmapStep[] = Array.isArray(backendRoadmap.milestones)
-        ? backendRoadmap.milestones.map((m) => ({
-            title: m.title,
-            description: m.description,
-            timeframe:
-              typeof m.duration_weeks === 'number'
-                ? `${m.duration_weeks} week${m.duration_weeks > 1 ? 's' : ''}`
-                : undefined,
-          }))
-        : [];
-
-      return {
-        id: String(backendRoadmap.id || `${careerTitle}-${Date.now()}`),
-        careerId,
-        careerTitle,
-        careerDescription,
-        matchPercent,
-        tags,
-        createdAt: backendRoadmap.created_at || new Date().toISOString(),
-        steps,
-      };
-    } catch (error) {
-      console.warn('[roadmaps] Backend generation failed, falling back to OpenRouter', error);
-    }
-  }
-
   const key = getOpenRouterApiKey();
+  const userProfile = await buildRoadmapUserProfile();
 
   // Load latest quiz session to give more context (if available)
   const quizSession = await getQuizSession();
@@ -115,7 +132,7 @@ export async function generateCareerRoadmap(
         .join('\n\n')
     : 'No quiz context available.';
 
-  const content = `${buildUserMessage(careerTitle, careerDescription, tags)}
+  const content = `${buildUserMessage(careerTitle, careerDescription, tags, userProfile)}
 
 ADDITIONAL USER CONTEXT FROM QUIZ:
 ${quizSummary}
