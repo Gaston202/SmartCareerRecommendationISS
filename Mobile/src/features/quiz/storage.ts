@@ -116,24 +116,30 @@ export async function getQuizQuestionsWithAnswers(): Promise<QuestionWithAnswer[
 export async function saveQuizSession(session: QuizSession): Promise<void> {
   try {
     await AsyncStorage.setItem(QUIZ_SESSION_KEY, JSON.stringify(session));
-    // Also save individual components for backward compatibility
-    await saveQuizResults(session.results);
+
+    // Save results only if they exist
+    if (session.results) {
+      await saveQuizResults(session.results);
+    }
 
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (user) {
+    if (user && session.questionsWithAnswers && session.questionsWithAnswers.length > 0) {
       const dbSession = await createQuizSession(user.id);
       await saveQuizResponses(dbSession.id, session.questionsWithAnswers);
       await completeQuizSession(dbSession.id);
       await cleanupOldQuizSessions(user.id);
     }
 
-    await AsyncStorage.setItem(
-      QUIZ_QUESTIONS_KEY,
-      JSON.stringify(session.questionsWithAnswers)
-    );
+    // Save questions only if they exist
+    if (session.questionsWithAnswers && session.questionsWithAnswers.length > 0) {
+      await AsyncStorage.setItem(
+        QUIZ_QUESTIONS_KEY,
+        JSON.stringify(session.questionsWithAnswers)
+      );
+    }
   } catch (err) {
     console.warn('[quiz] Failed to save quiz session:', err);
   }
@@ -173,6 +179,12 @@ export async function getQuizSession(): Promise<QuizSession | null> {
 
 export async function getLatestQuizSessionId(): Promise<string | null> {
   try {
+    // Prefer backend session id used by mobile quiz API.
+    const backendSessionId = await getBackendSessionId();
+    if (backendSessionId) {
+      return backendSessionId;
+    }
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -193,9 +205,60 @@ export async function clearQuizSession(): Promise<void> {
       QUIZ_SESSION_KEY,
       QUIZ_QUESTIONS_KEY,
       QUIZ_RESULTS_KEY,
+      'quiz_backend_session_id',
     ]);
   } catch (err) {
     console.warn('[quiz] Failed to clear quiz session:', err);
   }
 }
+
+/**
+ * Backend session ID management
+ */
+export async function getBackendSessionId(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem('quiz_backend_session_id');
+  } catch (err) {
+    console.warn('[quiz] Failed to get backend session id:', err);
+    return null;
+  }
+}
+
+export async function setBackendSessionId(sessionId: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem('quiz_backend_session_id', sessionId);
+  } catch (err) {
+    console.warn('[quiz] Failed to set backend session id:', err);
+  }
+}
+
+export async function clearBackendSessionId(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem('quiz_backend_session_id');
+  } catch (err) {
+    console.warn('[quiz] Failed to clear backend session id:', err);
+  }
+}
+
+/**
+ * Get or create a backend quiz session
+ * Returns the session ID to use with API calls
+ */
+export async function ensureBackendSession(): Promise<string> {
+  const existing = await getBackendSessionId();
+  if (existing) {
+    return existing;
+  }
+
+  // Create a new session via API
+  try {
+    const { startQuiz } = await import('../features/quiz/api-backend');
+    const result = await startQuiz();
+    return result.session.id;
+  } catch (error) {
+    console.error('[quiz] Failed to ensure backend session:', error);
+    throw error;
+  }
+}
+
 

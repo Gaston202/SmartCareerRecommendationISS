@@ -6,7 +6,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../../api/supabase";
 import type { UserSkill, CvAnalysis, CvUpload, SkillsUpdatePayload } from "./types";
-import { getCachedExtractedFields } from "./cv-analysis.service";
+import {
+  getLatestCvAnalysisFromBackend,
+  uploadCvToBackend,
+} from "./api-backend";
 
 // Query keys
 export const cvQueryKeys = {
@@ -125,61 +128,12 @@ export function useLatestCvUpload() {
  * Fetch CV analysis results for latest upload
  */
 export function useCvAnalysis() {
-  const { data: latestUpload } = useLatestCvUpload();
-
   return useQuery({
-    queryKey: latestUpload
-      ? cvQueryKeys.analysis(latestUpload.id)
-      : [...cvQueryKeys.analyses(), "latest-none"],
+    queryKey: [...cvQueryKeys.analyses(), "latest"],
     queryFn: async () => {
-      if (!latestUpload) throw new Error("No CV upload found");
-
-      const userRes = await supabase.auth.getUser();
-      const userId = userRes.data.user?.id;
-
-      if (!userId) throw new Error("Not logged in");
-
-      const { data, error } = await supabase
-        .from("cv_analysis")
-        .select("*")
-        .eq("cv_upload_id", latestUpload.id)
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single();
-
-      if (error && error.code !== "PGRST116") throw error;
-
-      const analysis = (data as CvAnalysis) || null;
-      if (!analysis) return null;
-
-      const cachedExtracted = await getCachedExtractedFields(latestUpload.id);
-      if (!cachedExtracted) return analysis;
-
-      const hasSkills =
-        (analysis.extracted_skills && analysis.extracted_skills.length > 0) ||
-        (analysis.skills_extracted && analysis.skills_extracted.length > 0) ||
-        (analysis.skills && analysis.skills.length > 0);
-      const hasInterests =
-        (analysis.extracted_interests && analysis.extracted_interests.length > 0) ||
-        (analysis.interests_extracted && analysis.interests_extracted.length > 0) ||
-        (analysis.interests && analysis.interests.length > 0);
-
-      if (hasSkills && hasInterests) {
-        return analysis;
-      }
-
-      return {
-        ...analysis,
-        extracted_skills: hasSkills
-          ? analysis.extracted_skills
-          : cachedExtracted.extracted_skills,
-        extracted_interests: hasInterests
-          ? analysis.extracted_interests
-          : cachedExtracted.extracted_interests,
-      };
+      return getLatestCvAnalysisFromBackend();
     },
-    enabled: !!latestUpload,
+    retry: 1,
     // ⭐ Client-side analysis is now synchronous, so normal caching works
   });
 }
@@ -192,55 +146,32 @@ export function useUploadCv() {
 
   return useMutation({
     mutationFn: async (file: { uri: string; name: string; mimeType: string | null }) => {
+      await uploadCvToBackend(file);
+
       const userRes = await supabase.auth.getUser();
       const userId = userRes.data.user?.id;
 
       if (!userId) throw new Error("Not logged in");
 
-      // Read file as ArrayBuffer (this works in React Native)
-      const response = await fetch(file.uri);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to read file: ${response.statusText}`);
-      }
-      
-      const arrayBuffer = await response.arrayBuffer();
-
-      const path = `${userId}/${Date.now()}_${file.name}`;
-
-      // Upload to Storage
-      const uploadRes = await supabase.storage.from("cvs_debug").upload(path, arrayBuffer, {
-        contentType: file.mimeType ?? "application/pdf",
-        upsert: false,
-      });
-
-      if (uploadRes.error) {
-        throw new Error(`Upload failed: ${uploadRes.error.message}`);
-      }
-
-      // Create DB record
-      const insertRes = await supabase
+      const latestCvRes = await supabase
         .from("cvs")
-        .insert({
-          user_id: userId,
-          storage_path: path,
-          filename: file.name,
-          mime_type: file.mimeType,
-          status: "uploaded",
-        })
         .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .single();
 
-      if (insertRes.error) {
-        // Clean up uploaded file if DB insert fails
-        await supabase.storage.from("cvs_debug").remove([path]);
-        throw new Error(`Database error: ${insertRes.error.message}`);
+      if (latestCvRes.error || !latestCvRes.data) {
+        throw new Error(
+          latestCvRes.error?.message || "CV uploaded but latest upload metadata was not found."
+        );
       }
 
-      return insertRes.data as CvUpload;
+      return latestCvRes.data as CvUpload;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.uploads() });
+      queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
     },
   });
 }
@@ -306,7 +237,7 @@ export function useDeleteCv() {
 
       // 5. Delete file from storage (do this last so if DB fails, file remains)
       const { error: storageError } = await supabase.storage
-        .from("cvs_debug")
+        .from("cv-uploads")
         .remove([cvUpload.storage_path]);
 
       if (storageError) {

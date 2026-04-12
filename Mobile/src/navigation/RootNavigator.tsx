@@ -45,6 +45,7 @@ type HomeStackParamList = {
   CVAnalysis: undefined;
   CareerRoadmap: {
     roadmapId?: string;
+    careerId?: string;
     careerTitle: string;
     careerDescription: string;
     matchPercent?: number;

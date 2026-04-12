@@ -195,66 +195,56 @@ function parseContent(content: string): AiCareerMatchingOutput {
     }
   }
 
-  // Method 3: Extract JSON object/array using smart boundary detection
-  let extractedJson: string | null = null;
-
-  // Find first { or [
+  // Method 3: Robust brace-counting extraction (handles strings with braces correctly)
   const firstBrace = jsonStr.indexOf("{");
-  const firstBracket = jsonStr.indexOf("[");
-  const startIdx =
-    firstBrace >= 0 && firstBracket >= 0
-      ? Math.min(firstBrace, firstBracket)
-      : firstBrace >= 0
-        ? firstBrace
-        : firstBracket;
+  if (firstBrace !== -1) {
+    let depth = 0;
+    let inString = false;
+    let escapeNext = false;
 
-  if (startIdx >= 0) {
-    // Find matching closing brace/bracket
-    let braceCount = 0;
-    let bracketCount = 0;
-    let endIdx = -1;
-
-    for (let i = startIdx; i < jsonStr.length; i++) {
+    for (let i = firstBrace; i < jsonStr.length; i++) {
       const char = jsonStr[i];
-      if (char === "{") braceCount++;
-      else if (char === "}") {
-        braceCount--;
-        if (braceCount === 0 && bracketCount === 0) {
-          endIdx = i;
-          break;
-        }
-      } else if (char === "[") bracketCount++;
-      else if (char === "]") {
-        bracketCount--;
-        if (braceCount === 0 && bracketCount === 0) {
-          endIdx = i;
-          break;
+
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        inString = !inString;
+        continue;
+      }
+
+      if (!inString) {
+        if (char === '{') {
+          depth++;
+        } else if (char === '}') {
+          depth--;
+          if (depth === 0) {
+            const extracted = jsonStr.substring(firstBrace, i + 1).trim();
+            logDebug("[AI-Matching] Extracted JSON via brace counting:", extracted.substring(0, 100));
+            try {
+              const parsed = JSON.parse(extracted) as { topMatches: AiCareerMatchResult[] };
+              if (parsed.topMatches && Array.isArray(parsed.topMatches)) {
+                logDebug("[AI-Matching] ✅ Brace-count extraction succeeded");
+                return {
+                  topMatches: parsed.topMatches,
+                  generationTimestamp: new Date().toISOString(),
+                  aiModel: "openrouter-ai-matching",
+                };
+              }
+            } catch (e) {
+              logDebug("[AI-Matching] Brace-count extraction parse failed:", String(e));
+            }
+            // If parsed but invalid structure, continue to other methods
+          }
         }
       }
-    }
-
-    if (endIdx > startIdx) {
-      extractedJson = jsonStr.slice(startIdx, endIdx + 1);
-      logDebug("[AI-Matching] Extracted JSON via boundary detection:", extractedJson.substring(0, 100));
-    }
-  }
-
-  // Try parsing extracted JSON
-  if (extractedJson) {
-    try {
-      const parsed = JSON.parse(extractedJson) as {
-        topMatches: AiCareerMatchResult[];
-      };
-      if (parsed.topMatches && Array.isArray(parsed.topMatches)) {
-        logDebug("[AI-Matching] ✅ Boundary-extracted JSON parsing succeeded");
-        return {
-          topMatches: parsed.topMatches,
-          generationTimestamp: new Date().toISOString(),
-          aiModel: "openrouter-ai-matching",
-        };
-      }
-    } catch (e) {
-      logDebug("[AI-Matching] Boundary-extracted parsing failed:", String(e));
     }
   }
 
@@ -285,7 +275,7 @@ function parseContent(content: string): AiCareerMatchingOutput {
   }
 
   // If all parsing methods fail, throw detailed error
-  const errorMsg = `Failed to parse AI response after 4 parsing attempts. Last cleaned: ${cleanedJson.substring(0, 200)}...`;
+  const errorMsg = `Failed to parse AI response after 4 parsing attempts. Content preview: ${jsonStr.substring(0, 300)}...`;
   logDebug("[AI-Matching] ❌", errorMsg);
   throw new Error(errorMsg);
 }
