@@ -154,7 +154,10 @@ export async function startQuiz(): Promise<QuizStartResponse> {
 /**
  * Submit an answer and get next question or results
  */
-export async function submitAnswer(answer: string): Promise<QuizAnswerResponse> {
+export async function submitAnswer(
+  answer: string,
+  currentQuestion?: { question: string; options: string[] },
+): Promise<QuizAnswerResponse> {
   try {
     const token = await getAuthToken();
     const sessionId = await getSessionId();
@@ -173,7 +176,11 @@ export async function submitAnswer(answer: string): Promise<QuizAnswerResponse> 
         Authorization: `Bearer ${token}`,
         'X-Session-Id': sessionId,
       },
-      body: JSON.stringify({ answer }),
+      body: JSON.stringify({
+        answer,
+        question: currentQuestion?.question,
+        options: currentQuestion?.options,
+      }),
     });
 
     if (!response.ok) {

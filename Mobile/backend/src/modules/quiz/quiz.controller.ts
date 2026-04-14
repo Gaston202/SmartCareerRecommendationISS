@@ -21,6 +21,8 @@ interface StartQuizRequest {
 
 interface SubmitAnswerRequest {
   answer: string;
+  question?: string;
+  options?: string[];
 }
 
 @ApiTags('Quiz')
@@ -102,7 +104,14 @@ export class QuizController {
       throw new Error('X-Session-Id header required');
     }
 
-    const session = await this.quizService.submitAnswer(userId, sessionId, body.answer);
+    const session = await this.quizService.submitAnswer(
+      userId,
+      sessionId,
+      body.answer,
+      undefined,
+      body.question,
+      body.options,
+    );
     return {
       success: true,
       data: session,

@@ -49,6 +49,7 @@ PREVIOUS QUESTIONS ALREADY ASKED (DO NOT REPEAT OR PARAPHRASE):
 {{/if}}
 
 CURRENT QUESTION NUMBER: {{questionNumber}} / 10
+REQUIRED DIMENSION FOR THIS QUESTION: {{requiredDimension}}
 
 YOUR MISSION:
 Generate the NEXT question that explores a NEW Nova dimension. DO NOT repeat themes already covered. BUILD on what you've learned.
@@ -71,10 +72,15 @@ STEP 2 - Select a NEW topic from this Nova checklist (exactly one per question):
 □ Learning & development preference (coaching, hands-on, independent study, structured path)
 □ Leadership/team dynamic preference (leading, supporting, collaborating, expert role)
 
+IMPORTANT DIMENSION CONSTRAINT:
+- You MUST center this question on: "{{requiredDimension}}"
+- If your draft question is not clearly about "{{requiredDimension}}", rewrite it before returning JSON.
+
 STEP 3 - Write a clear, simple question about that NEW topic. The question should:
 - Be 10-18 words
 - Ask directly about PREFERENCES (not past events or interview scenarios)
 - Example format: "Do you prefer [option A] or [option B]?" or "What is most important to you: X, Y, or Z?"
+- Include ONLY the question sentence (no answer choices, no bullets, no numbering)
 
 STEP 4 - Create exactly 4 preference options labeled with DISC colors:
 - red: action, results, competition, decisiveness
@@ -99,6 +105,7 @@ RULES - NEVER VIOLATE:
 - ❌ NO questions about stress responses or conflict handling
 - ❌ NO “what is your greatest weakness” or “describe a time”
 - ❌ NO repeated/paraphrased questions about the same theme
+- ❌ DO NOT embed answer options in the "question" text (no "A/B/C/D", no numbered or bulleted choices)
 - ❌ NO questions that don't reveal psychometric preferences
 - ✓ Questions should measure Nova dimensions: behavior, cognition, motivation, values, communication
 - ✓ Each answer option should map clearly to one DISC color tendency

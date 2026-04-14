@@ -308,81 +308,137 @@ Rules:
     this.logger.log(`[Quiz] Previous answers: ${JSON.stringify(answers)}`);
 
     // Use versioned cache key to avoid stale cached questions
-    const cacheKey = `quiz:next:v6:${Buffer.from(answers.join(",")).toString("base64")}:${questionNumber}`;
-
-    if (this.cacheService) {
-      const cached = await this.cacheService.get(cacheKey);
-      if (cached) {
-        this.logger.log(`[Quiz] Cache hit for Q${questionNumber}`);
-        if (
-          this.isValidPreferenceQuestion(cached, questionNumber) &&
-          !this.isQuestionTooSimilar((cached as any).question, previousQuestions)
-        ) {
-          this.logger.log(
-            `[Quiz] ✅ Using cached question: "${(cached as any).question.substring(0, 60)}..."`,
-          );
-          return cached;
-        } else {
-          this.logger.warn(
-            `[Quiz] Cached question failed validation, regenerating`,
-          );
-        }
-      }
-    }
+    const cacheKey = `quiz:next:v9:${Buffer.from(answers.join(",")).toString("base64")}:${questionNumber}`;
+    this.logger.log(`[Quiz] Cache bypass enabled for Q${questionNumber}; generating fresh AI question`);
 
     this.logger.log(`[Quiz] 🔄 Calling AI for Q${questionNumber} (cache miss)`);
-    const prompt = this.promptRegistry.compile("quiz-question", {
+    let result = await this.tryGenerateQuizQuestionFromAi(
       answers,
       questionNumber,
       previousQuestions,
-    });
-    this.logger.debug(`[Quiz] Prompt snippet: ${prompt.substring(0, 400)}...`);
-
-    const response = await this.openRouter.chatWithRetry(
-      this.MODELS.quiz,
-      [{ role: "user", content: prompt }],
-      0.75,
-      600,
     );
 
-    const content = response.choices[0]?.message?.content?.trim();
-    if (!content) {
-      this.logger.error("[Quiz] Empty AI response");
-      throw new BadRequestException("Empty response from AI");
-    }
-
-    this.logger.debug(`[Quiz] AI raw output: ${content.substring(0, 300)}...`);
-
-    let result;
-    try {
-      const jsonStr = this.extractJson(content);
-      result = JSON.parse(jsonStr);
-      this.logger.debug(
-        `[Quiz] Parsed JSON: type=${result.type}, question="${result.question?.substring(0, 50)}..."`,
-      );
-    } catch (error) {
-      this.logger.warn("[Quiz] JSON parse failed, using fallback", error);
-      result = this.getFallbackQuestion(questionNumber);
-    }
-
-    // Validate and sanitize
-    result = this.validateAndSanitizeQuestion(result, questionNumber);
-
-    if (this.isQuestionTooSimilar(result.question, previousQuestions)) {
+    if (!result) {
       this.logger.warn(
-        `[Quiz] ❌ Repeated/similar question detected for Q${questionNumber}. Using fallback to enforce variety.`,
+        `[Quiz] AI generation attempts failed for Q${questionNumber}. Falling back to static question as last resort.`,
       );
       result = this.getFallbackQuestion(questionNumber);
     }
 
-    if (this.cacheService) {
+    if (this.cacheService && cacheTtl > 0) {
       await this.cacheService.set(cacheKey, result, cacheTtl);
-      this.logger.log(`[Quiz] Cached result with key prefix: quiz:next:v6`);
+      this.logger.log(`[Quiz] Cached result with key prefix: quiz:next:v9`);
     }
 
     this.logger.log(`[Quiz] ✅ FINAL QUESTION: "${result.question}"`);
     this.logger.log(`[Quiz] ========== END Q${questionNumber} ==========\n`);
     return result;
+  }
+
+  private async tryGenerateQuizQuestionFromAi(
+    answers: string[],
+    questionNumber: number,
+    previousQuestions: string[],
+  ): Promise<any | null> {
+    const maxAttempts = 3;
+    let localPreviousQuestions = [...previousQuestions];
+    const requiredDimension = this.getRequiredDimensionForQuestion(questionNumber);
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const prompt = this.promptRegistry.compile("quiz-question", {
+        answers,
+        questionNumber,
+        requiredDimension,
+        previousQuestions: localPreviousQuestions,
+      });
+      this.logger.debug(
+        `[Quiz] Prompt snippet (attempt ${attempt}): ${prompt.substring(0, 400)}...`,
+      );
+
+      try {
+        const response = await this.openRouter.chatWithRetry(
+          this.MODELS.quiz,
+          [{ role: "user", content: prompt }],
+          0.75,
+          600,
+        );
+
+        const content = response.choices[0]?.message?.content?.trim();
+        if (!content) {
+          this.logger.warn(`[Quiz] Empty AI response on attempt ${attempt}`);
+          continue;
+        }
+
+        this.logger.debug(
+          `[Quiz] AI raw output (attempt ${attempt}): ${content.substring(0, 300)}...`,
+        );
+
+        const jsonStr = this.extractJson(content);
+        let parsed = JSON.parse(jsonStr);
+        parsed = this.validateAndSanitizeQuestion(parsed, questionNumber);
+
+        if (this.isQuestionTooSimilar(parsed.question, previousQuestions)) {
+          this.logger.warn(
+            `[Quiz] Attempt ${attempt} produced repeated/similar question. Retrying AI generation.`,
+          );
+          localPreviousQuestions.push(parsed.question);
+          continue;
+        }
+        if (!this.isQuestionAlignedWithRequiredDimension(parsed.question, questionNumber)) {
+          this.logger.warn(
+            `[Quiz] Attempt ${attempt} not aligned to required dimension "${requiredDimension}". Retrying.`,
+          );
+          localPreviousQuestions.push(parsed.question);
+          continue;
+        }
+
+        return parsed;
+      } catch (error) {
+        this.logger.warn(
+          `[Quiz] AI generation attempt ${attempt} failed for Q${questionNumber}`,
+          error,
+        );
+      }
+    }
+
+    return null;
+  }
+
+  private getRequiredDimensionForQuestion(questionNumber: number): string {
+    const map: Record<number, string> = {
+      1: "Core motivation drivers",
+      2: "Communication style preference",
+      3: "Decision-making style",
+      4: "Learning and development preference",
+      5: "Work values priority",
+      6: "Team/leadership dynamic preference",
+      7: "Natural style under normal conditions",
+      8: "Adapted style in formal environments",
+      9: "Cognitive approach to ambiguity",
+      10: "Preferred feedback and growth style",
+    };
+    return map[questionNumber] || "Work preference dimension";
+  }
+
+  private isQuestionAlignedWithRequiredDimension(
+    questionText: string,
+    questionNumber: number,
+  ): boolean {
+    const text = (questionText || "").toLowerCase();
+    const dimensionKeywords: Record<number, string[]> = {
+      1: ["motivat", "energ", "drive", "inspires", "most important"],
+      2: ["communicat", "discuss", "express", "conversation", "interact"],
+      3: ["decide", "decision", "choose", "prioritize", "judgment"],
+      4: ["learn", "development", "grow", "improve", "coaching"],
+      5: ["value", "important", "non-negotiable", "principle", "matters most"],
+      6: ["team", "lead", "collabor", "role", "support"],
+      7: ["natural", "default", "normally", "typically", "usual style"],
+      8: ["formal", "adapt", "expectation", "professional setting", "structured environment"],
+      9: ["uncertain", "ambigu", "unknown", "complex", "incomplete information"],
+      10: ["feedback", "review", "growth", "improve", "development feedback"],
+    };
+    const kws = dimensionKeywords[questionNumber] || [];
+    return kws.some((kw) => text.includes(kw));
   }
 
   private isQuestionTooSimilar(
@@ -559,6 +615,7 @@ Rules:
     result.type = "question";
     result.questionNumber = questionNumber;
     result.totalQuestions = 10;
+    result.question = this.stripEmbeddedOptionsFromQuestion(result.question);
 
     if (
       !result.question ||
@@ -663,6 +720,13 @@ Rules:
       "analytics",
       "code",
     ];
+    const colorDefaultIcons: Record<"red" | "blue" | "green" | "yellow", string> = {
+      red: "target",
+      blue: "analytics",
+      green: "people",
+      yellow: "brush",
+    };
+    const seenOptionLabels = new Set<string>();
     for (const opt of result.options) {
       if (!opt.id || !["red", "blue", "green", "yellow"].includes(opt.id)) {
         this.logger.warn(
@@ -673,9 +737,21 @@ Rules:
       if (!opt.label) {
         opt.label = "Option";
       }
-      if (!opt.icon || !validIcons.includes(opt.icon)) {
-        this.logger.warn(`[Quiz] ❌ Invalid icon: ${opt.icon}, using fallback`);
+      opt.label = String(opt.label).replace(/\s+/g, " ").trim();
+      const normalizedLabel = opt.label.toLowerCase();
+      if (seenOptionLabels.has(normalizedLabel)) {
+        this.logger.warn(
+          `[Quiz] ❌ Duplicate option labels detected for Q${questionNumber}, using fallback`,
+        );
         return this.getFallbackQuestion(questionNumber);
+      }
+      seenOptionLabels.add(normalizedLabel);
+      if (!opt.icon || !validIcons.includes(opt.icon)) {
+        const fallbackIcon = colorDefaultIcons[opt.id as "red" | "blue" | "green" | "yellow"];
+        this.logger.warn(
+          `[Quiz] Invalid icon "${opt.icon}" for ${opt.id}; replacing with "${fallbackIcon}"`,
+        );
+        opt.icon = fallbackIcon;
       }
     }
 
@@ -683,6 +759,39 @@ Rules:
       `[Quiz] ✅ Validated preference question: "${result.question.substring(0, 60)}..."`,
     );
     return result;
+  }
+
+  private stripEmbeddedOptionsFromQuestion(question: unknown): string {
+    if (typeof question !== "string") return "";
+
+    let cleaned = question.replace(/\r?\n+/g, " ").replace(/\s+/g, " ").trim();
+    if (!cleaned) return "";
+
+    // Remove anything after explicit answer list markers.
+    const splitPatterns: RegExp[] = [
+      /\s(?:options?|choices?)\s*:\s*/i,
+      /\s[A-D]\)\s+/,
+      /\s[A-D]\.\s+/,
+      /\s\d\)\s+/,
+      /\s\d\.\s+/,
+      /\s[-*]\s+/,
+    ];
+
+    for (const pattern of splitPatterns) {
+      const match = cleaned.match(pattern);
+      if (match && match.index !== undefined && match.index > 0) {
+        cleaned = cleaned.slice(0, match.index).trim();
+        break;
+      }
+    }
+
+    // Keep up to the first question mark when present.
+    const qIndex = cleaned.indexOf("?");
+    if (qIndex >= 0) {
+      cleaned = cleaned.slice(0, qIndex + 1).trim();
+    }
+
+    return cleaned.replace(/\s+/g, " ").trim();
   }
 
   async generateQuizResults(

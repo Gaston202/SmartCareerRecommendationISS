@@ -280,6 +280,8 @@ export class QuizService {
     sessionId: string,
     answer: string,
     questionNumber?: number,
+    submittedQuestionText?: string,
+    submittedOptions?: string[],
   ): Promise<{ question?: any; results?: any }> {
     try {
       this.logger.log(`[Quiz] submitAnswer: user=${userId}, session=${sessionId}, answer="${answer}", qNum=${questionNumber}`);
@@ -304,18 +306,17 @@ export class QuizService {
       // Use current question from session if not provided
       const qNum = questionNumber ?? session.current_question;
 
-      // Rebuild current question from previous answers so we can persist exact asked question snapshot.
-      const previousAnswers = (session.answers || [])
-        .sort((a, b) => a.question_number - b.question_number)
-        .map((a) => a.answer);
+      // Use client-submitted question snapshot to avoid regenerating current question.
       const previousQuestions = (session.answers || [])
         .sort((a, b) => a.question_number - b.question_number)
         .map((a) => a.question)
         .filter((q) => typeof q === 'string' && q.trim().length > 0);
-      const currentQuestionObj = await this.aiOrchestrator.generateQuizNext(previousAnswers, qNum, previousQuestions);
-      const questionText = currentQuestionObj?.question || '';
-      const allOptions = Array.isArray(currentQuestionObj?.options)
-        ? currentQuestionObj.options.map((o: any) => o.label).filter(Boolean)
+      const questionText =
+        typeof submittedQuestionText === 'string' && submittedQuestionText.trim().length > 0
+          ? submittedQuestionText.trim()
+          : '';
+      const allOptions = Array.isArray(submittedOptions)
+        ? submittedOptions.map((o) => String(o || '').trim()).filter(Boolean)
         : [];
 
       const { error: answerError } = await this.db.supabase
@@ -372,19 +373,21 @@ export class QuizService {
           skills: [] as any[],
           interests: [] as any[],
         };
+        const novaProfile = this.buildNovaProfileFromDeterministic(userProfile);
+        const careers = await this.resolveCareerRecommendations(userId, sessionId, novaProfile);
 
         // Build results object compatible with frontend
         const results = {
           type: 'results' as const,
-          careers: [],
-          novaProfile: this.buildNovaProfileFromDeterministic(userProfile),
+          careers,
+          novaProfile,
         };
 
         // Cache results
         const resultsCacheKey = `quiz:results:v3:${userId}:${sessionId}`;
         await this.cacheService.set(resultsCacheKey, results, 86400);
 
-        this.logger.log('[Quiz] Completed. Returning Nova profile without career matches.');
+        this.logger.log(`[Quiz] Completed. Returning ${careers.length} career matches with Nova profile.`);
         return { results };
       } else {
         const nextQuestionRaw = await this.aiOrchestrator.generateQuizNext(
@@ -693,11 +696,13 @@ export class QuizService {
       // Compute DISC for Nova profile
       const discPercentages = this.computeDiscFromAnswers(fullAnswers);
       const userProfile = { disc: discPercentages, skills: [], interests: [] };
+      const novaProfile = this.buildNovaProfileFromDeterministic(userProfile);
+      const careers = await this.resolveCareerRecommendations(userId, sessionId, novaProfile);
 
       const results = {
         type: 'results' as const,
-        careers: [],
-        novaProfile: this.buildNovaProfileFromDeterministic(userProfile),
+        careers,
+        novaProfile,
       };
 
       await this.cacheService.set(cacheKey, results, 86400);
@@ -723,5 +728,58 @@ export class QuizService {
     }
 
     return data as QuizSession[];
+  }
+
+  private async resolveCareerRecommendations(
+    userId: string,
+    sessionId: string,
+    novaProfile: any,
+  ): Promise<Array<{ title: string; description: string; matchPercent: number; tags: string[] }>> {
+    try {
+      const matches = await this.careerService.getCareerRecommendations(
+        userId,
+        sessionId,
+        undefined,
+        novaProfile,
+      );
+      const mapped = (matches || [])
+        .map((m) => ({
+          title: m.career?.title || 'Career',
+          description: m.ai_explanation || m.career?.description || '',
+          matchPercent: Math.max(60, Math.min(99, Number(m.match_score || 0))),
+          tags: Array.isArray(m.career?.tags) ? m.career.tags.slice(0, 4) : [],
+        }))
+        .filter((c) => c.title && c.description);
+
+      if (mapped.length >= 2) return mapped;
+
+      const dbCareers = await this.careerService.getAllCareers();
+      const dbFallback = dbCareers.slice(0, 2).map((c, idx) => ({
+        title: c.title,
+        description: c.description,
+        matchPercent: idx === 0 ? 75 : 70,
+        tags: Array.isArray(c.tags) ? c.tags.slice(0, 4) : [],
+      }));
+
+      if (dbFallback.length >= 2) return dbFallback;
+      if (mapped.length > 0) return mapped;
+    } catch (error) {
+      this.logger.warn('[Quiz] Failed to resolve career recommendations, using emergency fallback', error);
+    }
+
+    return [
+      {
+        title: 'Business Analyst',
+        description: 'Analyze business needs, data, and processes to guide better product and operations decisions.',
+        matchPercent: 72,
+        tags: ['Analysis', 'Business', 'Problem Solving'],
+      },
+      {
+        title: 'Project Coordinator',
+        description: 'Coordinate tasks, timelines, and communication to help teams deliver outcomes consistently.',
+        matchPercent: 69,
+        tags: ['Coordination', 'Communication', 'Execution'],
+      },
+    ];
   }
 }

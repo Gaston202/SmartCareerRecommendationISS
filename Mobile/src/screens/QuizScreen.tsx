@@ -687,7 +687,10 @@ export default function QuizScreen(): React.ReactElement {
         console.log('[QuizScreen] Started new backend session:', result.session.id);
       } else {
         // Submitting an answer
-        response = await submitAnswer(nextAnswers[nextAnswers.length - 1]);
+        response = await submitAnswer(nextAnswers[nextAnswers.length - 1], {
+          question: currentQuestion?.question || '',
+          options: (currentQuestion?.options || []).map((o) => o.label),
+        });
       }
 
       console.log('[QuizScreen] API response:', JSON.stringify(response, null, 2));
@@ -784,63 +787,13 @@ export default function QuizScreen(): React.ReactElement {
             }},
           ]
         );
-        // Still fallback to static questions so user can continue the quiz
-        console.warn('[Quiz] Auth error, falling back to static questions');
-        await fallbackToStaticQuestions(nextAnswers);
       } else {
         setError(msg);
         Alert.alert("Quiz error", msg);
-        // Fall back to static questions if backend fails
-        console.warn('[Quiz] Backend failed, falling back to static questions:', msg);
-        await fallbackToStaticQuestions(nextAnswers);
+        console.warn('[Quiz] Backend failed. Keeping AI-only flow, no static fallback:', msg);
       }
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Fallback to static questions if backend fails
-  const fallbackToStaticQuestions = async (answers: string[]) => {
-    const questionNumber = answers.length + 1;
-    if (questionNumber <= 10) {
-      const fallback = STATIC_NOVA_QUESTIONS[questionNumber - 1] as QuizQuestion;
-      setCurrentQuestion(fallback);
-      setQuestionsAsked((prev) => [
-        ...prev,
-        {
-          questionNumber: fallback.questionNumber,
-          question: fallback.question,
-          options: fallback.options.map((o) => o.label),
-        },
-      ]);
-    } else {
-      // After all questions, show fallback results
-      const results = generateFallbackResults(computeDiscPercentages(answers)) as QuizResults;
-      setCurrentQuestion(null);
-      setResults(results);
-
-      const questionsWithAnswers: QuestionWithAnswer[] = questionsAsked.map((q, idx) => ({
-        questionNumber: q.questionNumber,
-        question: q.question,
-        selectedOption: answers[idx] || "",
-        allOptions: q.options,
-      }));
-
-      await saveQuizSession({
-        questionsWithAnswers,
-        results,
-        completedAt: new Date().toISOString(),
-      });
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `results-intro-${Date.now()}`,
-          role: "ai",
-          content:
-            "Your Nova report is ready (using offline fallback). You can restart the quiz anytime to refresh it.",
-        },
-      ]);
     }
   };
 
@@ -1014,7 +967,7 @@ export default function QuizScreen(): React.ReactElement {
         </Pressable>
         <View style={styles.headerCenter}>
           <AppLogo size={24} />
-          <Text style={styles.headerTitle}>Nova Profile</Text>
+          <Text style={styles.headerTitle}>Career Quiz</Text>
         </View>
         <View style={styles.aiBadge}>
           <Ionicons name="sparkles" size={12} color="#fff" />
