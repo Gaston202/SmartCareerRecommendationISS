@@ -121,11 +121,14 @@ Now generate the next question based on what's already been asked:`,
     // Quiz Results Generation
     this.prompts.set('quiz-results', {
       name: 'quiz-results',
-      template: `Based on these 10 quiz answers, generate a comprehensive Nova psychometric profile and top career matches.
+      template: `Based on these 10 quiz question-and-answer pairs, generate a comprehensive Nova psychometric profile and top career matches.
 
-Answers:
+Quiz Responses:
 {{#each answers}}
-  Q{{@index}}: {{this}}
+Q{{questionNumber}}: {{question}}
+Selected answer: {{selectedLabel}}
+{{#if allOptions.length}}Options shown: {{#each allOptions}}{{this}}{{#unless @last}} | {{/unless}}{{/each}}{{/if}}
+
 {{/each}}
 
 CRITICAL: Output ONLY valid JSON with no additional text, explanations, or markdown. Do not add any commentary before or after the JSON.
@@ -180,7 +183,13 @@ CRITICAL: Output ONLY valid JSON with no additional text, explanations, or markd
     },
     "recommendedDevelopmentAxes": ["string", ...] (array of 3-4 development areas like 'Strengthen prioritization', 'Develop cross-functional influence')
   }
-}`,
+}
+
+DISC PERCENTAGE RULES (MANDATORY):
+- Treat red, yellow, green, and blue as independent dimensions.
+- Do NOT normalize them to sum to 100.
+- The sum of all four percentages MUST be greater than 100.
+- Each percentage must stay in range 0-100.` ,
       model: 'arcee-ai/trinity-large-preview:free',
       temperature: 0.6,
       maxTokens: 2000,

@@ -6,7 +6,7 @@ export const authColors = {
   gradientStart: '#E8E4F0',
   gradientEnd: '#C9C4D8',
   cardBg: '#F8F8FA',
-  logoBg: '#6D28D9',
+  logoBg: '#8158F8',
   link: '#8B5CF6',
   buttonStart: '#7C3AED',
   buttonEnd: '#9C66FF',

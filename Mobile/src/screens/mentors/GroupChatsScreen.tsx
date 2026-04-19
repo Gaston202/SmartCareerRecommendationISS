@@ -3,7 +3,6 @@ import {
   View,
   Text,
   ScrollView,
-  TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
   StyleSheet,
@@ -20,9 +19,9 @@ import { useGroupChats } from '../../features/mentors/hooks';
 import { joinGroupChat, leaveGroupChat } from '../../api/mentor';
 import { GroupChat } from '../../types/mentor';
 import { homeColors } from '../homeTheme';
-import { AppBrand } from '../../ui/AppBrand';
 import { useAuth } from '../../auth/AuthProvider';
 import { supabase } from '../../api/supabase';
+import { MainTopBar } from '../../ui/MainTopBar';
 
 type MentorsStackParamList = {
   MentorsList: undefined;
@@ -46,15 +45,17 @@ const SPECIALTY_ICONS: Record<string, string> = {
   'Full Stack': 'layers',
 };
 
-const SPECIALTY_COLORS: Record<string, [string, string]> = {
-  'AI/Machine Learning': ['#7C4DFF', '#5E35B1'],
-  'Cybersecurity': ['#E53935', '#B71C1C'],
-  'Web Development': ['#0D9488', '#065F46'],
-  'Mobile Development': ['#0284C7', '#075985'],
-  'Cloud Architecture': ['#7C3AED', '#4C1D95'],
-  'DevOps': ['#D97706', '#92400E'],
-  'Data Science': ['#059669', '#064E3B'],
-  'Full Stack': ['#2563EB', '#1E3A8A'],
+const DESIGN_COLORS = {
+  surface: homeColors.backgroundMuted,
+  surfaceLow: homeColors.cardBg,
+  surfaceMid: `rgba(124, 77, 255, 0.08)`,
+  surfaceHigh: `rgba(124, 77, 255, 0.12)`,
+  primary: homeColors.primary,
+  primaryDeep: homeColors.primaryDark,
+  primaryContainer: homeColors.primary,
+  onSurface: homeColors.textDark,
+  onSurfaceMuted: homeColors.textMuted,
+  tertiary: homeColors.accentTeal,
 };
 
 const specialties = Object.keys(SPECIALTY_ICONS);
@@ -123,7 +124,7 @@ function JoinButton({
 
   const handlePress = () => {
     Animated.sequence([
-      Animated.timing(scaleAnim, { toValue: 0.93, duration: 80, useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 0.92, duration: 80, useNativeDriver: true }),
       Animated.timing(scaleAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
     ]).start();
     onPress();
@@ -132,24 +133,21 @@ function JoinButton({
   if (isJoined) {
     return (
       <Animated.View style={[styles.joinedButtonWrapper, { transform: [{ scale: scaleAnim }] }]}>
-        <TouchableOpacity onPress={handlePress} activeOpacity={0.8} style={styles.joinedButton}>
-          <Ionicons name="checkmark-circle" size={17} color={homeColors.accentGreen} />
-          <Text style={styles.joinedButtonText}>Joined</Text>
-          <View style={styles.leaveHint}>
-            <Text style={styles.leaveHintText}>Tap to leave</Text>
-          </View>
-        </TouchableOpacity>
+        <Pressable onPress={handlePress} style={styles.joinedButton}>
+          <Ionicons name="checkmark-circle" size={16} color={DESIGN_COLORS.primaryDeep} />
+          <Text style={styles.joinedButtonText}>{isLoading ? 'Please wait…' : 'Joined • Leave'}</Text>
+        </Pressable>
       </Animated.View>
     );
   }
 
   return (
     <Animated.View style={[styles.joinButtonWrapper, { transform: [{ scale: scaleAnim }] }]}>
-      <TouchableOpacity onPress={handlePress} activeOpacity={0.85} style={styles.joinButtonTouchable}>
+      <Pressable onPress={handlePress} style={{ borderRadius: 10, overflow: 'hidden' }}>
         <LinearGradient
-          colors={[homeColors.primary, homeColors.primaryDark]}
+          colors={[DESIGN_COLORS.primaryDeep, DESIGN_COLORS.primaryContainer]}
           start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={styles.joinButton}
         >
           {isLoading ? (
@@ -157,11 +155,11 @@ function JoinButton({
           ) : (
             <>
               <Text style={styles.joinButtonText}>Join Chat</Text>
-              <Ionicons name="arrow-forward" size={16} color="#fff" />
+              <Ionicons name="arrow-forward" size={14} color="#fff" />
             </>
           )}
         </LinearGradient>
-      </TouchableOpacity>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -179,68 +177,37 @@ function ChatCard({
   joiningId: string | null;
   onOpen: () => void;
 }) {
-  const gradientColors = (SPECIALTY_COLORS[chat.specialty] ?? [homeColors.primary, homeColors.primaryDark]) as [string, string];
   const iconName = (SPECIALTY_ICONS[chat.specialty] ?? 'chatbubbles') as any;
   const isLoadingThis = joiningId === chat.id;
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  const handlePressIn = () => {
-    Animated.timing(scaleAnim, {
-      toValue: 0.98,
-      duration: 100,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.timing(scaleAnim, {
-      toValue: 1,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
-  };
 
   return (
     <Pressable
       onPress={onOpen}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
       style={({ pressed }) => [
-        styles.chatCard, 
+        styles.chatCard,
         isJoined && styles.chatCardJoined,
         pressed && styles.chatCardPressed
       ]}
     >
-      {isJoined && <View style={styles.joinedStrip} />}
-
       <View style={styles.chatCardHeader}>
-        <LinearGradient
-          colors={gradientColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.iconCircle}
-        >
-          <Ionicons name={iconName} size={20} color="#fff" />
-        </LinearGradient>
+        <View style={styles.iconCircle}>
+          <Ionicons name={iconName} size={24} color={DESIGN_COLORS.primary} />
+        </View>
 
         <View style={styles.chatCardHeaderContent}>
-          <View style={styles.titleRow}>
+          <View style={styles.chatCardTitleRow}>
             <Text style={styles.chatTitle} numberOfLines={1}>{chat.title}</Text>
             {isJoined && (
               <View style={styles.memberBadge}>
-                <Ionicons name="checkmark-circle" size={13} color={homeColors.accentGreen} />
-                <Text style={styles.memberBadgeText}>Member</Text>
+                <Ionicons name="checkmark-circle" size={12} color={DESIGN_COLORS.primaryDeep} />
+                <Text style={styles.memberBadgeText}>Joined</Text>
               </View>
             )}
           </View>
-          <Text style={[styles.chatSpecialty, { color: gradientColors[0] }]}>{chat.specialty}</Text>
-        </View>
-
-        {chat.is_moderated && (
-          <View style={styles.moderatedBadge}>
-            <Ionicons name="shield-checkmark" size={12} color={homeColors.accentGreen} />
+          <View style={styles.specialtyChip}>
+            <Text style={styles.chatSpecialty}>{chat.specialty}</Text>
           </View>
-        )}
+        </View>
       </View>
 
       {chat.description && (
@@ -249,14 +216,16 @@ function ChatCard({
 
       {chat.mentor && (
         <View style={styles.mentorSection}>
-          <Ionicons name="person-circle-outline" size={16} color={homeColors.primary} />
+          <Ionicons name="person-circle-outline" size={18} color={DESIGN_COLORS.primary} />
           <View style={styles.mentorInfo}>
             <Text style={styles.mentorName}>{chat.mentor.name}</Text>
-            {chat.mentor.role && <Text style={styles.mentorRole}> · {chat.mentor.role}</Text>}
+            {chat.mentor.role && (
+              <Text style={styles.mentorRole}>{chat.mentor.role}</Text>
+            )}
           </View>
           {chat.is_moderated && (
-            <View style={styles.moderatedLabel}>
-              <Text style={styles.moderatedLabelText}>Moderated</Text>
+            <View style={styles.moderatedBadge}>
+              <Ionicons name="shield-checkmark" size={12} color={DESIGN_COLORS.tertiary} />
             </View>
           )}
         </View>
@@ -269,10 +238,10 @@ function ChatCard({
           onPress={() => onToggleJoin(chat.id, isJoined)}
         />
         {isJoined && (
-          <TouchableOpacity onPress={onOpen} style={styles.openChatButton}>
-            <Ionicons name="chatbubble-ellipses" size={16} color={homeColors.primary} />
+          <Pressable onPress={onOpen} style={styles.openChatButton}>
+            <Ionicons name="chatbubble-ellipses" size={14} color={homeColors.primary} />
             <Text style={styles.openChatText}>Open</Text>
-          </TouchableOpacity>
+          </Pressable>
         )}
       </View>
     </Pressable>
@@ -365,10 +334,6 @@ export function GroupChatsScreen() {
   if ((loading && !chats.length) || loadingJoined) {
     return (
       <View style={styles.loadingContainer}>
-        <LinearGradient
-          colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
-          style={StyleSheet.absoluteFill}
-        />
         <ActivityIndicator size="large" color={homeColors.primary} />
         <Text style={styles.loadingText}>Loading group chats…</Text>
       </View>
@@ -377,181 +342,155 @@ export function GroupChatsScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
-        style={StyleSheet.absoluteFill}
+      <MainTopBar
+        topPadding={Math.max(insets.top, 12)}
+        onProfilePress={() => (navigation as any).navigate('Profile')}
       />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 24) }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} tintColor={homeColors.primary} />}
       >
-        {/* Header */}
-        <Animated.View style={[styles.header, { paddingTop: Math.max(insets.top, 20), transform: [{ scale: scaleAnim }] }]}>
-          <View style={styles.headerTopRow}>
-            <View style={styles.headerIconRow}>
-              <LinearGradient
-                colors={[homeColors.primary, homeColors.primaryDark]}
-                style={styles.headerIconBg}
-              >
-                <Ionicons name="chatbubbles" size={26} color="#fff" />
-              </LinearGradient>
-            </View>
-            <Pressable 
-              style={({ pressed }) => [
-                styles.mySessionsButton,
-                pressed && styles.mySessionsButtonPressed
-              ]}
-              onPress={() => navigation.navigate('MySessions')}
-            >
-              <Ionicons name="calendar" size={20} color={homeColors.primary} />
-              <Text style={styles.mySessionsText}>My Sessions</Text>
-            </Pressable>
-          </View>
-          <Text style={styles.headerTitle}>Group Chats</Text>
-          <Text style={styles.headerSubtitle}>Connect with peers and mentors</Text>
-
-          {joinedCount > 0 && (
-            <Animated.View style={styles.statsBadge}>
-              <Ionicons name="people" size={14} color={homeColors.primary} />
-              <Text style={styles.statsBadgeText}>
-                You joined {joinedCount} chat{joinedCount !== 1 ? 's' : ''}
-              </Text>
-            </Animated.View>
-          )}
-        </Animated.View>
-
-        {/* Tab Toggle */}
-        <View style={styles.tabContainer}>
-          <View style={styles.tabRow}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.tab, 
-                activeTab === 'all' && styles.tabActive,
-                pressed && styles.tabPressed
-              ]}
-              onPress={() => handleTabChange('all')}
-            >
-              <Text style={[styles.tabText, activeTab === 'all' && styles.tabTextActive]}>All Chats</Text>
-              <View style={[styles.tabCount, activeTab === 'all' && styles.tabCountActive]}>
-                <Text style={[styles.tabCountText, activeTab === 'all' && styles.tabCountTextActive]}>
-                  {chats.length}
-                </Text>
+        <View style={styles.pageContent}>
+          <View style={styles.heroSection}>
+            <Text style={styles.heroSupertitle}>Community</Text>
+            <Text style={styles.heroTitle}>Group Chats</Text>
+            <Text style={styles.heroSubtitle}>
+              Discover mentor-led discussions, join rooms, and stay connected with your learning community.
+            </Text>
+            <View style={styles.quickStatsRow}>
+              <View style={styles.quickStatPill}>
+                <Ionicons name="chatbubbles-outline" size={14} color={DESIGN_COLORS.primary} />
+                <Text style={styles.quickStatText}>{chats.length} total</Text>
               </View>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.tab, 
-                activeTab === 'joined' && styles.tabActive,
-                pressed && styles.tabPressed
-              ]}
-              onPress={() => handleTabChange('joined')}
-            >
-              <Ionicons
-                name="checkmark-circle"
-                size={14}
-                color={activeTab === 'joined' ? homeColors.accentGreen : homeColors.textMuted}
-              />
-              <Text style={[styles.tabText, activeTab === 'joined' && styles.tabTextActive]}>Joined</Text>
-              {joinedCount > 0 && (
-                <View style={[styles.tabCount, styles.tabCountGreen, activeTab === 'joined' && styles.tabCountGreenActive]}>
-                  <Text style={[styles.tabCountText, activeTab === 'joined' && styles.tabCountTextActive]}>
+              <View style={styles.quickStatPill}>
+                <Ionicons name="checkmark-circle-outline" size={14} color={DESIGN_COLORS.primaryDeep} />
+                <Text style={styles.quickStatText}>{joinedCount} joined</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.tabSection}>
+            <View style={styles.tabBackground}>
+              <View style={[styles.tabSlider, { left: activeTab === 'all' ? '0%' : '50%' }]} />
+              <Pressable
+                style={[styles.tabButton, activeTab === 'all' && styles.tabButtonActive]}
+                onPress={() => handleTabChange('all')}
+              >
+                <Text style={[styles.tabLabel, activeTab === 'all' && styles.tabLabelActive]}>All Chats</Text>
+                <View style={[styles.tabBadge, activeTab === 'all' && styles.tabBadgeActive]}>
+                  <Text style={[styles.tabBadgeText, activeTab === 'all' && styles.tabBadgeTextActive]}>
+                    {chats.length}
+                  </Text>
+                </View>
+              </Pressable>
+              <Pressable
+                style={[styles.tabButton, activeTab === 'joined' && styles.tabButtonActive]}
+                onPress={() => handleTabChange('joined')}
+              >
+                <Text style={[styles.tabLabel, activeTab === 'joined' && styles.tabLabelActive]}>My Chats</Text>
+                <View style={[styles.tabBadge, activeTab === 'joined' && styles.tabBadgeActiveGreen]}>
+                  <Text style={[styles.tabBadgeText, activeTab === 'joined' && styles.tabBadgeTextActive]}>
                     {joinedCount}
                   </Text>
                 </View>
-              )}
-            </Pressable>
+              </Pressable>
+            </View>
           </View>
-          <View style={[styles.tabIndicator, { left: activeTab === 'all' ? '2%' : '52%' }]} />
-        </View>
 
-        {/* Specialty Filter */}
-        {activeTab === 'all' && (
-          <View style={styles.filterSection}>
-            <Text style={styles.filterLabel}>Filter by Specialty</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-              <TouchableOpacity
-                onPress={() => setSelectedSpecialty(undefined)}
-                style={[styles.filterChip, !selectedSpecialty && styles.filterChipActive]}
-              >
-                <Text style={[styles.filterChipText, !selectedSpecialty && styles.filterChipTextActive]}>All</Text>
-              </TouchableOpacity>
-              {specialties.map((specialty) => (
-                <TouchableOpacity
-                  key={specialty}
-                  onPress={() => setSelectedSpecialty(specialty)}
-                  style={[styles.filterChip, selectedSpecialty === specialty && styles.filterChipActive]}
+          {activeTab === 'all' && (
+            <View style={styles.filterSection}>
+              <Text style={styles.filterLabel}>Filter by Specialty</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScrollContent}>
+                <Pressable
+                  onPress={() => setSelectedSpecialty(undefined)}
+                  style={[styles.filterChip, !selectedSpecialty && styles.filterChipActive]}
                 >
+                  <Text style={[styles.filterChipText, !selectedSpecialty && styles.filterChipTextActive]}>All</Text>
+                </Pressable>
+                {specialties.map((specialty) => (
+                  <Pressable
+                    key={specialty}
+                    onPress={() => setSelectedSpecialty(specialty)}
+                    style={[styles.filterChip, selectedSpecialty === specialty && styles.filterChipActive]}
+                  >
+                    <Ionicons
+                      name={(SPECIALTY_ICONS[specialty] ?? 'code') as any}
+                      size={12}
+                      color={selectedSpecialty === specialty ? '#fff' : homeColors.textMuted}
+                    />
+                    <Text style={[styles.filterChipText, selectedSpecialty === specialty && styles.filterChipTextActive]}>
+                      {specialty}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          <View style={styles.contentSection}>
+            {error && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle-outline" size={20} color="#DC2626" />
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text style={styles.errorTitle}>Unable to load chats</Text>
+                  <Text style={styles.errorText}>Pull down to refresh and try again.</Text>
+                </View>
+              </View>
+            )}
+
+            {displayedChats.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <View style={styles.emptyIconContainer}>
                   <Ionicons
-                    name={(SPECIALTY_ICONS[specialty] ?? 'code') as any}
-                    size={13}
-                    color={selectedSpecialty === specialty ? '#fff' : homeColors.textMuted}
-                    style={{ marginRight: 4 }}
+                    name={activeTab === 'joined' ? 'people-outline' : 'chatbubbles-outline'}
+                    size={44}
+                    color={homeColors.textLight}
                   />
-                  <Text style={[styles.filterChipText, selectedSpecialty === specialty && styles.filterChipTextActive]}>
-                    {specialty}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+                </View>
+                <Text style={styles.emptyTitle}>
+                  {activeTab === 'joined' ? 'No joined chats yet' : 'No chats available'}
+                </Text>
+                <Text style={styles.emptySubtitle}>
+                  {activeTab === 'joined'
+                    ? 'Join a discussion from All Chats to start connecting.'
+                    : 'Try a different specialty or check back soon.'}
+                </Text>
+                {activeTab === 'joined' && (
+                  <Pressable style={styles.emptyActionButton} onPress={() => setActiveTab('all')}>
+                    <LinearGradient
+                      colors={[DESIGN_COLORS.primaryDeep, DESIGN_COLORS.primaryContainer]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.emptyActionGradient}
+                    >
+                      <Text style={styles.emptyActionText}>Browse all chats</Text>
+                      <Ionicons name="arrow-forward" size={16} color="#fff" />
+                    </LinearGradient>
+                  </Pressable>
+                )}
+              </View>
+            ) : (
+              <>
+                <Text style={styles.resultsLabel}>
+                  {displayedChats.length} discussion{displayedChats.length !== 1 ? 's' : ''}
+                </Text>
+                <View style={styles.chatsList}>
+                  {displayedChats.map((chat) => (
+                    <ChatCard
+                      key={chat.id}
+                      chat={chat}
+                      isJoined={joinedIds.has(chat.id)}
+                      onToggleJoin={handleToggleJoin}
+                      joiningId={joiningId}
+                      onOpen={() => navigation.navigate('GroupChat', { chatId: chat.id })}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
           </View>
-        )}
-
-        {/* Chats List */}
-        <View style={styles.chatsList}>
-          {error && (
-            <View style={styles.errorContainer}>
-              <Ionicons name="alert-circle" size={18} color="#991b1b" />
-              <Text style={styles.errorText}>Error loading group chats. Pull to refresh.</Text>
-            </View>
-          )}
-
-          {displayedChats.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons
-                name={activeTab === 'joined' ? 'people-outline' : 'chatbubbles-outline'}
-                size={52}
-                color={homeColors.textLight}
-              />
-              <Text style={styles.emptyTitle}>
-                {activeTab === 'joined'
-                  ? "You haven't joined any chats yet"
-                  : 'No group chats found'}
-              </Text>
-              <Text style={styles.emptySubtitle}>
-                {activeTab === 'joined'
-                  ? 'Browse all chats and hit Join Chat to get started'
-                  : 'Check back soon for new chats!'}
-              </Text>
-              {activeTab === 'joined' && (
-                <TouchableOpacity style={styles.emptyAction} onPress={() => setActiveTab('all')}>
-                  <Text style={styles.emptyActionText}>Browse all chats</Text>
-                  <Ionicons name="arrow-forward" size={15} color={homeColors.primary} />
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : (
-            <>
-              <Text style={styles.chatsCount}>
-                {displayedChats.length} Chat{displayedChats.length !== 1 ? 's' : ''}
-                {activeTab === 'joined'
-                  ? ' Joined'
-                  : selectedSpecialty
-                  ? ` in ${selectedSpecialty}`
-                  : ' Available'}
-              </Text>
-              {displayedChats.map((chat) => (
-                <ChatCard
-                  key={chat.id}
-                  chat={chat}
-                  isJoined={joinedIds.has(chat.id)}
-                  onToggleJoin={handleToggleJoin}
-                  joiningId={joiningId}
-                  onOpen={() => navigation.navigate('GroupChat', { chatId: chat.id })}
-                />
-              ))}
-            </>
-          )}
         </View>
       </ScrollView>
     </View>
@@ -559,360 +498,429 @@ export function GroupChatsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+  },
+  pageContent: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+  },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: 16,
+    backgroundColor: homeColors.backgroundMuted,
   },
-  loadingText: { color: homeColors.textMuted, fontSize: 15, marginTop: 4 },
-  header: {
-    paddingHorizontal: 24,
-    paddingBottom: 24,
-    alignItems: 'center',
-  },
-  headerTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginBottom: 20,
-  },
-  headerIconRow: { marginBottom: 0 },
-  mySessionsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(124, 77, 255, 0.1)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 28,
-  },
-  mySessionsButtonPressed: {
-    backgroundColor: 'rgba(124, 77, 255, 0.18)',
-    transform: [{ scale: 0.97 }],
-  },
-  mySessionsText: {
-    color: '#7C4DFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  headerIconBg: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#7C4DFF',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  headerTitle: {
-    fontSize: 34,
-    fontWeight: '800',
-    color: homeColors.textDark,
-    marginBottom: 8,
-    letterSpacing: -0.8,
-  },
-  headerSubtitle: { 
-    color: homeColors.textMuted, 
-    fontSize: 16, 
-    marginBottom: 16,
+  loadingText: {
+    color: DESIGN_COLORS.onSurfaceMuted,
+    fontSize: 16,
     fontWeight: '500',
   },
-  statsBadge: {
+
+  heroSection: {
+    marginBottom: 16,
+  },
+  heroSupertitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: homeColors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  heroTitle: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: DESIGN_COLORS.onSurface,
+    letterSpacing: -0.6,
+    marginBottom: 8,
+  },
+  heroSubtitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: DESIGN_COLORS.onSurfaceMuted,
+    lineHeight: 21,
+  },
+  quickStatsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  quickStatPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(124, 77, 255, 0.12)',
-    borderRadius: 28,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    gap: 8,
-    marginTop: 8,
+    gap: 6,
+    backgroundColor: homeColors.cardBg,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
   },
-  statsBadgeText: { 
-    color: '#7C4DFF', 
-    fontWeight: '700', 
-    fontSize: 14,
+  quickStatText: {
+    fontSize: 12,
+    color: homeColors.textMuted,
+    fontWeight: '700',
   },
-  tabContainer: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    position: 'relative',
+
+  tabSection: {
+    marginBottom: 14,
   },
-  tabRow: {
+  tabBackground: {
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 14,
     flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 20,
-    padding: 8,
     position: 'relative',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
   },
-  tabIndicator: {
+  tabSlider: {
     position: 'absolute',
-    top: 8,
-    bottom: 8,
-    width: '47%',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
+    top: 4,
+    bottom: 4,
+    width: '50%',
+    backgroundColor: homeColors.primary,
+    borderRadius: 10,
+    shadowColor: homeColors.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  tab: {
+  tabButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 16,
-    gap: 8,
-    zIndex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    zIndex: 2,
   },
-  tabPressed: {
-    opacity: 0.92,
+  tabButtonActive: {},
+  tabLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: DESIGN_COLORS.onSurfaceMuted,
   },
-  tabText: { 
-    fontSize: 15, 
-    fontWeight: '600', 
-    color: '#64748B' 
+  tabLabelActive: {
+    color: DESIGN_COLORS.onSurface,
+    fontWeight: '700',
   },
-  tabTextActive: { 
-    color: '#0F172A', 
-    fontWeight: '700' 
-  },
-  tabCount: {
+  tabBadge: {
+    marginLeft: 8,
     backgroundColor: homeColors.cardBorder,
-    borderRadius: 10,
-    paddingHorizontal: 7,
-    paddingVertical: 1,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
     minWidth: 22,
     alignItems: 'center',
   },
-  tabCountActive: { backgroundColor: homeColors.primary },
-  tabCountGreen: { backgroundColor: '#d1fae5' },
-  tabCountGreenActive: { backgroundColor: homeColors.accentGreen },
-  tabCountText: { fontSize: 11, fontWeight: '700', color: homeColors.textMuted },
-  tabCountTextActive: { color: '#fff' },
-  filterSection: { paddingHorizontal: 16, paddingVertical: 16 },
+  tabBadgeActive: {
+    backgroundColor: DESIGN_COLORS.primary,
+  },
+  tabBadgeActiveGreen: {
+    backgroundColor: DESIGN_COLORS.primaryDeep,
+  },
+  tabBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  tabBadgeTextActive: {
+    color: '#FFFFFF',
+  },
+
+  filterSection: {
+    marginBottom: 14,
+  },
   filterLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: homeColors.textMuted,
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    marginBottom: 10,
   },
-  filterScroll: { flexDirection: 'row' },
+  filterScrollContent: {
+    paddingRight: 10,
+  },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 22,
+    backgroundColor: homeColors.cardBg,
     marginRight: 8,
+    gap: 6,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
   },
-  filterChipActive: { backgroundColor: homeColors.primary, borderColor: homeColors.primary },
-  filterChipText: { color: homeColors.textDark, fontSize: 13 },
-  filterChipTextActive: { color: '#fff', fontWeight: '600' },
-  chatsList: { paddingHorizontal: 16, paddingVertical: 8 },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fee2e2',
-    borderWidth: 1,
-    borderColor: '#fca5a5',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
-    gap: 8,
+  filterChipActive: {
+    backgroundColor: DESIGN_COLORS.primary,
   },
-  errorText: { color: '#991b1b', flex: 1 },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 60,
+  filterChipText: {
+    color: DESIGN_COLORS.onSurfaceMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  contentSection: {
+    paddingBottom: 8,
+  },
+  resultsLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: homeColors.textLight,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 10,
+  },
+  chatsList: {
     gap: 10,
   },
-  emptyTitle: {
-    color: homeColors.textMuted,
-    textAlign: 'center',
-    fontSize: 18,
-    fontWeight: '600',
-    marginTop: 8,
-  },
-  emptySubtitle: {
-    color: homeColors.textLight,
-    textAlign: 'center',
-    fontSize: 14,
-    maxWidth: 260,
-  },
-  emptyAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(124, 77, 255, 0.1)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 6,
-    marginTop: 8,
-  },
-  emptyActionText: { color: homeColors.primary, fontWeight: '600', fontSize: 14 },
-  chatsCount: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: homeColors.textMuted,
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
+
   chatCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 22,
-    padding: 20,
-    marginBottom: 18,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 5,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 16,
+    padding: 16,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
   },
   chatCardJoined: {
-    borderColor: '#10B981',
-    backgroundColor: '#ECFDF5',
-    shadowColor: '#10B981',
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 8 },
+    backgroundColor: `rgba(124, 77, 255, 0.06)`,
+    borderColor: homeColors.primary,
   },
   chatCardPressed: {
-    transform: [{ scale: 0.98 }],
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 2 },
+    transform: [{ scale: 0.995 }],
   },
-  joinedStrip: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 4,
-    backgroundColor: homeColors.accentGreen,
-    borderTopLeftRadius: 18,
-    borderBottomLeftRadius: 18,
+  chatCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+    gap: 10,
   },
-  chatCardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   iconCircle: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    flexShrink: 0,
+    backgroundColor: DESIGN_COLORS.surfaceMid,
   },
-  chatCardHeaderContent: { flex: 1 },
-  titleRow: {
+  chatCardHeaderContent: {
+    flex: 1,
+  },
+  chatCardTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
     gap: 6,
+    marginBottom: 6,
   },
   chatTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: homeColors.textDark,
-    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: DESIGN_COLORS.onSurface,
+    flex: 1,
+  },
+  specialtyChip: {
+    alignSelf: 'flex-start',
+    backgroundColor: `rgba(124, 77, 255, 0.1)`,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  chatSpecialty: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: homeColors.primary,
   },
   memberBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#d1fae5',
-    borderRadius: 10,
+    backgroundColor: `rgba(124, 77, 255, 0.1)`,
+    borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 3,
   },
-  memberBadgeText: { fontSize: 11, fontWeight: '700', color: homeColors.accentGreen },
-  chatSpecialty: { fontSize: 12, marginTop: 2, fontWeight: '600' },
-  moderatedBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#d1fae5',
-    alignItems: 'center',
-    justifyContent: 'center',
+  memberBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: DESIGN_COLORS.primaryDeep,
   },
   chatDescription: {
-    fontSize: 14,
-    color: homeColors.textMuted,
+    fontSize: 13,
+    fontWeight: '400',
+    color: DESIGN_COLORS.onSurfaceMuted,
+    lineHeight: 18,
     marginBottom: 10,
-    lineHeight: 20,
   },
   mentorSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(124, 77, 255, 0.07)',
+    backgroundColor: homeColors.backgroundMuted,
     borderRadius: 10,
-    padding: 10,
-    marginBottom: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    marginBottom: 10,
     gap: 8,
   },
-  mentorInfo: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  mentorName: { fontSize: 13, fontWeight: '600', color: homeColors.textDark },
-  mentorRole: { fontSize: 13, color: homeColors.textMuted },
-  moderatedLabel: {
-    backgroundColor: '#d1fae5',
-    borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+  mentorInfo: {
+    flex: 1,
   },
-  moderatedLabelText: { fontSize: 11, fontWeight: '600', color: homeColors.accentGreen },
-  cardFooter: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  joinButtonWrapper: { flex: 1, borderRadius: 12, overflow: 'hidden' },
-  joinButtonTouchable: { borderRadius: 12, overflow: 'hidden' },
+  mentorName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: DESIGN_COLORS.onSurface,
+  },
+  mentorRole: {
+    fontSize: 11,
+    color: DESIGN_COLORS.onSurfaceMuted,
+    marginTop: 2,
+  },
+  moderatedBadge: {
+    backgroundColor: `rgba(13, 148, 136, 0.1)`,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  moderatedBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: homeColors.accentTeal,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  joinButtonWrapper: {
+    flex: 1,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
   joinButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     gap: 6,
   },
-  joinButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  joinedButtonWrapper: { flex: 1 },
+  joinButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  joinedButtonWrapper: {
+    flex: 1,
+  },
   joinedButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 11,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: homeColors.accentGreen,
-    backgroundColor: '#ecfdf5',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: DESIGN_COLORS.surfaceHigh,
     gap: 6,
   },
-  joinedButtonText: { color: homeColors.accentGreen, fontWeight: '700', fontSize: 14 },
-  leaveHint: { marginLeft: 2 },
-  leaveHintText: { fontSize: 11, color: homeColors.textLight },
+  joinedButtonText: {
+    color: DESIGN_COLORS.primaryDeep,
+    fontWeight: '700',
+    fontSize: 13,
+  },
   openChatButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: homeColors.primary,
-    backgroundColor: 'rgba(124, 77, 255, 0.07)',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: homeColors.cardBg,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
     gap: 5,
   },
-  openChatText: { color: homeColors.primary, fontWeight: '600', fontSize: 13 },
+  openChatText: {
+    color: DESIGN_COLORS.primary,
+    fontWeight: '600',
+    fontSize: 12,
+  },
+
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: `rgba(244, 67, 54, 0.1)`,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 20,
+    gap: 12,
+  },
+  errorTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: homeColors.error,
+    marginBottom: 2,
+  },
+  errorText: {
+    fontSize: 13,
+    color: homeColors.error,
+  },
+
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 54,
+    gap: 12,
+  },
+  emptyIconContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: homeColors.cardBg,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: DESIGN_COLORS.onSurface,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: DESIGN_COLORS.onSurfaceMuted,
+    textAlign: 'center',
+    maxWidth: 280,
+    lineHeight: 19,
+  },
+  emptyActionButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+  emptyActionGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  emptyActionText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
 });

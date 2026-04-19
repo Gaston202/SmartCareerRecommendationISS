@@ -39,7 +39,7 @@ const QUIZ_COLORS = {
   backgroundEnd: "#E9E2FF",
   cardBg: "#FFFFFF",
   cardBorder: "#EAE6F5",
-  primary: "#6D4CFF",
+  primary: "#8158F8",
   textDark: "#1F2937",
   textMuted: "#4B5563",
   tabBarBg: "#FFFFFF",

@@ -5,6 +5,7 @@ import { QuizModule } from './modules/quiz/quiz.module';
 import { CareerModule } from './modules/career/career.module';
 import { CvModule } from './modules/cv/cv.module';
 import { RoadmapModule } from './modules/roadmap/roadmap.module';
+import { LearningRoadmapModule } from './modules/learning-roadmap/learning-roadmap.module';
 import { DatabaseModule } from './core/database/database.module';
 import { CacheModule } from './core/cache/cache.module';
 import { QueueModule } from './core/queue/queue.module';
@@ -28,6 +29,7 @@ import { LoggerModule } from './core/logger/logger.module';
     CareerModule,
     CvModule,
     RoadmapModule,
+    LearningRoadmapModule,
   ],
 })
 export class AppModule {}

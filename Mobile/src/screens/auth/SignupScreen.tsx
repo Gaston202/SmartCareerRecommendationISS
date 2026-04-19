@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,6 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,7 +22,6 @@ import { supabase } from '../../api/supabase';
 import { AppLogo } from '../../ui/AppLogo';
 
 type AuthStackParamList = {
-  Welcome: undefined;
   Login: undefined;
   Signup: undefined;
 };
@@ -49,32 +47,6 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
   const [mentorSpecialty, setMentorSpecialty] = useState('');
   const [mentorCompany, setMentorCompany] = useState('');
   const [mentorCvPath, setMentorCvPath] = useState<string | null>(null);
-
-  const float1 = useRef(new Animated.Value(0)).current;
-  const float2 = useRef(new Animated.Value(0)).current;
-  const float3 = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = (anim: Animated.Value, duration: number, delay: number) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(anim, { toValue: 1, duration, useNativeDriver: true }),
-          Animated.timing(anim, { toValue: 0, duration, useNativeDriver: true }),
-        ])
-      );
-    loop(float1, 2800, 0).start();
-    loop(float2, 3200, 400).start();
-    loop(float3, 2600, 800).start();
-    return () => {};
-  }, [float1, float2, float3]);
-
-  const t = (v: Animated.Value, y: number, x: number) => ({
-    transform: [
-      { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, y] }) },
-      { translateX: v.interpolate({ inputRange: [0, 1], outputRange: [0, x] }) },
-    ],
-  });
 
   const {
     control,
@@ -106,14 +78,6 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={[authColors.gradientStart, authColors.gradientEnd]}
-        style={StyleSheet.absoluteFill}
-      />
-      <Animated.View style={[styles.shape, styles.shapeCircle, t(float1, 14, 6)]} />
-      <Animated.View style={[styles.shape, styles.shapeSquare1, t(float2, -12, -5)]} />
-      <Animated.View style={[styles.shape, styles.shapeSquare2, t(float3, 10, 4)]} />
-
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}
@@ -123,58 +87,38 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.card}>
-            <View style={styles.logoCircle}>
-              <AppLogo size={42} />
+          <View style={styles.panel}>
+            <View style={styles.mobileBrandWrap}>
+              <AppLogo size={28} />
+              <Text style={styles.mobileBrandText}>MyPath</Text>
             </View>
             <Text style={styles.title}>Create your account</Text>
-            <Text style={styles.subtitle}>Start your career journey today</Text>
+            <Text style={styles.subtitle}>Build your AI-powered career path from day one.</Text>
 
-            {/* Role toggle */}
-            <View style={styles.roleToggleRow}>
+            <Text style={styles.roleLabel}>Choose your journey</Text>
+            <View style={styles.roleGrid}>
               <Pressable
-                style={({ pressed }) => [
-                  styles.roleToggleBtn,
-                  !isMentor && styles.roleToggleBtnActive,
-                  pressed && styles.roleTogglePressed,
-                ]}
                 onPress={() => setIsMentor(false)}
-                disabled={busy}
+                style={[styles.roleCard, !isMentor && styles.roleCardActive]}
               >
-                <Text
-                  style={[
-                    styles.roleToggleText,
-                    !isMentor && styles.roleToggleTextActive,
-                  ]}
-                >
-                  Student
-                </Text>
+                <View style={[styles.roleIcon, !isMentor && styles.roleIconActive]}>
+                  <Ionicons name="school-outline" size={24} color={!isMentor ? '#fff' : '#6B7280'} />
+                </View>
+                <Text style={[styles.roleTitle, !isMentor && styles.roleTitleActive]}>Student</Text>
+                <Text style={styles.roleCaption}>Seeking Growth</Text>
               </Pressable>
+
               <Pressable
-                style={({ pressed }) => [
-                  styles.roleToggleBtn,
-                  isMentor && styles.roleToggleBtnActive,
-                  pressed && styles.roleTogglePressed,
-                ]}
                 onPress={() => setIsMentor(true)}
-                disabled={busy}
+                style={[styles.roleCard, isMentor && styles.roleCardActive]}
               >
-                <Text
-                  style={[
-                    styles.roleToggleText,
-                    isMentor && styles.roleToggleTextActive,
-                  ]}
-                >
-                  Mentor
-                </Text>
+                <View style={[styles.roleIcon, isMentor && styles.roleIconActive]}>
+                  <Ionicons name="people-outline" size={24} color={isMentor ? '#fff' : '#6B7280'} />
+                </View>
+                <Text style={[styles.roleTitle, isMentor && styles.roleTitleActive]}>Mentor</Text>
+                <Text style={styles.roleCaption}>Guiding Others</Text>
               </Pressable>
             </View>
-
-            {/* Upload placeholder - can be used for avatar later */}
-            <Pressable style={styles.uploadArea}>
-              <Ionicons name="camera-outline" size={28} color={authColors.textMuted} />
-              <Text style={styles.uploadText}>Upload</Text>
-            </Pressable>
 
             {generalError ? (
               <View style={styles.errorWrap}>
@@ -418,125 +362,112 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: '#fcf4ff' },
   keyboardView: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 32,
+    paddingBottom: 30,
+    paddingHorizontal: 16,
   },
-  shape: { position: 'absolute', borderRadius: 999 },
-  shapeCircle: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: authColors.shapeTeal,
-    top: '12%',
-    left: -60,
-  },
-  shapeSquare1: {
-    width: 120,
-    height: 120,
-    borderRadius: 24,
-    backgroundColor: authColors.shapePurple,
-    top: '6%',
-    right: -30,
-  },
-  shapeSquare2: {
-    width: 100,
-    height: 100,
-    borderRadius: 20,
-    backgroundColor: authColors.shapeTeal,
-    bottom: '18%',
-    left: -20,
-  },
-  card: {
-    backgroundColor: authColors.cardBg,
-    borderRadius: 24,
-    padding: 28,
-    shadowColor: '#000',
+  panel: {
+    marginHorizontal: 0,
+    borderRadius: 26,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 22,
+    shadowColor: '#37274d',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
-    shadowRadius: 24,
-    elevation: 8,
+    shadowRadius: 18,
+    elevation: 4,
   },
-  logoCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: authColors.logoBg,
-    alignSelf: 'center',
+  mobileBrandWrap: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
+    gap: 8,
+  },
+  mobileBrandText: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#6437db',
+    letterSpacing: -0.7,
   },
   title: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: authColors.textDark,
-    textAlign: 'center',
-    marginBottom: 6,
+    fontSize: 30,
+    fontWeight: '900',
+    color: '#37274d',
+    letterSpacing: -0.8,
+    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 14,
-    color: authColors.textMuted,
-    textAlign: 'center',
-    marginBottom: 20,
+    fontSize: 15,
+    color: '#6B5B95',
+    lineHeight: 22,
+    marginBottom: 18,
   },
-  roleToggleRow: {
+  roleLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    color: '#6B5B95',
+    marginBottom: 12,
+  },
+  roleGrid: {
     flexDirection: 'row',
-    borderRadius: 999,
-    backgroundColor: '#ffffff40',
-    padding: 2,
-    marginBottom: 20,
+    gap: 10,
+    marginBottom: 18,
   },
-  roleToggleBtn: {
+  roleCard: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: 999,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    backgroundColor: '#f8edff',
     alignItems: 'center',
   },
-  roleToggleBtnActive: {
-    backgroundColor: '#fff',
+  roleCardActive: {
+    backgroundColor: '#f2e2ff',
   },
-  roleTogglePressed: {
-    opacity: 0.9,
-  },
-  roleToggleText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: authColors.textDark,
-  },
-  roleToggleTextActive: {
-    color: authColors.primary,
-  },
-  uploadArea: {
-    alignSelf: 'center',
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: authColors.border,
+  roleIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
+    marginBottom: 8,
   },
-  uploadText: {
-    fontSize: 12,
-    color: authColors.textMuted,
-    marginTop: 6,
+  roleIconActive: {
+    backgroundColor: '#6437db',
+  },
+  roleTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#37274d',
+    marginBottom: 2,
+  },
+  roleTitleActive: {
+    color: '#6437db',
+  },
+  roleCaption: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6B5B95',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   errorWrap: { marginBottom: 12 },
   errorText: { fontSize: 13, color: '#DC2626' },
-  fieldWrap: { marginBottom: 16 },
+  fieldWrap: { marginBottom: 14 },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: authColors.textDark,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#37274d',
     marginBottom: 8,
   },
   inputWrap: {
@@ -544,7 +475,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: authColors.border,
+    borderColor: '#e9d5ff',
     borderRadius: 12,
     paddingHorizontal: 14,
     minHeight: 48,
@@ -560,7 +491,7 @@ const styles = StyleSheet.create({
   inputRight: { paddingRight: 36 },
   eyeIcon: { position: 'absolute', right: 14 },
   fieldError: { fontSize: 12, color: '#DC2626', marginTop: 4 },
-  buttonWrap: { marginTop: 8, marginBottom: 20, borderRadius: 12, overflow: 'hidden' },
+  buttonWrap: { marginTop: 8, borderRadius: 12, overflow: 'hidden' },
   buttonPressed: { opacity: 0.9 },
   buttonGradient: {
     flexDirection: 'row',
@@ -569,19 +500,20 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 8,
   },
-  buttonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
+  buttonText: { fontSize: 16, fontWeight: '700', color: '#fff' },
   orRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  orLine: { flex: 1, height: 1, backgroundColor: authColors.border },
-  orText: { fontSize: 12, color: authColors.textMuted, marginHorizontal: 12 },
+  orLine: { flex: 1, height: 1, backgroundColor: '#e9d5ff' },
+  orText: { fontSize: 11, color: '#6B5B95', marginHorizontal: 12, fontWeight: '700', letterSpacing: 1 },
   signupRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' },
-  signupPrompt: { fontSize: 14, color: authColors.textDark },
-  signupLink: { fontSize: 14, color: authColors.link, fontWeight: '600' },
+  signupPrompt: { fontSize: 14, color: '#37274d' },
+  signupLink: { fontSize: 14, color: '#6437db', fontWeight: '700' },
   terms: {
     fontSize: 12,
-    color: authColors.textMuted,
+    color: '#6B5B95',
     textAlign: 'center',
-    marginTop: 20,
-    paddingHorizontal: 8,
+    marginTop: 16,
+    lineHeight: 18,
+    paddingHorizontal: 6,
   },
   cvUploadRow: {
     justifyContent: 'space-between',
