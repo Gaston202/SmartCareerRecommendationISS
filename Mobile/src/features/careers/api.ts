@@ -5,10 +5,8 @@
 
 import type { CareerMatch } from './matching';
 import type { Career } from './types';
-import { getBackendApiBaseUrl } from '../../api/backend';
+import { fetchBackend } from '../../api/backend';
 import { getQuizSession } from '../quiz/storage';
-
-const BACKEND_API_URL = getBackendApiBaseUrl();
 
 /**
  * Get personalized career recommendations from backend
@@ -27,7 +25,7 @@ export async function recommendCareers(
     const quizSession = await getQuizSession().catch(() => null);
     const novaProfile = quizSession?.results?.novaProfile;
 
-    const response = await fetch(`${BACKEND_API_URL}/career/recommend`, {
+    const response = await fetchBackend('/career/recommend', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -91,7 +89,7 @@ export async function getAllCareers(): Promise<Career[]> {
       throw new Error('Not authenticated. Please log in.');
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/career/all`, {
+    const response = await fetchBackend('/career/all', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,

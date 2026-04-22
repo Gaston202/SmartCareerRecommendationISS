@@ -490,7 +490,7 @@ export default function HomeScreen(): React.ReactElement {
 
     setStatus("analyzing");
     setError(null);
-    console.log("[HomeScreen] 👉 Checking backend CV analysis status:", cv.id);
+    console.log("[HomeScreen] 👉 Checking backend CV analysis status for upload:", cv.id);
 
     try {
       const latest = await getLatestCvAnalysisFromBackend();
@@ -503,7 +503,7 @@ export default function HomeScreen(): React.ReactElement {
         return;
       }
 
-      const analysisStatus = (latest as any).status as string | undefined;
+      const analysisStatus = latest.status;
       if (analysisStatus === "pending" || analysisStatus === "processing") {
         const statusPayload = await getCvAnalysisStatusFromBackend(latest.id).catch(() => null);
         const progress = statusPayload?.progress ?? 50;
@@ -515,7 +515,18 @@ export default function HomeScreen(): React.ReactElement {
         return;
       }
 
-      console.log("[HomeScreen] ✅ CV analysis available from backend");
+      if (analysisStatus === "failed") {
+        const statusPayload = await getCvAnalysisStatusFromBackend(latest.id).catch(() => null);
+        const backendError =
+          statusPayload?.error_message || latest.error_message || "The backend could not analyze this CV.";
+        throw new Error(backendError);
+      }
+
+      if (analysisStatus && analysisStatus !== "completed") {
+        throw new Error(`Unexpected CV analysis status: ${analysisStatus}`);
+      }
+
+      console.log("[HomeScreen] ✅ CV analysis available from backend", latest.id);
 
       // Invalidate queries to show new results
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });

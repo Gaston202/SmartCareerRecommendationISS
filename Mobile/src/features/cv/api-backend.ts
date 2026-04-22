@@ -1,10 +1,8 @@
 import { supabase } from "../../api/supabase";
 import type { CvAnalysis } from "./types";
-import { getBackendApiBaseUrl } from "../../api/backend";
+import { fetchBackend } from "../../api/backend";
 import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
-
-const BACKEND_API_URL = getBackendApiBaseUrl();
 
 type UploadPayload = {
   uri: string;
@@ -45,6 +43,8 @@ function normalizeAnalysis(raw: any): CvAnalysis {
     career_suggestions: Array.isArray(raw?.career_suggestions) ? raw.career_suggestions : [],
     extracted_skills: Array.isArray(extractedSkills) ? extractedSkills : [],
     extracted_interests: Array.isArray(extractedInterests) ? extractedInterests : [],
+    status: typeof raw?.status === "string" ? raw.status : undefined,
+    error_message: typeof raw?.error_message === "string" ? raw.error_message : null,
   } as CvAnalysis;
 }
 
@@ -91,7 +91,7 @@ export async function uploadCvToBackend(file: UploadPayload): Promise<{ analysis
     type: file.mimeType ?? "application/pdf",
   } as any);
 
-  const response = await fetch(`${BACKEND_API_URL}/cv/upload`, {
+  const response = await fetchBackend("/cv/upload", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -113,7 +113,7 @@ export async function getLatestCvAnalysisFromBackend(): Promise<CvAnalysis | nul
     throw new Error("Not authenticated. Please log in.");
   }
 
-  const response = await fetch(`${BACKEND_API_URL}/cv/result/latest`, {
+  const response = await fetchBackend("/cv/result/latest", {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -140,7 +140,7 @@ export async function getCvAnalysisStatusFromBackend(
     throw new Error("Not authenticated. Please log in.");
   }
 
-  const response = await fetch(`${BACKEND_API_URL}/cv/status/${analysisId}`, {
+  const response = await fetchBackend(`/cv/status/${analysisId}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,

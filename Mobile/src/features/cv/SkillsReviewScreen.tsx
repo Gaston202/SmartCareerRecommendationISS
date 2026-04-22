@@ -6,9 +6,7 @@
 
 import React, { useState } from "react";
 import { ActivityIndicator, Alert } from "react-native";
-// WARNING: Expo Go does not support Android push notifications as of SDK 53.
-// Use a development build for full notification support.
-import * as Notifications from "expo-notifications";
+import { isRunningInExpoGo } from "expo";
 import {
   Box,
   ScrollView,
@@ -126,18 +124,20 @@ export function SkillsReviewScreen() {
         onSuccess: async () => {
           setHasChanges(false);
 
-          // Send success notification
-          try {
-            await Notifications.scheduleNotificationAsync({
-              content: {
-                title: "Success",
-                body: "Your skills have been updated ✅",
-                sound: "default",
-              },
-              trigger: null, // immediate
-            });
-          } catch (err) {
-            console.warn("Notification error:", err);
+          if (!isRunningInExpoGo()) {
+            try {
+              const Notifications = await import("expo-notifications");
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: "Success",
+                  body: "Your skills have been updated",
+                  sound: "default",
+                },
+                trigger: null,
+              });
+            } catch (err) {
+              console.warn("Notification error:", err);
+            }
           }
 
           toast.show({

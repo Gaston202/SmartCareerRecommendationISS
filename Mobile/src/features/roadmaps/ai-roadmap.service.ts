@@ -160,44 +160,7 @@ ${quizSummary}
     throw new Error('Empty response from AI when generating roadmap');
   }
 
-  let steps: RoadmapStep[];
-  try {
-    steps = parseRoadmapResponse(aiContent);
-  } catch (error) {
-    console.warn('[roadmaps] Failed to parse AI roadmap JSON, falling back', error);
-    steps = [
-      {
-        title: 'Explore the career basics',
-        description:
-          'Research what this career does day-to-day, required skills, and typical entry roles. Watch 3–5 YouTube videos and read 2–3 articles from trusted sources.',
-        timeframe: '1-2 weeks',
-      },
-      {
-        title: 'Build core fundamentals',
-        description:
-          'Create a study plan to learn the essential theory and tools for this career using free online courses (Coursera, edX, Udemy, etc.). Take notes and complete at least one beginner course.',
-        timeframe: '1-2 months',
-      },
-      {
-        title: 'Start a small project',
-        description:
-          'Choose a simple project related to this career and complete it end-to-end. Document what you did and what you learned so it can be added to your CV or portfolio.',
-        timeframe: '1 month',
-      },
-      {
-        title: 'Grow your portfolio',
-        description:
-          'Add 1–2 more projects that show different skills (teamwork, problem-solving, tools). Publish them on GitHub or a simple online portfolio.',
-        timeframe: '2-3 months',
-      },
-      {
-        title: 'Prepare for internships or entry roles',
-        description:
-          'Update your CV, optimize your LinkedIn, and apply to internships, freelance gigs, or entry-level roles in this field. Practice interview questions and talk to professionals.',
-        timeframe: '1-3 months',
-      },
-    ];
-  }
+  const steps = parseRoadmapResponse(aiContent);
 
   const roadmap: SavedRoadmap = {
     id: `${careerTitle}-${Date.now()}`,
@@ -212,4 +175,3 @@ ${quizSummary}
 
   return roadmap;
 }
-

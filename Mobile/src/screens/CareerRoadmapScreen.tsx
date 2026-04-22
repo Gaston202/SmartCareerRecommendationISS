@@ -112,7 +112,6 @@ export default function CareerRoadmapScreen(): React.ReactElement {
     try {
       await saveRoadmap(state.user.id, roadmap);
       Alert.alert("Saved", "This career roadmap has been saved to your Roadmaps tab.");
-      // After saving, take user back to the Roadmaps tab
       (navigation as any).navigate("Roadmaps");
     } catch (error) {
       console.warn("[CareerRoadmap] Save failed", error);
@@ -124,7 +123,6 @@ export default function CareerRoadmapScreen(): React.ReactElement {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Pressable
           style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
@@ -145,7 +143,6 @@ export default function CareerRoadmapScreen(): React.ReactElement {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Career summary */}
         <View style={styles.careerCard}>
           <Text style={styles.careerTitle}>{params.careerTitle}</Text>
           {typeof params.matchPercent === "number" && (
@@ -165,7 +162,6 @@ export default function CareerRoadmapScreen(): React.ReactElement {
           )}
         </View>
 
-        {/* Generate / Regenerate */}
         {!hasRoadmap && !loading && (
           <Pressable
             style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
@@ -257,12 +253,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: homeColors.backgroundStart,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  disabled: {
-    opacity: 0.6,
   },
   header: {
     flexDirection: "row",
@@ -488,5 +478,10 @@ const styles = StyleSheet.create({
     color: homeColors.textMuted,
     fontWeight: "500",
   },
+  pressed: {
+    opacity: 0.85,
+  },
+  disabled: {
+    opacity: 0.6,
+  },
 });
-

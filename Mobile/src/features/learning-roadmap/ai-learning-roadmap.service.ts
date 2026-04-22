@@ -219,19 +219,7 @@ export async function generateLearningRoadmap(
     throw new Error('Empty response from AI when generating learning roadmap');
   }
 
-  let skillsData: {
-    skills: any[];
-    dependencies: any[];
-  };
-
-  try {
-    skillsData = parseSkillsResponse(aiContent);
-  } catch (error) {
-    console.warn('[learning-roadmap] Failed to parse AI response, using fallback', error);
-    throw new Error(
-      'Failed to parse learning roadmap. Please ensure the AI response is valid JSON.'
-    );
-  }
+  const skillsData = parseSkillsResponse(aiContent);
 
   // Transform to LearningRoadmapNode array
   const skillMap = new Map<string, LearningSkill>();
@@ -261,7 +249,7 @@ export async function generateLearningRoadmap(
         id: `${skillData.id}-course-${idx}`,
         skill_id: skillData.id,
         title: courseData.title,
-        description: courseData.title, // Use title as description if not provided
+        description: courseData.title,
         provider: courseData.provider,
         url: courseData.url,
         duration_hours: courseData.duration_hours,
@@ -285,16 +273,15 @@ export async function generateLearningRoadmap(
     };
   });
 
-  // Calculate total duration
   const totalHours = Array.from(skillMap.values()).reduce(
     (sum, skill) => sum + skill.duration_hours,
     0
   );
-  const estimatedWeeks = Math.ceil(totalHours / 20); // Assuming 20 hours/week
+  const estimatedWeeks = Math.ceil(totalHours / 20);
 
   const roadmap: LearningRoadmap = {
     id: `learning-roadmap-${careerId}-${Date.now()}`,
-    user_id: '', // Will be set by storage
+    user_id: '',
     career_id: careerId || '',
     career_title: careerTitle,
     title: `Learning Path: ${careerTitle}`,

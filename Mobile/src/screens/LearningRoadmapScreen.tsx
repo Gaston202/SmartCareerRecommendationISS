@@ -13,14 +13,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { generateLearningRoadmap } from '../features/learning-roadmap/ai-learning-roadmap.service';
 import {
   saveLearningRoadmap,
   getLearningRoadmapByCareerTitle,
 } from '../features/learning-roadmap/storage';
 import { useAuth } from '../auth/AuthProvider';
 import { homeColors } from './homeTheme';
-import type { LearningRoadmap, LearningRoadmapNode } from '../features/learning-roadmap/types';
+import type {
+  LearningCourse,
+  LearningRoadmap,
+  LearningRoadmapNode,
+  LearningSkill,
+} from '../features/learning-roadmap/types';
+import {
+  fetchRoadmapPlanFromBackend,
+  type BackendPlannedRoadmapStep,
+} from '../features/roadmaps/api-backend';
 
 type HomeStackParamList = {
   LearningRoadmap: {
@@ -75,6 +83,115 @@ export default function LearningRoadmapScreen(): React.ReactElement {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const rotationAnim = useRef(new Animated.Value(0)).current;
 
+  const buildLearningRoadmapFromPlan = (
+    steps: BackendPlannedRoadmapStep[],
+  ): LearningRoadmap => {
+    const now = new Date().toISOString();
+    const orderedSteps = [...steps].sort((a, b) => a.order_index - b.order_index);
+    const skillIdByName = new Map<string, string>();
+
+    const toSkillId = (name: string, index: number) =>
+      `${params.careerTitle}-${index}-${name}`
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+    orderedSteps.forEach((step, index) => {
+      skillIdByName.set(step.skill_name.toLowerCase(), toSkillId(step.skill_name, index));
+    });
+
+    const skills = orderedSteps.map((step, index): LearningRoadmapNode => {
+      const skillId = skillIdByName.get(step.skill_name.toLowerCase()) || toSkillId(step.skill_name, index);
+      const prerequisiteIds = step.prerequisites
+        .map((name) => skillIdByName.get(name.toLowerCase()))
+        .filter((value): value is string => Boolean(value));
+
+      const skill: LearningSkill = {
+        id: skillId,
+        name: step.skill_name,
+        description: step.why_it_matters,
+        level: step.difficulty,
+        duration_hours: Math.max(1, Math.round(step.estimated_duration_hours || 1)),
+        prerequisites: prerequisiteIds,
+        category: 'RAG Roadmap',
+        importance: index < 2 ? 'critical' : index < 4 ? 'important' : 'nice-to-have',
+        created_at: now,
+      };
+
+      const dependencies: LearningSkill[] = step.prerequisites
+        .map((name) => {
+          const dependencyIndex = orderedSteps.findIndex(
+            (candidate) => candidate.skill_name.toLowerCase() === name.toLowerCase(),
+          );
+          if (dependencyIndex < 0) return null;
+          const dependencyStep = orderedSteps[dependencyIndex];
+          const dependencyId =
+            skillIdByName.get(dependencyStep.skill_name.toLowerCase()) ||
+            toSkillId(dependencyStep.skill_name, dependencyIndex);
+
+          return {
+            id: dependencyId,
+            name: dependencyStep.skill_name,
+            description: dependencyStep.why_it_matters,
+            level: dependencyStep.difficulty,
+            duration_hours: Math.max(1, Math.round(dependencyStep.estimated_duration_hours || 1)),
+            prerequisites: [],
+            category: 'RAG Roadmap',
+            importance: dependencyIndex < 2 ? 'critical' : dependencyIndex < 4 ? 'important' : 'nice-to-have',
+            created_at: now,
+          };
+        })
+        .filter((value): value is LearningSkill => Boolean(value));
+
+      const courses: LearningCourse[] = step.resource_title
+        ? [
+            {
+              id: `${skillId}-resource`,
+              skill_id: skillId,
+              title: step.resource_title,
+              description: `Recommended learning resource for ${step.skill_name}`,
+              provider: step.provider || 'Curated Resource',
+              url: step.source_url || '',
+              duration_hours: Math.max(1, Math.round((step.estimated_duration_hours || 1) * 0.6)),
+              level: step.difficulty,
+              rating: 4,
+              free: true,
+              course_type: 'text',
+              created_at: now,
+            },
+          ]
+        : [];
+
+      return {
+        skill,
+        courses,
+        dependencies,
+        userProgress: {
+          started: index === 0,
+          completedPercentage: 0,
+          completedCourses: [],
+        },
+      };
+    });
+
+    const totalDurationHours = skills.reduce((sum, node) => sum + node.skill.duration_hours, 0);
+
+    return {
+      id: `learning-rag-${params.careerId || params.careerTitle}-${Date.now()}`,
+      user_id: state.user?.id || '',
+      career_id: params.careerId || params.careerTitle,
+      career_title: params.careerTitle,
+      title: `${params.careerTitle} Learning Roadmap`,
+      description: `Retrieval-backed learning path for ${params.careerTitle}.`,
+      skills,
+      total_duration_hours: totalDurationHours,
+      estimated_weeks: Math.max(1, Math.ceil(totalDurationHours / 8)),
+      skill_count: skills.length,
+      created_at: now,
+      updated_at: now,
+    };
+  };
+
   useEffect(() => {
     if (roadmap) {
       // Start rotation animation for in-progress items
@@ -95,7 +212,9 @@ export default function LearningRoadmapScreen(): React.ReactElement {
 
   useEffect(() => {
     if (roadmap) {
-      const completedCount = roadmap.skills.filter(s => s.skill.importance === 'critical').length;
+      const completedCount = roadmap.skills.filter(
+        (s) => s.userProgress?.completedPercentage === 100,
+      ).length;
       const totalCount = roadmap.skills.length;
       const percentValue = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
 
@@ -181,11 +300,11 @@ export default function LearningRoadmapScreen(): React.ReactElement {
   const handleGenerate = async () => {
     setLoading(true);
     try {
-      const generated = await generateLearningRoadmap(
-        params.careerTitle,
-        params.careerDescription,
-        params.careerId,
-      );
+      const planned = await fetchRoadmapPlanFromBackend({
+        careerId: params.careerId,
+        careerTitle: params.careerTitle,
+      });
+      const generated = buildLearningRoadmapFromPlan(planned.steps || []);
       setRoadmap(generated);
     } catch (error: any) {
       console.error('[LearningRoadmap] Generate failed', error);
