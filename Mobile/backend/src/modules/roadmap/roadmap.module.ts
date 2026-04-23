@@ -5,6 +5,9 @@ import { RoadmapController } from './roadmap.controller';
 import { RoadmapRetrievalService } from './roadmap-retrieval.service';
 import { RoadmapPlannerService } from './roadmap-planner.service';
 import { RoadmapRefreshService } from './roadmap-refresh.service';
+import { RoadmapSkillGapService } from './roadmap-skill-gap.service';
+import { RoadmapEvidenceService } from './roadmap-evidence.service';
+import { RoadmapWebSearchService } from './roadmap-web-search.service';
 import { DatabaseModule } from '../../core/database/database.module';
 import { AiOrchestratorModule } from '../../core/ai-orchestrator/ai-orchestrator.module';
 import { QueueModule } from '../../core/queue/queue.module';
@@ -17,8 +20,17 @@ import { CacheModule } from '../../core/cache/cache.module';
     RoadmapRetrievalService,
     RoadmapPlannerService,
     RoadmapRefreshService,
+    RoadmapSkillGapService,
+    RoadmapEvidenceService,
+    RoadmapWebSearchService,
   ],
   controllers: [RoadmapController],
-  exports: [RoadmapService, RoadmapRetrievalService, RoadmapPlannerService],
+  exports: [
+    RoadmapService,
+    RoadmapRetrievalService,
+    RoadmapPlannerService,
+    RoadmapSkillGapService,
+    RoadmapEvidenceService,
+  ],
 })
 export class RoadmapModule {}

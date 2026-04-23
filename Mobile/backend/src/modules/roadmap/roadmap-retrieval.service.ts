@@ -91,7 +91,27 @@ export class RoadmapRetrievalService {
       this.semanticCandidates(input.query, input.filters, topK * 4),
     ]);
 
-    const fused = this.fuseAndRerank(structured, keywordRows, semanticRows, input.required_skills || []);
+    const normalizedKeywordMap = this.normalizeScores(
+      keywordRows.map((row) => ({
+        id: row.resource_id,
+        raw_score: row.keyword_score,
+      })),
+    );
+    const normalizedSemanticMap = this.normalizeScores(
+      semanticRows.map((row) => ({
+        id: row.resource_id,
+        raw_score: row.semantic_score,
+      })),
+    );
+
+    const fused = this.fuseAndRerank(
+      structured,
+      keywordRows,
+      semanticRows,
+      normalizedKeywordMap,
+      normalizedSemanticMap,
+      input.required_skills || [],
+    );
     const trimmed = fused.slice(0, topK);
 
     const confidence = this.computeConfidence(trimmed);
@@ -169,10 +189,25 @@ export class RoadmapRetrievalService {
 
     const rows = (data || []) as KeywordRow[];
     if (rows.length > 0) {
-      return rows;
+      return this.dedupeByMaxScore(rows);
     }
 
     return this.keywordFallbackCandidates(query, filters, limitCount);
+  }
+
+  private dedupeByMaxScore(
+    rows: KeywordRow[],
+  ): KeywordRow[] {
+    const best = new Map<string, KeywordRow>();
+
+    for (const row of rows) {
+      const existing = best.get(row.resource_id);
+      if (!existing || row.keyword_score > existing.keyword_score) {
+        best.set(row.resource_id, row);
+      }
+    }
+
+    return Array.from(best.values());
   }
 
   private async semanticCandidates(
@@ -205,6 +240,8 @@ export class RoadmapRetrievalService {
     structured: RetrievedResource[],
     keywordRows: KeywordRow[],
     semanticRows: SemanticRow[],
+    normalizedKeywordMap: Map<string, number>,
+    normalizedSemanticMap: Map<string, number>,
     requiredSkills: string[],
   ): RetrievedResource[] {
     const rrfK = 60;
@@ -255,6 +292,11 @@ export class RoadmapRetrievalService {
       const structuredScore = sr ? 1 / (rrfK + sr) : 0;
       const keywordScore = kr ? 1 / (rrfK + kr) : 0;
       const semanticScore = vr ? 1 / (rrfK + vr) : 0;
+      const krNorm = normalizedKeywordMap.get(id) ?? 0;
+      const vrNorm = normalizedSemanticMap.get(id) ?? 0;
+      const srNorm = structuredRank.get(id)
+        ? 1 / (rrfK + (structuredRank.get(id) ?? 999))
+        : 0;
 
       let rerankBoost = 0;
       const title = (s?.resource_title || k?.title || v?.title || '').toLowerCase();
@@ -265,7 +307,14 @@ export class RoadmapRetrievalService {
         rerankBoost += Math.min(0.2, overlap * 0.07);
       }
 
-      const total = structuredScore * 0.35 + keywordScore * 0.35 + semanticScore * 0.30 + rerankBoost;
+      const rrfScore =
+        (kr ? 1 / (rrfK + kr) : 0) * 0.35 +
+        (vr ? 1 / (rrfK + vr) : 0) * 0.30 +
+        srNorm * 0.35;
+
+      const normScore = krNorm * 0.45 + vrNorm * 0.35 + 0;
+
+      const total = rrfScore * 0.4 + normScore * 0.6 + rerankBoost;
 
       fused.push({
         resource_id: id,
@@ -278,8 +327,8 @@ export class RoadmapRetrievalService {
         source_url: s?.source_url || k?.source_url || v?.source_url || '',
         score: Number(total.toFixed(4)),
         structured_score: Number(structuredScore.toFixed(4)),
-        keyword_score: Number(keywordScore.toFixed(4)),
-        semantic_score: Number(semanticScore.toFixed(4)),
+        keyword_score: Number((normalizedKeywordMap.get(id) ?? 0).toFixed(4)),
+        semantic_score: Number((normalizedSemanticMap.get(id) ?? 0).toFixed(4)),
         rerank_score: Number(rerankBoost.toFixed(4)),
         matched_skill_tags: s?.matched_skill_tags || [],
       });
@@ -297,6 +346,24 @@ export class RoadmapRetrievalService {
     const margin = Math.max(0, top - second);
 
     return Number(Math.min(1, top * 0.6 + density * 0.25 + margin * 0.15).toFixed(4));
+  }
+
+  private normalizeScores(
+    results: Array<{ id: string; raw_score: number }>,
+  ): Map<string, number> {
+    if (results.length === 0) return new Map();
+
+    const scores = results.map((result) => result.raw_score);
+    const min = Math.min(...scores);
+    const max = Math.max(...scores);
+    const range = max - min;
+
+    return new Map(
+      results.map((result) => [
+        result.id,
+        range > 0 ? (result.raw_score - min) / range : 1.0,
+      ]),
+    );
   }
 
   private applyResourceFilters(query: any, filters?: RoadmapResourceFilters): any {

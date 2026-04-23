@@ -1,5 +1,6 @@
 export type RoadmapLevel = 'beginner' | 'intermediate' | 'advanced';
 export type FreeOrPaid = 'free' | 'paid' | 'mixed';
+export type RoadmapBudget = 'free' | 'low' | 'medium' | 'high';
 
 export interface RoadmapResourceFilters {
   level?: RoadmapLevel;
@@ -16,13 +17,64 @@ export interface RoadmapResourceFilters {
 
 export interface RoadmapUserPreferences {
   language?: string;
-  budget?: 'free' | 'low' | 'medium' | 'high';
+  budget?: RoadmapBudget;
   time_per_week_hours?: number;
 }
 
 export interface RoadmapSequenceConstraint {
   before: string;
   after: string;
+}
+
+export interface PlanningContext {
+  careerId: string | null;
+  targetRole: string;
+  userSkills: string[];
+  preferences: RoadmapUserPreferences;
+  maxSteps: number;
+  language: string | null;
+  budget: RoadmapBudget | null;
+}
+
+export interface SkillGap {
+  skillName: string;
+  canonicalName: string;
+  difficulty: RoadmapLevel;
+  estimatedHours: number;
+  prerequisites: string[];
+  priority: number;
+}
+
+export interface ResourceEvidence {
+  resourceId: string;
+  title: string;
+  matchedBy: string[];
+  keywordScore: number;
+  semanticScore: number;
+  skillLinkScore: number;
+  finalScore: number;
+  whySelected: string;
+}
+
+export interface EvidenceBundle {
+  skillName: string;
+  resources: ResourceEvidence[];
+  coverageScore: number;
+  hasWeakEvidence: boolean;
+  webSearchUsed?: boolean;
+}
+
+export interface RetrievalDiagnostics {
+  totalCandidates: number;
+  poolSize: number;
+  coverageBySkill: Record<string, number>;
+}
+
+export interface PlanStepEvidence {
+  stepId: string;
+  primaryResource: ResourceEvidence | null;
+  backupResources: ResourceEvidence[];
+  evidenceBundle: EvidenceBundle;
 }
 
 export interface PlanRoadmapDto {
@@ -35,7 +87,7 @@ export interface PlanRoadmapDto {
   user_profile?: {
     selected_role?: string;
     declared_skills?: string[];
-    quiz_nova_profile?: any;
+    quiz_nova_profile?: unknown;
     cv_extracted_skills?: string[];
     cv_extracted_interests?: string[];
     preferences?: RoadmapUserPreferences;
@@ -52,7 +104,7 @@ export interface SearchResourcesDto {
 export interface RefreshProviderDto {
   provider: string;
   mode?: 'monthly_refresh' | 'on_demand_refresh' | 'backfill';
-  filters?: Record<string, any>;
+  filters?: Record<string, unknown>;
   reason?: string;
 }
 
@@ -96,6 +148,9 @@ export interface RoadmapStep {
   source_url: string | null;
   confidence_score: number;
   order_index: number;
+  primary_resource?: ResourceEvidence | null;
+  backup_resources?: ResourceEvidence[];
+  evidence_reasons?: string[];
 }
 
 export interface PlannedRoadmapResponse {
@@ -107,6 +162,7 @@ export interface PlannedRoadmapResponse {
   weak_evidence: boolean;
   message?: string;
   steps: RoadmapStep[];
+  diagnostics?: RetrievalDiagnostics;
   metadata: {
     required_skills: string[];
     existing_skills: string[];
