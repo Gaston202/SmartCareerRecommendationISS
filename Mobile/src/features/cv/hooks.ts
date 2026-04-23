@@ -131,7 +131,21 @@ export function useCvAnalysis() {
   return useQuery({
     queryKey: [...cvQueryKeys.analyses(), "latest"],
     queryFn: async () => {
-      return getLatestCvAnalysisFromBackend();
+      const analysis = await getLatestCvAnalysisFromBackend();
+
+      if (!analysis) {
+        return null;
+      }
+
+      if (analysis.status === "pending" || analysis.status === "processing") {
+        throw new Error("Your CV analysis is still processing. Please try again shortly.");
+      }
+
+      if (analysis.status === "failed") {
+        throw new Error(analysis.error_message || "CV analysis failed on the backend.");
+      }
+
+      return analysis;
     },
     retry: 1,
     // ⭐ Client-side analysis is now synchronous, so normal caching works

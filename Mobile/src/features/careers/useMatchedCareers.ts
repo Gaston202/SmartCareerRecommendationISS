@@ -10,7 +10,7 @@ import { recommendCareers } from './api';
 import type { CareerMatch } from './matching';
 
 export function useMatchedCareers() {
-  const { data: cvAnalysis, isLoading: cvLoading } = useCvAnalysis();
+  const { data: cvAnalysis, isLoading: cvLoading, error: cvError } = useCvAnalysis();
 
   return useQuery({
     queryKey: [
@@ -26,13 +26,21 @@ export function useMatchedCareers() {
         return [];
       }
 
-      // CV analysis is optional but preferred
+      // CV analysis is optional but preferred.
+      // If it is still processing or failed, we fall back to quiz-only matching.
       const cvAnalysisId = cvAnalysis?.id;
 
-      console.log('[useMatchedCareers] ✅ Fetching career recommendations from backend', {
-        quizSessionId,
-        cvAnalysisId,
-      });
+      if (cvAnalysisId) {
+        console.log('[useMatchedCareers] ✅ Fetching career recommendations from backend', {
+          quizSessionId,
+          cvAnalysisId,
+        });
+      } else {
+        console.log('[useMatchedCareers] ℹ️ Fetching quiz-only career recommendations', {
+          quizSessionId,
+          cvAnalysisError: cvError instanceof Error ? cvError.message : null,
+        });
+      }
 
       // Call backend API for deterministic matching + AI explanations
       const matches = await recommendCareers(quizSessionId, cvAnalysisId);

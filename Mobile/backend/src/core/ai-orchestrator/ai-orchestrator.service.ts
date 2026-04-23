@@ -23,6 +23,20 @@ const GeneratedCareersSchema = z.object({
   careers: z.array(GeneratedCareerSchema).min(3).max(8),
 });
 
+const nullToUndefined = (value: unknown) => (value === null ? undefined : value);
+
+const MarketIntelSchema = z.object({
+  salary_min: z.preprocess(nullToUndefined, z.number().min(0).optional()),
+  salary_max: z.preprocess(nullToUndefined, z.number().min(0).optional()),
+  growth_rate_percent: z.preprocess(nullToUndefined, z.number().min(0).max(80).optional()),
+  demand_level: z.preprocess(
+    nullToUndefined,
+    z.enum(["low", "medium", "high", "very-high"]).optional(),
+  ),
+  confidence: z.preprocess(nullToUndefined, z.number().min(0).max(1).optional()),
+  rationale: z.preprocess(nullToUndefined, z.string().optional()),
+});
+
 @Injectable()
 export class AiOrchestratorService {
   private readonly logger = new Logger(AiOrchestratorService.name);
@@ -119,6 +133,110 @@ Write an encouraging, specific explanation that references at least one skill or
       const topReason =
         career.match_reasons?.[0]?.replace(/^Skills matched: /, "") || "";
       return `Great ${career.match_score || "match"}% fit! Your ${topSkill} skill${topReason ? ` and ${topReason}` : ""} align well with this role.`;
+    }
+  }
+
+  async extractCareerMarketIntel(
+    careerTitle: string,
+    snippets: string[],
+    cacheTtl: number = 86400,
+  ): Promise<{
+    salary_min?: number;
+    salary_max?: number;
+    growth_rate_percent?: number;
+    demand_level?: "low" | "medium" | "high" | "very-high";
+    confidence?: number;
+    rationale?: string;
+  } | null> {
+    if (!careerTitle || !Array.isArray(snippets) || snippets.length === 0) {
+      return null;
+    }
+
+    const compactSnippets = snippets
+      .map((s) => String(s || "").trim())
+      .filter(Boolean)
+      .slice(0, 12);
+
+    if (!compactSnippets.length) return null;
+
+    const cacheSeed = `${careerTitle}::${compactSnippets.join("|")}`;
+    const cacheKey = `career:market-intel:${Buffer.from(cacheSeed).toString("base64")}`;
+    const cached = await this.cacheService.get<{
+      salary_min?: number;
+      salary_max?: number;
+      growth_rate_percent?: number;
+      demand_level?: "low" | "medium" | "high" | "very-high";
+      confidence?: number;
+      rationale?: string;
+    }>(cacheKey);
+
+    if (cached) return cached;
+
+    const prompt = `You are a labor-market data extraction assistant.
+
+Goal: infer career market metrics from web snippets.
+
+Career Title: ${careerTitle}
+Web Snippets:
+${compactSnippets.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+Rules:
+- Extract conservative estimates only if evidence appears in snippets.
+- salary_min and salary_max must be yearly USD integers when possible.
+- growth_rate_percent is numeric yearly or projected percentage.
+- demand_level must be one of: low, medium, high, very-high.
+- confidence is 0..1 based on evidence quality.
+- If uncertain, omit fields instead of guessing.
+
+Return ONLY valid JSON:
+{
+  "salary_min": number,
+  "salary_max": number,
+  "growth_rate_percent": number,
+  "demand_level": "low|medium|high|very-high",
+  "confidence": number,
+  "rationale": "short reason"
+}`;
+
+    try {
+      const response = await this.openRouter.chatWithRetry(
+        this.MODELS.explanation,
+        [{ role: "user", content: prompt }],
+        0.2,
+        600,
+      );
+
+      const content = response.choices[0]?.message?.content?.trim() || "";
+      const jsonStr = this.extractJson(content);
+      const parsed = JSON.parse(jsonStr);
+      const validated = MarketIntelSchema.parse(parsed);
+
+      const normalized = {
+        salary_min:
+          typeof validated.salary_min === "number"
+            ? Math.max(0, Math.round(validated.salary_min))
+            : undefined,
+        salary_max:
+          typeof validated.salary_max === "number"
+            ? Math.max(0, Math.round(validated.salary_max))
+            : undefined,
+        growth_rate_percent:
+          typeof validated.growth_rate_percent === "number"
+            ? Math.max(0, Math.min(80, Math.round(validated.growth_rate_percent)))
+            : undefined,
+        demand_level: validated.demand_level,
+        confidence:
+          typeof validated.confidence === "number"
+            ? Math.max(0, Math.min(1, validated.confidence))
+            : undefined,
+        rationale: validated.rationale?.trim() || undefined,
+      };
+
+      await this.cacheService.set(cacheKey, normalized, cacheTtl);
+      return normalized;
+    } catch (error) {
+      this.logger.warn(`Failed to extract market intel for ${careerTitle}`, error);
+      return null;
     }
   }
 
@@ -794,11 +912,105 @@ Rules:
     return cleaned.replace(/\s+/g, " ").trim();
   }
 
+  private normalizeQuizResultAnswers(
+    answers: Array<
+      string |
+      {
+        questionNumber?: number;
+        question?: string;
+        selectedLabel?: string;
+        answer?: string;
+        allOptions?: unknown;
+      }
+    >,
+  ): Array<{
+    questionNumber: number;
+    question: string;
+    selectedLabel: string;
+    allOptions: string[];
+  }> {
+    return answers.map((entry, index) => {
+      if (typeof entry === "string") {
+        return {
+          questionNumber: index + 1,
+          question: "",
+          selectedLabel: entry,
+          allOptions: [],
+        };
+      }
+
+      const maybeOptions = Array.isArray(entry.allOptions)
+        ? entry.allOptions.map((o) => String(o || "").trim()).filter(Boolean)
+        : [];
+
+      return {
+        questionNumber:
+          typeof entry.questionNumber === "number" && Number.isFinite(entry.questionNumber)
+            ? entry.questionNumber
+            : index + 1,
+        question: this.stripEmbeddedOptionsFromQuestion(entry.question || "") || "Question unavailable",
+        selectedLabel: String(entry.selectedLabel || entry.answer || "").trim(),
+        allOptions: maybeOptions,
+      };
+    });
+  }
+
+  private enforceIndependentDiscPercentages(input: any): {
+    red: number;
+    yellow: number;
+    green: number;
+    blue: number;
+  } {
+    const parsed = {
+      red: Number(input?.red),
+      yellow: Number(input?.yellow),
+      green: Number(input?.green),
+      blue: Number(input?.blue),
+    };
+
+    const safe = {
+      red: Number.isFinite(parsed.red) ? Math.max(0, Math.min(100, Math.round(parsed.red))) : 35,
+      yellow: Number.isFinite(parsed.yellow) ? Math.max(0, Math.min(100, Math.round(parsed.yellow))) : 35,
+      green: Number.isFinite(parsed.green) ? Math.max(0, Math.min(100, Math.round(parsed.green))) : 35,
+      blue: Number.isFinite(parsed.blue) ? Math.max(0, Math.min(100, Math.round(parsed.blue))) : 35,
+    };
+
+    const total = safe.red + safe.yellow + safe.green + safe.blue;
+    if (total <= 100) {
+      // Keep dimensions independent while ensuring combined intensity exceeds 100.
+      const ordered = [
+        { key: 'red' as const, value: safe.red },
+        { key: 'yellow' as const, value: safe.yellow },
+        { key: 'green' as const, value: safe.green },
+        { key: 'blue' as const, value: safe.blue },
+      ].sort((a, b) => b.value - a.value);
+
+      for (const item of ordered) {
+        if (safe[item.key] < 100) {
+          safe[item.key] = Math.min(100, safe[item.key] + (101 - total));
+          break;
+        }
+      }
+    }
+
+    return safe;
+  }
+
   async generateQuizResults(
-    answers: string[],
+    answers: Array<
+      string |
+      {
+        questionNumber?: number;
+        question?: string;
+        selectedLabel?: string;
+        answer?: string;
+        allOptions?: unknown;
+      }
+    >,
     cacheTtl: number = 86400,
   ): Promise<any> {
-    const cacheKey = `quiz:results:${Buffer.from(answers.join(",")).toString("base64")}`;
+    const normalizedAnswers = this.normalizeQuizResultAnswers(answers);
+    const cacheKey = `quiz:results:${Buffer.from(JSON.stringify(normalizedAnswers)).toString("base64")}`;
 
     if (this.cacheService) {
       const cached = await this.cacheService.get(cacheKey);
@@ -806,7 +1018,7 @@ Rules:
     }
 
     try {
-      const prompt = this.promptRegistry.compile("quiz-results", { answers });
+      const prompt = this.promptRegistry.compile("quiz-results", { answers: normalizedAnswers });
       const response = await this.openRouter.chatWithRetry(
         this.MODELS.quiz,
         [{ role: "user", content: prompt }],
@@ -865,12 +1077,17 @@ Rules:
             np.behavior = {
               primaryStyle: "Balanced",
               traits: ["Adaptable"],
-              discBlend: "R25 / Y25 / G25 / B25",
-              discPercentages: { red: 25, yellow: 25, green: 25, blue: 25 },
+              discBlend: "R35 / Y35 / G35 / B35",
+              discPercentages: { red: 35, yellow: 35, green: 35, blue: 35 },
             };
           } else {
             if (!Array.isArray(np.behavior.traits)) np.behavior.traits = [];
           }
+
+          const discPercentages = this.enforceIndependentDiscPercentages(np.behavior?.discPercentages);
+          np.behavior.discPercentages = discPercentages;
+          np.behavior.discBlend = `R${discPercentages.red} / Y${discPercentages.yellow} / G${discPercentages.green} / B${discPercentages.blue}`;
+
           // Ensure styleComparison exists and arrays
           if (!np.styleComparison) {
             np.styleComparison = {
@@ -1474,8 +1691,8 @@ Rules:
             "Adaptable",
             "Detail-oriented",
           ],
-          discBlend: "R25 / Y25 / G25 / B25",
-          discPercentages: { red: 25, yellow: 25, green: 25, blue: 25 },
+          discBlend: "R35 / Y35 / G35 / B35",
+          discPercentages: { red: 35, yellow: 35, green: 35, blue: 35 },
         },
         styleComparison: {
           naturalStyleSummary:

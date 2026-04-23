@@ -60,9 +60,16 @@ export class RoadmapService {
       cvSummary?: string;
     },
   ): Promise<Roadmap> {
+    this.logger.log(
+      `[Roadmap Legacy] getOrGenerateRoadmap user=${userId} career=${careerId} personalized=${Boolean(userProfile)} source=career_roadmaps`,
+    );
+
     const cacheKey = `roadmap:${userId}:${careerId}`;
     const cached = await this.cacheService.get<Roadmap>(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      this.logger.log(`[Roadmap Legacy] cache hit for career=${careerId}`);
+      return cached;
+    }
 
     try {
       // Check if we have a base roadmap template for this career
@@ -76,10 +83,17 @@ export class RoadmapService {
         throw new NotFoundException(`No roadmap template found for career ${careerId}`);
       }
 
+      this.logger.log(
+        `[Roadmap Legacy] loaded base roadmap template id=${baseRoadmap.id} career=${careerId}`,
+      );
+
       let personalizedMilestones: RoadmapMilestone[] = baseRoadmap.milestones;
 
       // If user profile provided, personalize
       if (userProfile) {
+        this.logger.log(
+          `[Roadmap Legacy] personalizing roadmap with skills=${userProfile.skills?.length || 0} has_nova=${Boolean(userProfile.novaProfile)} has_cv_summary=${Boolean(userProfile.cvSummary)}`,
+        );
         const personalized = await this.aiOrchestrator.personalizeRoadmap(
           baseRoadmap,
           userProfile.skills || [],
@@ -102,6 +116,9 @@ export class RoadmapService {
 
       // Cache for 12 hours
       await this.cacheService.set(cacheKey, roadmap, 43200);
+      this.logger.log(
+        `[Roadmap Legacy] roadmap ready career=${careerId} milestones=${roadmap.milestones.length} total_weeks=${roadmap.total_duration_weeks}`,
+      );
 
       return roadmap;
     } catch (error) {

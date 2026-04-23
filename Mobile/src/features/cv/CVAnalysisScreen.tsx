@@ -1,4 +1,4 @@
-import React from "react";
+import React, { ReactNode, useMemo } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -6,18 +6,20 @@ import {
   StyleSheet,
   Text,
   View,
-} from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
-import { useCvAnalysis } from "./hooks";
-import { homeColors } from "../../screens/homeTheme";
+  useWindowDimensions,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCvAnalysis } from './hooks';
+import { homeColors } from '../../screens/homeTheme';
 
 type RawIssue = {
   title?: string;
-  impact?: "low" | "medium" | "high";
+  impact?: 'low' | 'medium' | 'high';
   fix?: string;
   type?: string;
-  severity?: "critical" | "warning" | "info";
+  severity?: 'critical' | 'warning' | 'info';
   description?: string;
 };
 
@@ -33,22 +35,22 @@ function normalizeListValue(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value
       .map((item) => {
-        if (typeof item === "string") return item;
-        if (item && typeof item === "object") {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
           const maybeNamed = item as { name?: unknown; title?: unknown; value?: unknown };
-          if (typeof maybeNamed.name === "string") return maybeNamed.name;
-          if (typeof maybeNamed.title === "string") return maybeNamed.title;
-          if (typeof maybeNamed.value === "string") return maybeNamed.value;
+          if (typeof maybeNamed.name === 'string') return maybeNamed.name;
+          if (typeof maybeNamed.title === 'string') return maybeNamed.title;
+          if (typeof maybeNamed.value === 'string') return maybeNamed.value;
         }
-        return "";
+        return '';
       })
       .map((item) => item.trim())
       .filter(Boolean);
   }
 
-  if (typeof value === "string") {
+  if (typeof value === 'string') {
     return value
-      .split(",")
+      .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
   }
@@ -57,13 +59,13 @@ function normalizeListValue(value: unknown): string[] {
 }
 
 function getSeverityColor(severity: string) {
-  if (severity === "critical" || severity === "high") return "#DC2626";
-  if (severity === "warning" || severity === "medium") return "#D97706";
-  return homeColors.primary;
+  if (severity === 'critical' || severity === 'high') return '#d14358';
+  if (severity === 'warning' || severity === 'medium') return '#d97706';
+  return homeColors.accentTeal;
 }
 
 function toSeverityLabel(issue: RawIssue): string {
-  const severity = issue.severity ?? issue.impact ?? "info";
+  const severity = issue.severity ?? issue.impact ?? 'info';
   return severity.toUpperCase();
 }
 
@@ -72,58 +74,120 @@ function getIssueTitle(issue: RawIssue): string {
   if (issue.type?.trim()) {
     return issue.type.charAt(0).toUpperCase() + issue.type.slice(1);
   }
-  return "Issue";
+  return 'Issue';
 }
 
 function getIssueDescription(issue: RawIssue): string {
-  return issue.fix?.trim() || issue.description?.trim() || "No additional details provided.";
+  return issue.fix?.trim() || issue.description?.trim() || 'No additional details provided.';
 }
 
 function getScoreLabel(score: number): string {
-  if (score >= 80) return "Excellent";
-  if (score >= 60) return "Good";
-  return "Needs improvement";
+  if (score >= 80) return 'Excellent';
+  if (score >= 60) return 'Action Required: Moderate';
+  return 'Critical Revision Needed';
+}
+
+function Badge({
+  children,
+  tone = 'primary',
+}: {
+  children: ReactNode;
+  tone?: 'primary' | 'error' | 'tertiary' | 'ghost';
+}) {
+  const bg =
+    tone === 'error'
+      ? '#fbe7ec'
+      : tone === 'tertiary'
+      ? '#ffe9d6'
+      : tone === 'ghost'
+      ? '#efe7ff'
+      : '#ece2ff';
+
+  const color =
+    tone === 'error'
+      ? '#d14358'
+      : tone === 'tertiary'
+      ? '#c86d10'
+      : tone === 'ghost'
+      ? '#5b4a7b'
+      : homeColors.primary;
+
+  return (
+    <View style={[styles.badge, { backgroundColor: bg }]}> 
+      <Text style={[styles.badgeText, { color }]}>{children}</Text>
+    </View>
+  );
+}
+
+function ProgressDisk({ score }: { score: number }) {
+  return (
+    <View style={styles.progressWrap}>
+      <View style={styles.progressRingOuter}>
+        <View style={styles.progressRingInner}>
+          <Text style={styles.progressScore}>{score}</Text>
+          <Text style={styles.progressOutOf}>/100</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function SectionTitle({ icon, title }: { icon: keyof typeof Ionicons.glyphMap; title: string }) {
+  return (
+    <View style={styles.sectionHeaderRow}>
+      <Ionicons name={icon} size={20} color={homeColors.primary} />
+      <Text style={styles.sectionTitle}>{title}</Text>
+    </View>
+  );
 }
 
 export function CVAnalysisScreen() {
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isDesktopLike = width >= 960;
+
   const { data: analysis, isLoading, isFetching, error, refetch } = useCvAnalysis();
 
   if (isLoading || isFetching) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
         <LinearGradient
-          colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
+          colors={['#fcf4ff', '#f8edff']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.centeredState}>
           <ActivityIndicator size="large" color={homeColors.primary} />
-          <Text style={styles.loadingTitle}>Analyzing your CV insights</Text>
-          <Text style={styles.loadingSubtitle}>Preparing ATS score, improvements, and career matches...</Text>
+          <Text style={styles.loadingTitle}>Analyzing your CV</Text>
+          <Text style={styles.loadingSubtitle}>Building ATS insights and strategy roadmap...</Text>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (error || !analysis) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
         <LinearGradient
-          colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
+          colors={['#fcf4ff', '#f8edff']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.centeredState}>
           <View style={styles.errorCard}>
-            <Ionicons name="alert-circle-outline" size={28} color="#DC2626" />
+            <Ionicons name="alert-circle-outline" size={28} color="#d14358" />
             <Text style={styles.errorTitle}>No CV analysis available</Text>
             <Text style={styles.errorText}>
-              {error?.message || "Go back, analyze your CV, then open this page again."}
+              {error?.message || 'Go back, analyze your CV, then open this page again.'}
             </Text>
             <Pressable style={styles.retryButton} onPress={() => refetch()}>
               <Text style={styles.retryButtonText}>Try again</Text>
             </Pressable>
           </View>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -136,188 +200,129 @@ export function CVAnalysisScreen() {
     analysis.extracted_interests ?? analysis.interests_extracted ?? analysis.interests
   );
 
+  const leftColWidth = isDesktopLike ? { width: '40%' as const } : undefined;
+  const rightColWidth = isDesktopLike ? { width: '57%' as const } : undefined;
+
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <LinearGradient
-        colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
+        colors={['#fcf4ff', '#f8edff']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerCard}>
-          <View style={styles.headerIconWrap}>
-            <Ionicons name="document-text-outline" size={20} color={homeColors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>CV Analysis</Text>
-            <Text style={styles.headerSubtitle}>ATS compatibility and role-fit recommendations</Text>
-          </View>
+      <ScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(insets.top + 12, 16) }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.pageTitleWrap}>
+          <Text style={styles.pageTitle}>CV Analysis</Text>
+          <Text style={styles.pageSubtitle}>
+            Your AI scan is complete. Review ATS issues, strategic improvements, and extracted strengths.
+          </Text>
         </View>
 
-        <View style={styles.scoreCard}>
-          <LinearGradient
-            colors={[homeColors.primary, homeColors.primaryDark]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.scoreGradient}
-          >
-            <View style={styles.scoreCircle}>
-              <Text style={styles.scoreValue}>{analysis.ats_score}</Text>
-              <Text style={styles.scoreOutOf}>/100</Text>
+        <View style={[styles.mainGrid, isDesktopLike && styles.mainGridDesktop]}>
+          <View style={[styles.leftColumn, leftColWidth]}>
+            <View style={styles.scoreCard}>
+              <Text style={styles.scoreKicker}>ATS COMPATIBILITY SCORE</Text>
+              <ProgressDisk score={analysis.ats_score} />
+              <Badge tone="tertiary">{getScoreLabel(analysis.ats_score)}</Badge>
+              <Text style={styles.scoreContext}>
+                Your CV currently performs better than many candidates, but targeted fixes can significantly improve shortlist chances.
+              </Text>
             </View>
-            <View style={styles.scoreTextWrap}>
-              <Text style={styles.scoreTitle}>ATS Friendliness</Text>
-              <Text style={styles.scoreLabel}>{getScoreLabel(analysis.ats_score)}</Text>
-              <Text style={styles.scoreHint}>Improving this score increases shortlist chances.</Text>
-            </View>
-          </LinearGradient>
-        </View>
+          </View>
 
-        <View style={styles.statsRow}>
-          <StatCard
-            icon="alert-circle-outline"
-            label="Issues"
-            value={String(issues.length)}
-            color={issues.length > 0 ? "#D97706" : "#059669"}
-          />
-          <StatCard
-            icon="construct-outline"
-            label="Improvements"
-            value={String(improvements.length)}
-            color={homeColors.primary}
-          />
-        </View>
+          <View style={[styles.rightColumn, rightColWidth]}>
+            <View style={styles.sectionCard}>
+              <SectionTitle icon="alert-circle-outline" title="Identified Issues" />
 
-        <Section title="ATS Issues" icon="warning-outline">
-          {issues.length === 0 ? (
-            <EmptyState text="No major ATS issues detected." />
-          ) : (
-            issues.map((issue, idx) => {
-              const severityLabel = toSeverityLabel(issue);
-              const severityColor = getSeverityColor((issue.severity || issue.impact || "info") as string);
-              return (
-                <View key={`issue-${idx}`} style={styles.itemCard}>
-                  <View style={styles.itemHeaderRow}>
-                    <Text style={styles.itemTitle}>{getIssueTitle(issue)}</Text>
-                    <View style={[styles.badge, { backgroundColor: `${severityColor}22`, borderColor: `${severityColor}55` }]}>
-                      <Text style={[styles.badgeText, { color: severityColor }]}>{severityLabel}</Text>
+              {issues.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyText}>No major ATS issues detected.</Text>
+                </View>
+              ) : (
+                issues.map((issue, idx) => {
+                  const severity = toSeverityLabel(issue);
+                  const severityColor = getSeverityColor((issue.severity || issue.impact || 'info') as string);
+                  return (
+                    <View key={`issue-${idx}`} style={styles.issueItem}>
+                      <View style={styles.issueRowTop}>
+                        <Text style={styles.issueTitle}>{getIssueTitle(issue)}</Text>
+                        <Badge tone={severity === 'CRITICAL' ? 'error' : 'tertiary'}>{severity}</Badge>
+                      </View>
+                      <Text style={styles.issueDescription}>{getIssueDescription(issue)}</Text>
+                      <View style={[styles.issueUnderline, { backgroundColor: `${severityColor}33` }]} />
                     </View>
-                  </View>
-                  <Text style={styles.itemDescription}>{getIssueDescription(issue)}</Text>
-                </View>
-              );
-            })
-          )}
-        </Section>
+                  );
+                })
+              )}
+            </View>
 
-        <Section title="Suggested Improvements" icon="sparkles-outline">
-          {improvements.length === 0 ? (
-            <EmptyState text="No improvement suggestions returned yet." />
-          ) : (
-            improvements.map((improvement, idx) => (
-              <View key={`improvement-${idx}`} style={styles.itemCard}>
-                <View style={styles.itemHeaderRow}>
-                  <Text style={styles.itemTitle}>{improvement.section || "General"}</Text>
-                </View>
-                <Text style={styles.itemDescription}>{improvement.suggestion || "No suggestion provided."}</Text>
-                {!!improvement.example && (
-                  <View style={styles.exampleBox}>
-                    <Text style={styles.exampleLabel}>Example</Text>
-                    <Text style={styles.exampleText}>{improvement.example}</Text>
-                  </View>
-                )}
-              </View>
-            ))
-          )}
-        </Section>
+            <View style={styles.sectionCard}>
+              <SectionTitle icon="construct-outline" title="Suggested Improvements" />
 
-        <Section title="Extracted Skills & Interests" icon="albums-outline">
-          {extractedSkills.length === 0 && extractedInterests.length === 0 ? (
-            <EmptyState text="No extracted skills or interests found in this analysis." />
-          ) : (
-            <View style={styles.extractedGrid}>
-              <View style={styles.extractedCard}>
-                <View style={styles.extractedHeaderRow}>
-                  <Ionicons name="flash-outline" size={16} color={homeColors.primary} />
-                  <Text style={styles.extractedTitle}>Skills</Text>
+              {improvements.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyText}>No improvement suggestions returned yet.</Text>
                 </View>
-                {extractedSkills.length === 0 ? (
-                  <Text style={styles.extractedEmptyText}>No skills extracted.</Text>
-                ) : (
-                  <View style={styles.tagWrap}>
-                    {extractedSkills.map((skill, idx) => (
-                      <View key={`extracted-skill-${idx}`} style={styles.tagChip}>
-                        <Text style={styles.tagChipText}>{skill}</Text>
+              ) : (
+                improvements.map((item, idx) => (
+                  <View key={`improvement-${idx}`} style={styles.improvementItem}>
+                    <View style={styles.improvementHead}>
+                      <Text style={styles.improvementSection}>{item.section || 'General'}</Text>
+                    </View>
+                    <Text style={styles.improvementText}>{item.suggestion || 'No suggestion provided.'}</Text>
+                    {item.example ? (
+                      <View style={styles.exampleBlock}>
+                        <Text style={styles.exampleLabel}>Example</Text>
+                        <Text style={styles.exampleText}>{item.example}</Text>
                       </View>
+                    ) : null}
+                  </View>
+                ))
+              )}
+            </View>
+
+            <View style={[styles.dualCards, isDesktopLike && styles.dualCardsDesktop]}>
+              <View style={styles.skillsCard}>
+                <Text style={styles.dualCardTitle}>Extracted Skills</Text>
+                {extractedSkills.length === 0 ? (
+                  <Text style={styles.dualCardEmpty}>No extracted skills found.</Text>
+                ) : (
+                  <View style={styles.chipsWrap}>
+                    {extractedSkills.map((skill, idx) => (
+                      <Badge key={`skill-${idx}`} tone="ghost">
+                        {skill}
+                      </Badge>
                     ))}
                   </View>
                 )}
               </View>
 
-              <View style={styles.extractedCard}>
-                <View style={styles.extractedHeaderRow}>
-                  <Ionicons name="heart-outline" size={16} color={homeColors.accentTeal} />
-                  <Text style={styles.extractedTitle}>Interests</Text>
-                </View>
+              <View style={styles.interestCard}>
+                <Text style={styles.dualCardTitleLight}>Extracted Interests</Text>
                 {extractedInterests.length === 0 ? (
-                  <Text style={styles.extractedEmptyText}>No interests extracted.</Text>
+                  <Text style={styles.dualCardEmptyLight}>No extracted interests found.</Text>
                 ) : (
-                  <View style={styles.tagWrap}>
+                  <View style={styles.chipsWrap}>
                     {extractedInterests.map((interest, idx) => (
-                      <View key={`extracted-interest-${idx}`} style={styles.tagChip}>
-                        <Text style={styles.tagChipText}>{interest}</Text>
+                      <View key={`interest-${idx}`} style={styles.lightChip}>
+                        <Text style={styles.lightChipText}>{interest}</Text>
                       </View>
                     ))}
                   </View>
                 )}
               </View>
             </View>
-          )}
-        </Section>
+          </View>
+        </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
-
-function StatCard({ icon, label, value, color }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; color: string }) {
-  return (
-    <View style={styles.statCard}>
-      <Ionicons name={icon} size={16} color={color} />
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function Section({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  children: React.ReactNode;
-}) {
-  return (
-    <View style={styles.sectionWrap}>
-      <View style={styles.sectionHeader}>
-        <Ionicons name={icon} size={18} color={homeColors.primary} />
-        <Text style={styles.sectionTitle}>{title}</Text>
-      </View>
-      <View style={styles.sectionContent}>{children}</View>
-    </View>
-  );
-}
-
-function EmptyState({ text }: { text: string }) {
-  return (
-    <View style={styles.emptyStateCard}>
-      <Text style={styles.emptyStateText}>{text}</Text>
-    </View>
-  );
-}
-
-
 
 const styles = StyleSheet.create({
   container: {
@@ -325,282 +330,331 @@ const styles = StyleSheet.create({
   },
   centeredState: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-    gap: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   loadingTitle: {
-    marginTop: 6,
-    fontSize: 18,
-    fontWeight: "700",
-    color: homeColors.textDark,
+    marginTop: 10,
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#37274d',
   },
   loadingSubtitle: {
+    marginTop: 4,
     fontSize: 14,
-    color: homeColors.textMuted,
-    textAlign: "center",
-    maxWidth: 320,
+    color: '#6f6085',
+    textAlign: 'center',
+    lineHeight: 20,
+    maxWidth: 340,
   },
   errorCard: {
-    width: "100%",
-    maxWidth: 360,
-    backgroundColor: "#FFF5F5",
-    borderWidth: 1,
-    borderColor: "#FECACA",
-    borderRadius: 16,
-    padding: 18,
-    alignItems: "center",
-    gap: 8,
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 22,
+    shadowColor: '#37274d',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.08,
+    shadowRadius: 28,
+    elevation: 8,
+    alignItems: 'center',
   },
   errorTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#991B1B",
+    marginTop: 8,
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#37274d',
   },
   errorText: {
+    marginTop: 6,
     fontSize: 14,
-    color: "#B91C1C",
-    textAlign: "center",
+    color: '#6f6085',
+    lineHeight: 20,
+    textAlign: 'center',
   },
   retryButton: {
-    marginTop: 6,
+    marginTop: 14,
     backgroundColor: homeColors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
   },
   retryButtonText: {
-    color: "#FFF",
-    fontWeight: "700",
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 16,
     paddingBottom: 28,
+  },
+  pageTitleWrap: {
+    marginBottom: 18,
+  },
+  pageTitle: {
+    fontSize: 36,
+    lineHeight: 42,
+    fontWeight: '900',
+    color: '#37274d',
+    letterSpacing: -0.8,
+  },
+  pageSubtitle: {
+    marginTop: 6,
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#6f6085',
+    maxWidth: 700,
+  },
+  mainGrid: {
     gap: 14,
   },
-  headerCard: {
-    backgroundColor: homeColors.cardBg,
-    borderColor: homeColors.cardBorder,
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+  mainGridDesktop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
-  headerIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: `${homeColors.primary}1A`,
-    alignItems: "center",
-    justifyContent: "center",
+  leftColumn: {
+    gap: 14,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: homeColors.textDark,
-  },
-  headerSubtitle: {
-    marginTop: 2,
-    fontSize: 13,
-    color: homeColors.textMuted,
+  rightColumn: {
+    gap: 14,
   },
   scoreCard: {
-    borderRadius: 18,
-    overflow: "hidden",
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 20,
+    alignItems: 'center',
+    shadowColor: '#37274d',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.08,
+    shadowRadius: 30,
+    elevation: 8,
   },
-  scoreGradient: {
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
+  scoreKicker: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: homeColors.primary,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
   },
-  scoreCircle: {
-    width: 94,
-    height: 94,
-    borderRadius: 47,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.4)",
-    alignItems: "center",
-    justifyContent: "center",
+  progressWrap: {
+    marginTop: 14,
+    marginBottom: 14,
   },
-  scoreValue: {
-    fontSize: 34,
-    fontWeight: "800",
-    color: "#FFF",
-    lineHeight: 36,
+  progressRingOuter: {
+    width: 186,
+    height: 186,
+    borderRadius: 93,
+    backgroundColor: '#ece2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  scoreOutOf: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.9)",
+  progressRingInner: {
+    width: 146,
+    height: 146,
+    borderRadius: 73,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#37274d',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
+    elevation: 5,
   },
-  scoreTextWrap: {
-    flex: 1,
-    gap: 2,
+  progressScore: {
+    fontSize: 56,
+    lineHeight: 58,
+    fontWeight: '900',
+    color: '#37274d',
   },
-  scoreTitle: {
+  progressOutOf: {
+    fontSize: 16,
+    color: '#8d7aa8',
+    fontWeight: '600',
+  },
+  scoreContext: {
+    marginTop: 12,
     fontSize: 13,
-    color: "rgba(255,255,255,0.85)",
-    fontWeight: "600",
-  },
-  scoreLabel: {
-    fontSize: 22,
-    color: "#FFF",
-    fontWeight: "800",
-  },
-  scoreHint: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.85)",
-  },
-  statsRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: homeColors.cardBg,
-    borderColor: homeColors.cardBorder,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    alignItems: "center",
-    gap: 3,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: homeColors.textDark,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: homeColors.textMuted,
-  },
-  sectionWrap: {
-    gap: 10,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: homeColors.textDark,
-  },
-  sectionContent: {
-    gap: 10,
-  },
-  itemCard: {
-    backgroundColor: homeColors.cardBg,
-    borderColor: homeColors.cardBorder,
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 12,
-    gap: 8,
-  },
-  itemHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  itemTitle: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "700",
-    color: homeColors.textDark,
-  },
-  itemDescription: {
-    fontSize: 14,
-    color: homeColors.textMuted,
     lineHeight: 20,
+    color: '#6f6085',
+    textAlign: 'center',
   },
   badge: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
   },
   badgeText: {
-    fontSize: 11,
-    fontWeight: "700",
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
-  exampleBox: {
-    backgroundColor: homeColors.backgroundMuted,
+  sectionCard: {
+    backgroundColor: '#f2e2ff',
+    borderRadius: 24,
+    padding: 20,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 21,
+    fontWeight: '900',
+    color: '#37274d',
+    letterSpacing: -0.2,
+  },
+  issueItem: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+  },
+  issueRowTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  issueTitle: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '800',
+    color: '#37274d',
+  },
+  issueDescription: {
+    marginTop: 7,
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#6b5d80',
+  },
+  issueUnderline: {
+    marginTop: 10,
+    height: 4,
+    borderRadius: 2,
+  },
+  improvementItem: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+  },
+  improvementHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  improvementSection: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#6437db',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  improvementText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#6b5d80',
+  },
+  exampleBlock: {
+    marginTop: 10,
+    backgroundColor: '#f8edff',
     borderRadius: 10,
     padding: 10,
-    marginTop: 2,
   },
   exampleLabel: {
     fontSize: 11,
-    fontWeight: "700",
-    color: homeColors.primary,
-    marginBottom: 3,
+    fontWeight: '900',
+    color: '#6437db',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 4,
   },
   exampleText: {
     fontSize: 13,
-    color: homeColors.textDark,
-    lineHeight: 18,
+    lineHeight: 19,
+    color: '#4f4164',
   },
-  emptyStateCard: {
-    backgroundColor: homeColors.cardBg,
-    borderColor: homeColors.cardBorder,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-  },
-  emptyStateText: {
-    color: homeColors.textMuted,
-    fontSize: 14,
-  },
-  extractedGrid: {
+  dualCards: {
     gap: 10,
   },
-  extractedCard: {
-    backgroundColor: homeColors.cardBg,
-    borderColor: homeColors.cardBorder,
-    borderWidth: 1,
+  dualCardsDesktop: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  skillsCard: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 18,
+    shadowColor: '#37274d',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 24,
+    elevation: 5,
+  },
+  interestCard: {
+    flex: 1,
+    backgroundColor: homeColors.primary,
+    borderRadius: 24,
+    padding: 18,
+  },
+  dualCardTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#37274d',
+    marginBottom: 10,
+  },
+  dualCardTitleLight: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#fff',
+    marginBottom: 10,
+  },
+  dualCardEmpty: {
+    fontSize: 13,
+    color: '#7f6d96',
+  },
+  dualCardEmptyLight: {
+    fontSize: 13,
+    color: '#ece2ff',
+  },
+  chipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
+  lightChip: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  lightChipText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#fff',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  emptyCard: {
+    backgroundColor: '#fff',
     borderRadius: 14,
     padding: 12,
-    gap: 10,
   },
-  extractedHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  extractedTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: homeColors.textDark,
-  },
-  extractedEmptyText: {
+  emptyText: {
     fontSize: 13,
-    color: homeColors.textMuted,
-  },
-  tagWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  tagChip: {
-    borderRadius: 999,
-    backgroundColor: homeColors.backgroundMuted,
-    borderWidth: 1,
-    borderColor: homeColors.cardBorder,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  tagChipText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: homeColors.textDark,
+    color: '#7f6d96',
   },
 });

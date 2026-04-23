@@ -26,6 +26,15 @@ export interface QuizAnswer {
   all_options: string[];
 }
 
+type FullQuizAnswer = {
+  questionNumber: number;
+  question: string;
+  selectedLabel: string;
+  allOptions: string[];
+};
+
+type DiscPercentages = { red: number; yellow: number; green: number; blue: number; dominant: string };
+
 /**
  * Static quiz questions (10 questions about work preferences)
  */
@@ -364,16 +373,13 @@ export class QuizService {
 
         if (updateError) throw updateError;
 
-        // Compute DISC from full answers
-        const discPercentages = this.computeDiscFromAnswers(fullAnswers);
-
-        // Build minimal userProfile for Nova profile generation
-        const userProfile = {
-          disc: discPercentages,
+        const aiResults = await this.aiOrchestrator.generateQuizResults(fullAnswers);
+        const fallbackNovaProfile = this.buildNovaProfileFromDeterministic({
+          disc: { red: 25, blue: 25, green: 25, yellow: 25, dominant: 'blue' },
           skills: [] as any[],
           interests: [] as any[],
-        };
-        const novaProfile = this.buildNovaProfileFromDeterministic(userProfile);
+        });
+        const novaProfile = aiResults?.novaProfile || fallbackNovaProfile;
         const careers = await this.resolveCareerRecommendations(userId, sessionId, novaProfile);
 
         // Build results object compatible with frontend
@@ -432,7 +438,7 @@ export class QuizService {
   private async buildFullAnswersArray(
     sessionId: string,
     userId: string
-  ): Promise<Array<{ questionNumber: number; selectedLabel: string; allOptions: any[] }>> {
+  ): Promise<FullQuizAnswer[]> {
     // Fetch all responses for this session
     const { data: responses, error } = await this.db.supabase
       .from('user_quiz_responses')
@@ -447,8 +453,9 @@ export class QuizService {
     // Build full answer objects using stored all_options (from static questions)
     const fullAnswers = responses.map(r => ({
       questionNumber: r.question_number,
+      question: typeof r.question === 'string' ? r.question : '',
       selectedLabel: r.selected_option,
-      allOptions: r.all_options || [], // These were stored when the answer was submitted
+      allOptions: Array.isArray(r.all_options) ? r.all_options : [], // These were stored when the answer was submitted
     }));
 
     return fullAnswers;
@@ -459,27 +466,31 @@ export class QuizService {
    */
   private computeDiscFromAnswers(
     answers: Array<{ questionNumber: number; selectedLabel: string }>
-  ): { red: number; yellow: number; green: number; blue: number; dominant: string } {
-    const counts = { red: 0, blue: 0, green: 0, yellow: 0 };
+  ): DiscPercentages {
+    const scores = { red: 0, blue: 0, green: 0, yellow: 0 };
     const totalAnswers = answers.length || 1;
 
     for (const ans of answers) {
       const mappedDisc = QuizService.LABEL_TO_DISC[ans.questionNumber]?.[ans.selectedLabel];
-      if (mappedDisc) {
-        counts[mappedDisc] += 1;
-      }
-
       const signalScores = this.inferDiscSignalScoresFromAnswerLabel(ans.selectedLabel);
+
+      // Compute each DISC color independently from the same answer.
+      // We blend deterministic option mapping (strong signal) with keyword signals
+      // so percentages are stable and do not need to sum to 100.
       for (const color of Object.keys(signalScores) as Array<'red' | 'blue' | 'green' | 'yellow'>) {
-        // Independent DISC indicators: each answer can contribute to multiple colors.
-        counts[color] += Math.min(1, signalScores[color] / 2);
+        const mappedStrength = mappedDisc === color ? 1 : 0;
+        const keywordStrength = Math.min(1, signalScores[color] / 3);
+
+        // Per-answer contribution in [0, 1] for each color.
+        const blended = mappedStrength * 0.75 + keywordStrength * 0.25;
+        scores[color] += blended;
       }
     }
 
-    const red = Math.min(100, Math.round((counts.red / totalAnswers) * 100));
-    const blue = Math.min(100, Math.round((counts.blue / totalAnswers) * 100));
-    const green = Math.min(100, Math.round((counts.green / totalAnswers) * 100));
-    const yellow = Math.min(100, Math.round((counts.yellow / totalAnswers) * 100));
+    const red = Math.min(100, Math.round((scores.red / totalAnswers) * 100));
+    const blue = Math.min(100, Math.round((scores.blue / totalAnswers) * 100));
+    const green = Math.min(100, Math.round((scores.green / totalAnswers) * 100));
+    const yellow = Math.min(100, Math.round((scores.yellow / totalAnswers) * 100));
 
     // Determine dominant
     const entries = [
@@ -622,6 +633,27 @@ export class QuizService {
     };
   }
 
+  private enforceDeterministicDiscOnNovaProfile(novaProfile: any, disc: DiscPercentages): any {
+    const profile = novaProfile && typeof novaProfile === 'object' ? { ...novaProfile } : {};
+    const behavior = profile.behavior && typeof profile.behavior === 'object'
+      ? { ...profile.behavior }
+      : {};
+
+    behavior.discPercentages = {
+      red: disc.red,
+      yellow: disc.yellow,
+      green: disc.green,
+      blue: disc.blue,
+    };
+    behavior.discBlend = `R${disc.red} / Y${disc.yellow} / G${disc.green} / B${disc.blue}`;
+    if (!behavior.primaryStyle) {
+      behavior.primaryStyle = this.getPrimaryStyleLabel(disc.dominant);
+    }
+
+    profile.behavior = behavior;
+    return profile;
+  }
+
   private inferBestEnvironments(disc: any, userProfile: any): string[] {
     const envs: string[] = [];
     if (disc.green > 30) envs.push('Collaborative team environments');
@@ -689,14 +721,19 @@ export class QuizService {
         .sort((a, b) => a.question_number - b.question_number)
         .map((a) => ({
           questionNumber: a.question_number,
+          question: typeof a.question === 'string' ? a.question : '',
           selectedLabel: a.selected_option,
-          allOptions: a.all_options || [],
+          allOptions: Array.isArray(a.all_options) ? a.all_options : [],
         }));
 
-      // Compute DISC for Nova profile
-      const discPercentages = this.computeDiscFromAnswers(fullAnswers);
-      const userProfile = { disc: discPercentages, skills: [], interests: [] };
-      const novaProfile = this.buildNovaProfileFromDeterministic(userProfile);
+      const aiResults = await this.aiOrchestrator.generateQuizResults(fullAnswers);
+      const fallbackUserProfile = {
+        disc: { red: 25, blue: 25, green: 25, yellow: 25, dominant: 'blue' },
+        skills: [],
+        interests: [],
+      };
+      const fallbackNovaProfile = this.buildNovaProfileFromDeterministic(fallbackUserProfile);
+      const novaProfile = aiResults?.novaProfile || fallbackNovaProfile;
       const careers = await this.resolveCareerRecommendations(userId, sessionId, novaProfile);
 
       const results = {

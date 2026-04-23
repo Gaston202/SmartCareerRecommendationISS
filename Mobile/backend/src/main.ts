@@ -62,8 +62,9 @@ async function bootstrap() {
   });
 
   const port = configService.get('PORT') || 3000;
-  await app.listen(port);
-  console.log(`🚀 Backend running on port ${port}`);
+  const host = configService.get('HOST') || '0.0.0.0';
+  await app.listen(port, host);
+  console.log(`🚀 Backend running on ${host}:${port}`);
   console.log(`📚 API docs: http://localhost:${port}/api/docs`);
 }
 

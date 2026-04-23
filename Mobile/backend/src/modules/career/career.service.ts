@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../../core/database/database.service';
 import { AiOrchestratorService } from '../../core/ai-orchestrator/ai-orchestrator.service';
 import { CacheService } from '../../core/cache/cache.service';
@@ -50,9 +51,22 @@ interface UserProfileDetails {
   declaredSkills?: string[];
 }
 
+interface MarketDataSnapshot {
+  average_salary: number;
+  salary_range_min: number;
+  salary_range_max: number;
+  growth_rate: number;
+  demand_level: 'low' | 'medium' | 'high' | 'very-high';
+}
+
 @Injectable()
 export class CareerService {
   private readonly logger = new Logger(CareerService.name);
+  private readonly marketWebSearchEnabled: boolean;
+  private readonly marketSearchTtlSeconds: number;
+
+  private static readonly MARKET_SEARCH_USER_AGENT =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
   private mapCareerRow(c: any): Career {
     return {
@@ -112,7 +126,187 @@ export class CareerService {
     private db: DatabaseService,
     private aiOrchestrator: AiOrchestratorService,
     private cacheService: CacheService,
-  ) {}
+    private configService: ConfigService,
+  ) {
+    const enabled = this.configService.get<string>('ENABLE_MARKET_WEB_SEARCH');
+    this.marketWebSearchEnabled = enabled !== 'false' && enabled !== '0';
+
+    const ttlFromEnv = Number(this.configService.get<string>('MARKET_WEB_SEARCH_TTL_SECONDS') || 86400);
+    this.marketSearchTtlSeconds = Number.isFinite(ttlFromEnv) && ttlFromEnv > 0 ? ttlFromEnv : 86400;
+  }
+
+  private slugify(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .slice(0, 64);
+  }
+
+  private decodeHtmlEntities(raw: string): string {
+    return raw
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private async fetchDuckDuckGoSnippets(query: string): Promise<string[]> {
+    const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': CareerService.MARKET_SEARCH_USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`DuckDuckGo search failed with status ${response.status}`);
+    }
+
+    const html = await response.text();
+    const snippets: string[] = [];
+
+    const snippetRegex = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+    let match: RegExpExecArray | null = null;
+    while ((match = snippetRegex.exec(html)) !== null) {
+      const text = this.decodeHtmlEntities(match[1] || '');
+      if (text && text.length > 24) {
+        snippets.push(text);
+      }
+      if (snippets.length >= 8) break;
+    }
+
+    if (snippets.length < 3) {
+      const fallbackRegex = /<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+      while ((match = fallbackRegex.exec(html)) !== null) {
+        const text = this.decodeHtmlEntities(match[1] || '');
+        if (text && text.length > 24) {
+          snippets.push(text);
+        }
+        if (snippets.length >= 8) break;
+      }
+    }
+
+    return [...new Set(snippets)].slice(0, 8);
+  }
+
+  private async collectMarketSnippets(careerTitle: string): Promise<string[]> {
+    const queries = [
+      `${careerTitle} average salary 2025`,
+      `${careerTitle} job growth rate BLS`,
+      `${careerTitle} demand outlook job market`,
+    ];
+
+    const results = await Promise.all(
+      queries.map((query) =>
+        this.fetchDuckDuckGoSnippets(query).catch((error) => {
+          this.logger.warn(`Web search query failed for ${careerTitle}: ${query}`, error);
+          return [];
+        }),
+      ),
+    );
+
+    return [...new Set(results.flat())].slice(0, 12);
+  }
+
+  private mapDemandLevel(value: string | undefined): 'low' | 'medium' | 'high' | 'very-high' {
+    if (value === 'low' || value === 'medium' || value === 'high' || value === 'very-high') {
+      return value;
+    }
+    return 'medium';
+  }
+
+  private async enrichCareerWithMarketData(career: Career): Promise<Career> {
+    if (!this.marketWebSearchEnabled) {
+      return career;
+    }
+
+    const cacheKey = `career:market:data:${this.slugify(career.title)}`;
+    const cached = await this.cacheService.get<MarketDataSnapshot>(cacheKey);
+    if (cached) {
+      return {
+        ...career,
+        average_salary: cached.average_salary,
+        salary_range_min: cached.salary_range_min,
+        salary_range_max: cached.salary_range_max,
+        growth_rate: cached.growth_rate,
+        demand_level: cached.demand_level,
+      };
+    }
+
+    const snippets = await this.collectMarketSnippets(career.title);
+    if (!snippets.length) {
+      return career;
+    }
+
+    const intel = await this.aiOrchestrator.extractCareerMarketIntel(career.title, snippets, this.marketSearchTtlSeconds);
+    if (!intel) {
+      return career;
+    }
+
+    const confidence = typeof intel.confidence === 'number' ? intel.confidence : 0;
+    if (confidence < 0.35) {
+      return career;
+    }
+
+    const minSalary = typeof intel.salary_min === 'number' ? Math.max(0, Math.round(intel.salary_min)) : career.salary_range_min;
+    const maxSalary = typeof intel.salary_max === 'number' ? Math.max(minSalary, Math.round(intel.salary_max)) : career.salary_range_max;
+
+    const averageSalary = minSalary > 0 && maxSalary > 0
+      ? Math.round((minSalary + maxSalary) / 2)
+      : career.average_salary;
+
+    const growthRate = typeof intel.growth_rate_percent === 'number'
+      ? Math.max(0, Math.min(40, Math.round(intel.growth_rate_percent)))
+      : career.growth_rate;
+
+    const demandLevel = this.mapDemandLevel(intel.demand_level);
+
+    const snapshot: MarketDataSnapshot = {
+      average_salary: averageSalary,
+      salary_range_min: minSalary,
+      salary_range_max: maxSalary,
+      growth_rate: growthRate,
+      demand_level: demandLevel,
+    };
+
+    await this.cacheService.set(cacheKey, snapshot, this.marketSearchTtlSeconds);
+
+    return {
+      ...career,
+      average_salary: snapshot.average_salary,
+      salary_range_min: snapshot.salary_range_min,
+      salary_range_max: snapshot.salary_range_max,
+      growth_rate: snapshot.growth_rate,
+      demand_level: snapshot.demand_level,
+    };
+  }
+
+  private async enrichMatchesWithMarketData(matches: CareerMatch[]): Promise<CareerMatch[]> {
+    return Promise.all(
+      matches.map(async (match) => {
+        try {
+          const enrichedCareer = await this.enrichCareerWithMarketData(match.career);
+          return {
+            ...match,
+            career: enrichedCareer,
+          };
+        } catch (error) {
+          this.logger.warn(`Market enrichment failed for ${match.career.title}`, error);
+          return match;
+        }
+      }),
+    );
+  }
 
   async getAllCareers(): Promise<Career[]> {
     const cacheKey = 'careers:all';
@@ -433,10 +627,12 @@ export class CareerService {
       quizProfile.disc,
     );
 
+    const marketEnrichedMatches = await this.enrichMatchesWithMarketData(enhancedMatches);
+
     if (resolvedCvAnalysisId) {
       try {
         await this.db.supabase.from('career_match_results').upsert(
-          enhancedMatches.map((m, idx) => ({
+          marketEnrichedMatches.map((m, idx) => ({
             user_id: userId,
             quiz_session_id: quizSessionId,
             cv_analysis_id: resolvedCvAnalysisId,
@@ -454,7 +650,7 @@ export class CareerService {
       }
     }
 
-    await this.cacheService.set(cacheKey, enhancedMatches, 21600);
-    return enhancedMatches;
+    await this.cacheService.set(cacheKey, marketEnrichedMatches, 21600);
+    return marketEnrichedMatches;
   }
 }

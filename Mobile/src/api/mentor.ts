@@ -1,6 +1,59 @@
 import { supabase } from './supabase';
 import { MentorAvailabilityRule, MentorSession, MentorReview, GroupChat, ChatMessage, MentorWithSpecialties, MentorFilters } from '../types/mentor';
 
+const REAL_HUMAN_AVATARS = [
+  'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1557862921-37829c790f19?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1568602471122-7832951cc4c5?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1552058544-f2b08422138a?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1607746882042-944635dfe10e?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=600&q=80',
+];
+
+const GENERATED_AVATAR_PATTERNS = [
+  /dicebear/i,
+  /ui-avatars/i,
+  /robohash/i,
+  /multiavatar/i,
+  /identicon/i,
+  /jdenticon/i,
+  /avatar-generator/i,
+];
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function isGeneratedAvatar(url?: string): boolean {
+  if (!url) return true;
+  return GENERATED_AVATAR_PATTERNS.some((pattern) => pattern.test(url));
+}
+
+function pickRealHumanAvatar(seed: string): string {
+  const index = hashString(seed) % REAL_HUMAN_AVATARS.length;
+  return REAL_HUMAN_AVATARS[index];
+}
+
+function normalizeMentorAvatar<T extends { id?: string; user_id?: string; name?: string; avatar?: string }>(mentor: T): T {
+  const seed = mentor.id || mentor.user_id || mentor.name || 'mentor';
+  if (!isGeneratedAvatar(mentor.avatar)) return mentor;
+  return {
+    ...mentor,
+    avatar: pickRealHumanAvatar(seed),
+  };
+}
+
 export const fetchMentors = async (filters?: MentorFilters): Promise<MentorWithSpecialties[]> => {
   try {
     let query = supabase
@@ -26,7 +79,7 @@ export const fetchMentors = async (filters?: MentorFilters): Promise<MentorWithS
     const { data, error } = await query;
 
     if (error) throw error;
-    return (data as MentorWithSpecialties[]) || [];
+    return ((data as MentorWithSpecialties[]) || []).map(normalizeMentorAvatar);
   } catch (error) {
     console.error('Error fetching mentors:', error);
     throw error;
@@ -46,7 +99,7 @@ export const fetchMentorById = async (mentorId: string): Promise<MentorWithSpeci
       .single();
 
     if (error) throw error;
-    return data as MentorWithSpecialties;
+    return normalizeMentorAvatar(data as MentorWithSpecialties);
   } catch (error) {
     console.error('Error fetching mentor:', error);
     throw error;
@@ -66,7 +119,7 @@ export const fetchMentorByUserId = async (userId: string): Promise<MentorWithSpe
       .maybeSingle();
 
     if (error) throw error;
-    return (data as MentorWithSpecialties) || null;
+    return data ? normalizeMentorAvatar(data as MentorWithSpecialties) : null;
   } catch (error) {
     console.error('Error fetching mentor by user_id:', error);
     return null;
@@ -108,7 +161,15 @@ export const fetchGroupChats = async (specialty?: string): Promise<GroupChat[]> 
     const { data, error } = await query;
 
     if (error) throw error;
-    return (data as GroupChat[]) || [];
+    return ((data as any[]) || []).map((chat) => {
+      if (chat?.mentor) {
+        return { ...chat, mentor: normalizeMentorAvatar(chat.mentor) } as GroupChat;
+      }
+      if (chat?.mentors) {
+        return { ...chat, mentor: normalizeMentorAvatar(chat.mentors) } as GroupChat;
+      }
+      return chat as GroupChat;
+    });
   } catch (error) {
     console.error('Error fetching group chats:', error);
     throw error;
@@ -127,6 +188,13 @@ export const fetchGroupChatById = async (chatId: string): Promise<GroupChat> => 
       .single();
 
     if (error) throw error;
+    const chat = data as any;
+    if (chat?.mentor) {
+      return { ...chat, mentor: normalizeMentorAvatar(chat.mentor) } as GroupChat;
+    }
+    if (chat?.mentors) {
+      return { ...chat, mentor: normalizeMentorAvatar(chat.mentors) } as GroupChat;
+    }
     return data as GroupChat;
   } catch (error) {
     console.error('Error fetching group chat:', error);

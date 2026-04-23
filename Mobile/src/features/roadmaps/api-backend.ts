@@ -1,7 +1,5 @@
 import { supabase } from "../../api/supabase";
-import { getBackendApiBaseUrl } from "../../api/backend";
-
-const BACKEND_API_URL = getBackendApiBaseUrl();
+import { fetchBackend } from "../../api/backend";
 
 export interface BackendRoadmapMilestone {
   id: string;
@@ -18,6 +16,64 @@ export interface BackendRoadmapResponse {
   milestones: BackendRoadmapMilestone[];
   total_duration_weeks?: number;
   created_at?: string;
+}
+
+export interface BackendPlannedRoadmapStep {
+  skill_name: string;
+  why_it_matters: string;
+  difficulty: "beginner" | "intermediate" | "advanced";
+  estimated_duration_hours: number;
+  prerequisites: string[];
+  resource_title: string | null;
+  provider: string | null;
+  source_url: string | null;
+  confidence_score: number;
+  order_index: number;
+}
+
+export interface BackendPlannedRoadmapResponse {
+  success: boolean;
+  mode: "stored_kb_v1";
+  target_role: string;
+  career_id: string | null;
+  confidence: number;
+  weak_evidence: boolean;
+  message?: string;
+  steps: BackendPlannedRoadmapStep[];
+}
+
+export async function fetchRoadmapPlanFromBackend(input: {
+  careerId?: string;
+  careerTitle: string;
+  maxSteps?: number;
+}): Promise<BackendPlannedRoadmapResponse> {
+  const token = await getAuthToken();
+  if (!token) {
+    throw new Error("Not authenticated. Please log in.");
+  }
+
+  const response = await fetchBackend("/roadmap/plan", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      career_id: input.careerId,
+      target_role: input.careerTitle,
+      max_steps: input.maxSteps ?? 6,
+      user_profile: {
+        selected_role: input.careerTitle,
+      },
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success || !payload?.data) {
+    throw new Error(payload?.message || "Failed to generate roadmap plan from backend.");
+  }
+
+  return payload.data as BackendPlannedRoadmapResponse;
 }
 
 async function getAuthToken(): Promise<string | null> {
@@ -60,7 +116,7 @@ export async function generateRoadmapFromBackend(
     throw new Error("Not authenticated. Please log in.");
   }
 
-  const response = await fetch(`${BACKEND_API_URL}/roadmap/generate`, {
+  const response = await fetchBackend("/roadmap/generate", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

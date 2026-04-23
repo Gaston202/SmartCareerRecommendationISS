@@ -23,6 +23,7 @@ import {
 import type { SavedAiCareer, SavedRoadmap } from "../features/roadmaps/types";
 import { useAuth } from "../auth/AuthProvider";
 import { AppBrand } from "../ui/AppBrand";
+import LearningRoadmapScreen from "./LearningRoadmapScreen";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Technology: homeColors.primary,
@@ -291,13 +292,11 @@ export default function RoadmapsScreen(): React.ReactElement {
                     style={({ pressed }) => [styles.savedViewBtn, pressed && styles.pressed]}
                     onPress={() =>
                       navigation.navigate("Home", {
-                        screen: "CareerRoadmap",
+                        screen: "LearningRoadmap",
                         params: {
                           careerId: career.careerId,
                           careerTitle: career.careerTitle,
                           careerDescription: career.careerDescription,
-                          matchPercent: career.matchPercent,
-                          tags: career.tags,
                         },
                       })
                     }
@@ -345,30 +344,14 @@ export default function RoadmapsScreen(): React.ReactElement {
                     }
                     onToggleSaveCareer={() => handleToggleSaveAiCareer(match)}
                     onGenerateOrViewRoadmap={() => {
-                      if (savedForCareer) {
-                        navigation.navigate("Home", {
-                          screen: "CareerRoadmap",
-                          params: {
-                            roadmapId: savedForCareer.id,
-                            careerId: savedForCareer.careerId,
-                            careerTitle: savedForCareer.careerTitle,
-                            careerDescription: savedForCareer.careerDescription,
-                            matchPercent: savedForCareer.matchPercent,
-                            tags: savedForCareer.tags,
-                          },
-                        });
-                      } else {
-                        navigation.navigate("Home", {
-                          screen: "CareerRoadmap",
-                          params: {
-                            careerId: match.career.id,
-                            careerTitle: match.career.title,
-                            careerDescription: match.career.description,
-                            matchPercent: match.score,
-                            tags: (match.career as any).tags,
-                          },
-                        });
-                      }
+                      navigation.navigate("Home", {
+                        screen: "LearningRoadmap",
+                        params: {
+                          careerId: match.career.id,
+                          careerTitle: match.career.title,
+                          careerDescription: match.career.description,
+                        },
+                      });
                     }}
                   />
                 );
@@ -504,15 +487,13 @@ function MatchedCareerCard({
         />
       </Pressable>
 
-      {/* Generate or view roadmap button */}
+      {/* Generate learning roadmap button */}
       <Pressable
         style={({ pressed }) => [styles.matchedRoadmapBtn, pressed && styles.pressed]}
         onPress={onGenerateOrViewRoadmap}
       >
-        <Ionicons name="map" size={16} color="#fff" />
-        <Text style={styles.matchedRoadmapBtnText}>
-          {savedRoadmap ? "View roadmap" : "Generate roadmap"}
-        </Text>
+        <Ionicons name="bulb-outline" size={16} color="#fff" />
+        <Text style={styles.matchedRoadmapBtnText}>Generate Learning Roadmap</Text>
       </Pressable>
 
       <Pressable

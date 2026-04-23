@@ -5,7 +5,7 @@
 
 import type { QuizNextResponse, QuizQuestion, QuizResults } from './types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getBackendApiBaseUrl } from '../../api/backend';
+import { fetchBackend, getBackendApiBaseUrl } from '../../api/backend';
 
 const BACKEND_API_URL = getBackendApiBaseUrl();
 const SESSION_ID_KEY = 'quiz_backend_session_id';
@@ -117,7 +117,7 @@ export async function startQuiz(): Promise<QuizStartResponse> {
       throw new Error('Not authenticated. Please log in.');
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/quiz/start`, {
+    const response = await fetchBackend('/quiz/start', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -169,7 +169,7 @@ export async function submitAnswer(
       throw new Error('No active quiz session. Please start a new quiz.');
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/quiz/answer`, {
+    const response = await fetchBackend('/quiz/answer', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -228,7 +228,7 @@ export async function getQuizResults(sessionId?: string): Promise<QuizNextRespon
       throw new Error('No quiz session ID provided');
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/quiz/result/${id}`, {
+    const response = await fetchBackend(`/quiz/result/${id}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -262,7 +262,7 @@ export async function getQuizHistory(): Promise<any[]> {
       throw new Error('Not authenticated. Please log in.');
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/quiz/history`, {
+    const response = await fetchBackend('/quiz/history', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,

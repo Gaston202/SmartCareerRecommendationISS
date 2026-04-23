@@ -25,9 +25,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!baseUser) return null;
       let role: 'user' | 'mentor' = 'user';
       let mentorSpecialty: string | undefined = undefined;
+      let fullName: string | null = null;
 
       try {
-        // First check if this user is a mentor by looking in the mentors table
+        // Fetch user profile including full_name from users table
+        const { data: userData } = await supabase
+          .from('users')
+          .select('full_name, role')
+          .eq('id', baseUser.id)
+          .maybeSingle();
+
+        if (userData) {
+          fullName = userData.full_name || null;
+          if (userData.role === 'mentor') {
+            role = 'mentor';
+          }
+        }
+
+        // Check if this user is a mentor by looking in the mentors table
         const { data: mentorData } = await supabase
           .from('mentors')
           .select('role')
@@ -37,24 +52,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (mentorData) {
           role = 'mentor';
           mentorSpecialty = mentorData.role || undefined;
-        } else {
-          // Fallback: check users.role (for users who may have role set but no mentors entry)
-          const { data: userData } = await supabase
-            .from('users')
-            .select('role')
-            .eq('id', baseUser.id)
-            .maybeSingle();
-          if (userData?.role === 'mentor') {
-            role = 'mentor';
-          }
         }
       } catch (e) {
-        console.warn('Error fetching full user role:', e);
+        console.warn('Error fetching full user data:', e);
       }
 
       return {
         id: baseUser.id,
         email: baseUser.email ?? null,
+        fullName,
         role,
         mentorSpecialty,
       };

@@ -25,6 +25,14 @@ import {
 } from "../features/cv/api-backend";
 import { homeColors } from "./homeTheme";
 import { AppLogo } from "../ui/AppLogo";
+import { useAuth } from "../auth/AuthProvider";
+import { useMatchedCareers } from "../features/careers/useMatchedCareers";
+import {
+  getSavedLearningRoadmaps,
+  getLearningRoadmapByCareerTitle,
+} from "../features/learning-roadmap/storage";
+import type { SavedLearningRoadmap } from "../features/learning-roadmap/types";
+import { MainTopBar } from "../ui/MainTopBar";
 
 // ============================================================================
 // STATE MACHINE TYPES
@@ -149,6 +157,49 @@ export default function HomeScreen(): React.ReactElement {
   const queryClient = useQueryClient();
   const { width } = useWindowDimensions();
   const isCompactLayout = width < 380;
+
+  // Auth hook - get user name
+  const { state: authState } = useAuth();
+  const userName = authState.user?.fullName || authState.user?.email?.split("@")[0] || "Student";
+
+  // Careers hook - get top matched career
+  const { data: matchedCareers = [] } = useMatchedCareers();
+  const topCareer = matchedCareers[0]?.career.title || "your career goals";
+
+  // Learning Roadmap state
+  const [roadmapData, setRoadmapData] = useState<SavedLearningRoadmap | null>(null);
+  const [careerProgress, setCareerProgress] = useState(0);
+
+  // Fetch roadmap for top matched career
+  React.useEffect(() => {
+    const fetchRoadmap = async () => {
+      if (!authState.user?.id || !topCareer) return;
+
+      try {
+        const roadmap = await getLearningRoadmapByCareerTitle(
+          authState.user.id,
+          topCareer
+        );
+
+        if (roadmap) {
+          setRoadmapData(roadmap);
+
+          // Calculate overall progress
+          const skills = roadmap.roadmap.skills;
+          if (skills && skills.length > 0) {
+            const avgProgress =
+              skills.reduce((sum, skill) => sum + (skill.userProgress?.completedPercentage || 0), 0) /
+              skills.length;
+            setCareerProgress(Math.round(avgProgress));
+          }
+        }
+      } catch (error) {
+        console.warn("[HomeScreen] Failed to fetch roadmap:", error);
+      }
+    };
+
+    fetchRoadmap();
+  }, [authState.user?.id, topCareer]);
 
   // React Query hooks - fetch latest CV upload
   const { data: latestUpload, refetch: refetchCv } = useLatestCvUpload();
@@ -439,7 +490,7 @@ export default function HomeScreen(): React.ReactElement {
 
     setStatus("analyzing");
     setError(null);
-    console.log("[HomeScreen] 👉 Checking backend CV analysis status:", cv.id);
+    console.log("[HomeScreen] 👉 Checking backend CV analysis status for upload:", cv.id);
 
     try {
       const latest = await getLatestCvAnalysisFromBackend();
@@ -452,7 +503,7 @@ export default function HomeScreen(): React.ReactElement {
         return;
       }
 
-      const analysisStatus = (latest as any).status as string | undefined;
+      const analysisStatus = latest.status;
       if (analysisStatus === "pending" || analysisStatus === "processing") {
         const statusPayload = await getCvAnalysisStatusFromBackend(latest.id).catch(() => null);
         const progress = statusPayload?.progress ?? 50;
@@ -464,7 +515,18 @@ export default function HomeScreen(): React.ReactElement {
         return;
       }
 
-      console.log("[HomeScreen] ✅ CV analysis available from backend");
+      if (analysisStatus === "failed") {
+        const statusPayload = await getCvAnalysisStatusFromBackend(latest.id).catch(() => null);
+        const backendError =
+          statusPayload?.error_message || latest.error_message || "The backend could not analyze this CV.";
+        throw new Error(backendError);
+      }
+
+      if (analysisStatus && analysisStatus !== "completed") {
+        throw new Error(`Unexpected CV analysis status: ${analysisStatus}`);
+      }
+
+      console.log("[HomeScreen] ✅ CV analysis available from backend", latest.id);
 
       // Invalidate queries to show new results
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
@@ -498,10 +560,8 @@ export default function HomeScreen(): React.ReactElement {
   // ========================================================================
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <LinearGradient
-        colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
-        style={StyleSheet.absoluteFill}
-      />
+      <MainTopBar onProfilePress={() => navigation.navigate("Profile")} />
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
@@ -511,18 +571,27 @@ export default function HomeScreen(): React.ReactElement {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Hero Section */}
-        <View style={[styles.hero, { marginBottom: spacing['3xl'] }]}>
-          <View style={styles.logoBox}>
-            <AppLogo size={40} />
+        {/* Dashboard Hero Greeting */}
+        <View style={styles.dashboardHero}>
+          <Text style={styles.dashboardGreeting}>Hello, {userName}!</Text>
+          <Text style={styles.dashboardSubtext}>
+            You're making steady progress toward becoming a{" "}
+            <Text style={{ color: homeColors.primary, fontWeight: "700" }}>
+              {topCareer}
+            </Text>
+            .
+          </Text>
+          
+          {/* Progress Card */}
+          <View style={styles.progressCard}>
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressLabel}>Career Goal Progress</Text>
+              <Text style={styles.progressPercent}>{careerProgress}%</Text>
+            </View>
+            <View style={styles.progressBarContainer}>
+              <View style={[styles.progressBarFill, { width: `${careerProgress}%` }]} />
+            </View>
           </View>
-          <Text style={styles.heroTitle}>
-            Find Your Career Path{"\n"}
-            <Text style={styles.heroTitleHighlight}>with AI Guidance</Text>
-          </Text>
-          <Text style={styles.heroSubtitle}>
-            Take a quiz, scan your CV, explore roadmaps, and connect with real professionals.
-          </Text>
         </View>
 
         {currentStatusText && (
@@ -537,155 +606,142 @@ export default function HomeScreen(): React.ReactElement {
           </View>
         )}
 
-        {/* Two CTA Buttons: Quiz + CV */}
-        <View
-          style={[
-            styles.ctaRow,
-            isCompactLayout && styles.ctaRowCompact,
-            { marginBottom: spacing['3xl'] - 4 },
-          ]}
-        >
+        {/* Action Cards Grid */}
+        <View style={styles.actionGrid}>
+          {/* Skill Gap Analysis / Quiz Card */}
           <Pressable
-            style={({ pressed }) => [styles.ctaQuizWrap, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.actionCardLarge,
+              pressed && styles.actionCardLargePressed,
+            ]}
             onPress={goToQuiz}
             accessibilityRole="button"
             accessibilityLabel={a11y.quiz.label}
             accessibilityHint={a11y.quiz.hint}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <LinearGradient
               colors={[homeColors.primary, homeColors.primaryDark]}
               start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.ctaQuizGradient}
+              end={{ x: 1, y: 1 }}
+              style={styles.actionCardGradient}
             >
-              <Ionicons name="bulb-outline" size={22} color={homeColors.onPrimary} />
-              <Text style={styles.ctaQuizText}>Take Career Quiz</Text>
+              {/* Decorative Background Icon */}
+              <View style={styles.decorativeIconBg}>
+                <Ionicons
+                  name="flash"
+                  size={180}
+                  color={homeColors.onPrimary}
+                  style={styles.decorativeIcon}
+                />
+              </View>
+
+              {/* Content */}
+              <View style={styles.actionCardContent}>
+                <View>
+                  <Text style={styles.actionCardTitle}>Skill Gap Analysis</Text>
+                  <Text style={styles.actionCardDescription}>
+                    Our new adaptive quiz helps identify exactly which technical skills you need to land your next role.
+                  </Text>
+                </View>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.actionCardButton,
+                    pressed && styles.actionCardButtonPressed,
+                  ]}
+                  onPress={goToQuiz}
+                  accessible={false}
+                >
+                  <Text style={styles.actionCardButtonText}>Start Quiz</Text>
+                </Pressable>
+              </View>
             </LinearGradient>
           </Pressable>
 
-          {/* CV Card: Shows different UI based on hasCv + status */}
-          {hasCv ? (
-            <View style={styles.cvUploadedContainer}>
-              <View style={styles.cvUploadedContent}>
-                <View style={styles.cvUploadedHeader}>
-                  <Ionicons
-                    name={status === "analyzing" ? "hourglass-outline" : "checkmark-circle"}
-                    size={20}
-                    color={status === "analyzing" ? homeColors.primary : homeColors.accentGreen}
-                    accessibilityLabel={status === "analyzing" ? "Analyzing" : "Complete"}
-                    accessibilityRole="image"
-                  />
-                  <Text style={styles.cvUploadedTitle}>
-                    {status === "analyzing" ? "Analyzing..." : "CV Uploaded"}
-                  </Text>
-                </View>
-                <Text
-                  style={styles.cvUploadedFilename}
-                  numberOfLines={1}
-                  accessibilityRole="text"
-                >
+          {/* Analyze CV Card */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.actionCardSmall,
+              pressed && styles.actionCardPressed,
+            ]}
+            onPress={hasCv ? handleAnalyze : handleUpload}
+            disabled={isProcessing}
+            accessibilityRole="button"
+            accessibilityLabel={hasCv ? a11y.analyzeCv.label : a11y.uploadCv.label}
+            accessibilityHint={hasCv ? a11y.analyzeCv.hint : a11y.uploadCv.hint}
+            accessibilityState={{ disabled: isProcessing }}
+          >
+            <View style={styles.actionCardSmallContent}>
+              <View style={styles.actionCardIcon}>
+                <Ionicons
+                  name="document-text"
+                  size={24}
+                  color={homeColors.primary}
+                />
+              </View>
+              <Text style={styles.actionCardSmallTitle}>
+                {hasCv ? "Analyze CV" : "Upload CV"}
+              </Text>
+              <Text style={styles.actionCardSmallDescription}>
+                {hasCv
+                  ? "Get AI-driven feedback on your resume"
+                  : "Upload your latest resume for analysis"}
+              </Text>
+              {hasCv && (
+                <Text style={styles.actionCardFileName} numberOfLines={1}>
                   {cvName}
                 </Text>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.cvAnalyzeBtn,
-                    isProcessing && styles.disabled,
-                    pressed && !isProcessing && styles.pressed,
-                  ]}
-                  onPress={handleAnalyze}
-                  disabled={isProcessing}
-                  accessibilityRole="button"
-                  accessibilityLabel={a11y.analyzeCv.label}
-                  accessibilityHint={a11y.analyzeCv.hint}
-                  accessibilityState={{ disabled: isProcessing }}
-                >
-                  {status === "analyzing" ? (
-                    <ActivityIndicator size="small" color={homeColors.onPrimary} />
-                  ) : (
-                    <>
-                      <Ionicons name="analytics-outline" size={16} color={homeColors.onPrimary} />
-                      <Text style={styles.cvAnalyzeBtnText}>Analyze CV</Text>
-                    </>
-                  )}
-                </Pressable>
-                <View style={styles.cvActionsRow}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.cvActionBtn,
-                      styles.cvChangeBtnStyle,
-                      isProcessing && styles.disabled,
-                      pressed && !isProcessing && styles.pressed,
-                    ]}
-                    onPress={handleChange}
-                    disabled={isProcessing}
-                    accessibilityRole="button"
-                    accessibilityLabel={a11y.changeCv.label}
-                    accessibilityHint={a11y.changeCv.hint}
-                    accessibilityState={{ disabled: isProcessing }}
-                  >
-                    {status === "changing" ? (
-                      <ActivityIndicator size="small" color={homeColors.primary} />
-                    ) : (
-                      <>
-                        <Ionicons name="swap-horizontal-outline" size={16} color={homeColors.primary} />
-                        <Text style={styles.cvChangeBtnText}>Change</Text>
-                      </>
-                    )}
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.cvActionBtn,
-                      styles.cvDeleteBtnStyle,
-                      isProcessing && styles.disabled,
-                      pressed && !isProcessing && styles.pressed,
-                    ]}
-                    onPress={handleDelete}
-                    disabled={isProcessing}
-                    accessibilityRole="button"
-                    accessibilityLabel={a11y.deleteCv.label}
-                    accessibilityHint={a11y.deleteCv.hint}
-                    accessibilityState={{ disabled: isProcessing }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    {status === "deleting" ? (
-                      <ActivityIndicator size="small" color={homeColors.error} />
-                    ) : (
-                      <>
-                        <Ionicons name="trash-outline" size={16} color={homeColors.error} />
-                        <Text style={styles.cvDeleteBtnText}>Delete</Text>
-                      </>
-                    )}
-                  </Pressable>
-                </View>
-              </View>
+              )}
             </View>
-          ) : (
             <Pressable
-              style={({ pressed }) => [
-                styles.ctaUploadWrap,
-                isProcessing && styles.disabled,
-                pressed && !isProcessing && styles.pressed,
-              ]}
-              onPress={handleUpload}
+              style={styles.actionCardSmallButton}
+              onPress={hasCv ? handleAnalyze : handleUpload}
               disabled={isProcessing}
-              accessibilityRole="button"
-              accessibilityLabel={a11y.uploadCv.label}
-              accessibilityHint={a11y.uploadCv.hint}
-              accessibilityState={{ disabled: isProcessing }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessible={false}
             >
-              {status === "uploading" ? (
+              {isProcessing ? (
                 <ActivityIndicator size="small" color={homeColors.primary} />
               ) : (
-                <>
-                  <Ionicons name="cloud-upload-outline" size={22} color={homeColors.textDark} />
-                  <Text style={styles.ctaUploadText}>Upload Your CV</Text>
-                </>
+                <Text style={styles.actionCardSmallButtonText}>
+                  {hasCv ? "Analyze" : "Upload"}
+                </Text>
               )}
             </Pressable>
-          )}
+          </Pressable>
         </View>
+
+        {/* CV Actions (Change/Delete if CV exists) */}
+        {hasCv && !isProcessing && (
+          <View style={styles.cvQuickActions}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.cvQuickActionBtn,
+                styles.cvQuickActionChange,
+                pressed && styles.pressed,
+              ]}
+              onPress={handleChange}
+              accessibilityRole="button"
+              accessibilityLabel={a11y.changeCv.label}
+            >
+              <Ionicons name="swap-horizontal-outline" size={16} color={homeColors.primary} />
+              <Text style={styles.cvQuickActionText}>Change</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.cvQuickActionBtn,
+                styles.cvQuickActionDelete,
+                pressed && styles.pressed,
+              ]}
+              onPress={handleDelete}
+              accessibilityRole="button"
+              accessibilityLabel={a11y.deleteCv.label}
+            >
+              <Ionicons name="trash-outline" size={16} color={homeColors.error} />
+              <Text style={[styles.cvQuickActionText, { color: homeColors.error }]}>
+                Delete
+              </Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* Error Display */}
         {error && status === "error" && (
@@ -707,126 +763,154 @@ export default function HomeScreen(): React.ReactElement {
           </View>
         )}
 
-        {/* How It Works */}
-        <Text
-          style={styles.sectionTitle}
-          accessibilityRole="header"
-        >
-          How It Works
-        </Text>
-        <View style={styles.howItWorksGrid}>
-          {HOW_IT_WORKS.map((item) => (
-            <View key={item.step} style={[styles.howCard, isCompactLayout && styles.howCardCompact]}>
-              <View style={[styles.howIconBox, { backgroundColor: item.color + "20" }]}>
-                <Ionicons
-                  name={item.icon}
-                  size={24}
-                  color={item.color}
-                  accessibilityLabel={`Step ${item.step}: ${item.title}`}
-                  accessibilityRole="image"
-                />
+        {/* My Roadmap: Next Steps Preview */}
+        <View style={styles.dashboardSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>My Roadmap: Next Steps</Text>
+            <Pressable
+              onPress={() => (navigation as any).navigate("Roadmaps")}
+              accessibilityRole="button"
+              accessibilityLabel="View full roadmap"
+            >
+              <View style={styles.viewAllLink}>
+                <Text style={styles.viewAllText}>View Full Journey</Text>
+                <Ionicons name="arrow-forward" size={14} color={homeColors.primary} />
               </View>
-              <Text style={styles.howCardTitle}>{item.step}. {item.title}</Text>
-              <Text style={styles.howCardDesc}>{item.description}</Text>
-            </View>
-          ))}
+            </Pressable>
+          </View>
+          
+          <View style={styles.roadmapPreview}>
+            {roadmapData && roadmapData.roadmap.skills.length > 0 ? (
+              <>
+                {roadmapData.roadmap.skills.slice(0, 2).map((skillNode, index) => {
+                  const isLocked = index > 0 && !roadmapData.roadmap.skills[index - 1].userProgress?.started;
+                  const isStarted = skillNode.userProgress?.started || false;
+                  const progress = skillNode.userProgress?.completedPercentage || 0;
+
+                  return (
+                    <View
+                      key={skillNode.skill.id}
+                      style={[
+                        styles.roadmapStep,
+                        isStarted && { backgroundColor: homeColors.primary + "10" }
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.stepNumber,
+                          isStarted && { backgroundColor: homeColors.primary }
+                        ]}
+                      >
+                        {progress === 100 ? (
+                          <Ionicons name="checkmark" size={16} color={homeColors.onPrimary} />
+                        ) : isLocked ? (
+                          <Ionicons name="lock-closed" size={14} color={homeColors.textDark} />
+                        ) : (
+                          <Text style={styles.stepNumberText}>{index + 1}</Text>
+                        )}
+                      </View>
+                      <View style={styles.stepContent}>
+                        <Text style={[styles.stepTitle, isLocked && { opacity: 0.6 }]}>
+                          {skillNode.skill.name}
+                        </Text>
+                        <Text style={[styles.stepDescription, isLocked && { opacity: 0.5 }]}>
+                          {skillNode.skill.description}
+                        </Text>
+                        <View style={styles.stepMeta}>
+                          {isStarted && (
+                            <Text style={styles.stepMetaText}>
+                              {progress}% complete
+                            </Text>
+                          )}
+                          {isLocked && (
+                            <Text style={styles.stepMetaText}>
+                              Available after Step {index}
+                            </Text>
+                          )}
+                          {!isStarted && !isLocked && (
+                            <Text style={styles.stepMetaText}>
+                              ~{skillNode.skill.duration_hours} hours
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                      {isStarted && !isLocked && progress < 100 && (
+                        <Pressable
+                          style={styles.stepPlayBtn}
+                          onPress={() => (navigation as any).navigate("Roadmaps")}
+                          accessible={false}
+                        >
+                          <Ionicons name="play" size={16} color={homeColors.onPrimary} />
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                })}
+              </>
+            ) : (
+              <View style={styles.emptyRoadmapCard}>
+                <Ionicons name="map-outline" size={32} color={homeColors.primary} />
+                <Text style={styles.emptyRoadmapText}>
+                  No roadmap created yet. Take the quiz to get started!
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
-        {/* Trusted by Students */}
-        <Text
-          style={styles.sectionTitle}
-          accessibilityRole="header"
-        >
-          Trusted by Students
-        </Text>
-        <View style={styles.trustedSubtitle}>
-          <Ionicons
-            name="sparkles"
-            size={14}
-            color={homeColors.primary}
-            accessibilityRole="image"
-          />
-          <Text style={styles.trustedSubtitleText}>AI-powered career matching</Text>
-        </View>
-        <View style={styles.testimonials}>
-          {TESTIMONIALS.map((t, i) => (
-            <View key={i} style={styles.testimonialCard}>
-              <StarRating />
-              <Text style={styles.testimonialQuote}>"{t.quote}"</Text>
-              <Text
-                style={styles.testimonialAuthor}
-                accessibilityLabel={`Testimonial from ${t.author}, age ${t.age}`}
-              >
-                – {t.author}, {t.age}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        {/* CTA Block: Ready to Build Your Future? */}
-        <Pressable
-          style={({ pressed }) => [styles.ctaBlockWrap, pressed && styles.pressed]}
-          accessibilityRole="summary"
-          accessibilityLabel="Call to action section"
-        >
-          <LinearGradient
-            colors={[homeColors.primaryLight, homeColors.primaryDark]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={styles.ctaBlockGradient}
+        {/* Recommended Mentors Preview */}
+        <View style={styles.dashboardSection}>
+          <Text style={styles.sectionTitle}>Recommended Mentors</Text>
+          
+          <Pressable
+            style={styles.mentorPreviewContainer}
+            onPress={() => (navigation as any).navigate("Mentors")}
+            accessibilityRole="button"
+            accessibilityLabel="Browse all mentors"
           >
-            <Text style={styles.ctaBlockTitle}>Ready to Build Your Future?</Text>
-            <Text style={styles.ctaBlockSubtitle}>
-              Start your journey today and discover the perfect career for you.
-            </Text>
-            <View style={[styles.ctaBlockButtons, isCompactLayout && styles.ctaBlockButtonsCompact]}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.ctaBlockBtnWhite,
-                  isProcessing && styles.disabled,
-                  pressed && !isProcessing && styles.pressed,
-                ]}
-                onPress={goToQuiz}
-                disabled={isProcessing}
-                accessibilityRole="button"
-                accessibilityLabel="Take the Quiz"
-                accessibilityHint="Start the AI-powered career discovery quiz"
-                accessibilityState={{ disabled: isProcessing }}
-              >
-                <Text style={styles.ctaBlockBtnWhiteText}>Take the Quiz</Text>
-                <Ionicons name="arrow-forward" size={18} color={homeColors.primary} />
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.ctaBlockBtnPurple,
-                  isProcessing && styles.disabled,
-                  pressed && !isProcessing && styles.pressed,
-                ]}
-                onPress={hasCv ? handleAnalyze : handleUpload}
-                disabled={isProcessing}
-                accessibilityRole="button"
-                accessibilityLabel={a11y[hasCv ? 'analyzeCv' : 'uploadCv'].label}
-                accessibilityHint={a11y[hasCv ? 'analyzeCv' : 'uploadCv'].hint}
-                accessibilityState={{ disabled: isProcessing }}
-              >
-                {status === "uploading" || status === "analyzing" ? (
-                  <ActivityIndicator size="small" color={homeColors.onPrimary} />
-                ) : (
-                  <>
-                    <Ionicons
-                      name={hasCv ? "analytics-outline" : "cloud-upload-outline"}
-                      size={18}
-                      color={homeColors.onPrimary}
-                    />
-                    <Text style={styles.ctaBlockBtnPurpleText}>
-                      {hasCv ? "Analyze CV" : "Upload CV"}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
+            <View style={styles.mentorCard}>
+              <View style={styles.mentorInfo}>
+                <View style={styles.mentorInitials}>
+                  <Text style={styles.mentorInitialsText}>SJ</Text>
+                </View>
+                <View style={styles.mentorDetails}>
+                  <Text style={styles.mentorName}>Dr. Sarah Jenkins</Text>
+                  <Text style={styles.mentorRole}>Lead UX Researcher @ FinTech</Text>
+                  <View style={styles.mentorRating}>
+                    <Ionicons name="star" size={12} color={homeColors.starYellow} />
+                    <Text style={styles.mentorRatingText}>4.9</Text>
+                    <Text style={styles.mentorSessions}>120+ sessions</Text>
+                  </View>
+                </View>
+              </View>
             </View>
-          </LinearGradient>
-        </Pressable>
+
+            <View style={styles.mentorCard}>
+              <View style={styles.mentorInfo}>
+                <View style={styles.mentorInitials}>
+                  <Text style={styles.mentorInitialsText}>MT</Text>
+                </View>
+                <View style={styles.mentorDetails}>
+                  <Text style={styles.mentorName}>Marcus Thorne</Text>
+                  <Text style={styles.mentorRole}>Product Design Director</Text>
+                  <View style={styles.mentorRating}>
+                    <Ionicons name="star" size={12} color={homeColors.starYellow} />
+                    <Text style={styles.mentorRatingText}>5.0</Text>
+                    <Text style={styles.mentorSessions}>85+ sessions</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <Pressable
+              style={styles.mentorBrowseBtn}
+              onPress={() => (navigation as any).navigate("Mentors")}
+            >
+              <Ionicons name="people" size={16} color={homeColors.primary} />
+              <Text style={styles.mentorBrowseBtnText}>Browse All Mentors</Text>
+            </Pressable>
+          </Pressable>
+        </View>
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
@@ -840,14 +924,14 @@ export default function HomeScreen(): React.ReactElement {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: '#F8F9FA',
   },
   scroll: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 48,
+    paddingTop: 20,
   },
   pressed: {
     opacity: 0.85,
@@ -1202,5 +1286,383 @@ const styles = StyleSheet.create({
 
   bottomSpacer: {
     height: 120, // Increased to account for tab bar + safe area
+  },
+
+  // ========================================================================
+  // DASHBOARD STYLES
+  // ========================================================================
+  dashboardHero: {
+    marginBottom: 32,
+  },
+  dashboardGreeting: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: homeColors.textDark,
+    marginBottom: 8,
+  },
+  dashboardSubtext: {
+    fontSize: 16,
+    color: homeColors.onSurfaceVariant,
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  progressCard: {
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+  },
+  progressHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  progressLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: homeColors.onSurfaceVariant,
+  },
+  progressPercent: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: homeColors.primary,
+  },
+  progressBarContainer: {
+    height: 10,
+    backgroundColor: homeColors.primary + "20",
+    borderRadius: 5,
+    overflow: "hidden",
+  },
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: homeColors.primary,
+    borderRadius: 5,
+  },
+
+  // Action Cards Grid
+  actionGrid: {
+    gap: 16,
+    marginBottom: 28,
+  },
+  actionCardLarge: {
+    borderRadius: 24,
+    overflow: "hidden",
+  },
+  actionCardLargePressed: {
+    transform: [{ scale: 1.01 }],
+  },
+  actionCardSmall: {
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    padding: 20,
+  },
+  actionCardPressed: {
+    opacity: 0.9,
+  },
+  actionCardGradient: {
+    padding: 24,
+    justifyContent: "space-between",
+    minHeight: 260,
+    position: "relative",
+  },
+  decorativeIconBg: {
+    position: "absolute",
+    bottom: -20,
+    right: -20,
+    zIndex: 0,
+    opacity: 0.1,
+  },
+  decorativeIcon: {
+    transform: [{ rotate: "12deg" }],
+  },
+  actionCardContent: {
+    zIndex: 10,
+    justifyContent: "space-between",
+    flex: 1,
+  },
+  actionCardTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: homeColors.onPrimary,
+    marginBottom: 8,
+  },
+  actionCardDescription: {
+    fontSize: 15,
+    color: "rgba(255,255,255,0.85)",
+    lineHeight: 21,
+  },
+  actionCardButton: {
+    backgroundColor: homeColors.onPrimary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignSelf: "flex-start",
+    marginTop: 16,
+  },
+  actionCardButtonPressed: {
+    transform: [{ scale: 0.95 }],
+  },
+  actionCardButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: homeColors.primary,
+  },
+  actionCardSmallContent: {
+    gap: 12,
+  },
+  actionCardIcon: {
+    width: 48,
+    height: 48,
+    backgroundColor: homeColors.primary + "15",
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionCardSmallTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: homeColors.onSurface,
+  },
+  actionCardSmallDescription: {
+    fontSize: 14,
+    color: homeColors.onSurfaceVariant,
+    lineHeight: 20,
+  },
+  actionCardFileName: {
+    fontSize: 13,
+    color: homeColors.primary,
+    fontWeight: "600",
+  },
+  actionCardSmallButton: {
+    backgroundColor: homeColors.primary + "15",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+  },
+  actionCardSmallButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: homeColors.primary,
+  },
+
+  // CV Quick Actions
+  cvQuickActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 24,
+  },
+  cvQuickActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 6,
+    minHeight: 44,
+  },
+  cvQuickActionChange: {
+    backgroundColor: homeColors.primary + "15",
+    borderWidth: 1,
+    borderColor: homeColors.primary + "30",
+  },
+  cvQuickActionDelete: {
+    backgroundColor: homeColors.error + "15",
+    borderWidth: 1,
+    borderColor: homeColors.error + "30",
+  },
+  cvQuickActionText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: homeColors.primary,
+  },
+
+  // Dashboard Sections
+  dashboardSection: {
+    marginBottom: 32,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  viewAllLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  viewAllText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: homeColors.primary,
+  },
+
+  // Roadmap Preview
+  roadmapPreview: {
+    gap: 12,
+  },
+  roadmapStep: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+  },
+  stepNumber: {
+    width: 40,
+    height: 40,
+    backgroundColor: homeColors.primary,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  stepNumberText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: homeColors.onPrimary,
+  },
+  stepContent: {
+    flex: 1,
+  },
+  stepTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: homeColors.onSurface,
+    marginBottom: 4,
+  },
+  stepDescription: {
+    fontSize: 13,
+    color: homeColors.onSurfaceVariant,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  stepMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  stepMetaText: {
+    fontSize: 12,
+    color: homeColors.onSurfaceVariant,
+    fontWeight: "500",
+  },
+  stepPlayBtn: {
+    width: 40,
+    height: 40,
+    backgroundColor: homeColors.primary,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  // Empty Roadmap State
+  emptyRoadmapCard: {
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 20,
+    padding: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    gap: 12,
+  },
+  emptyRoadmapText: {
+    fontSize: 14,
+    color: homeColors.onSurfaceVariant,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+
+  // Mentor Preview
+  mentorPreviewContainer: {
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    overflow: "hidden",
+  },
+  mentorCard: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: homeColors.cardBorder + "50",
+  },
+  mentorInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  mentorInitials: {
+    width: 48,
+    height: 48,
+    backgroundColor: homeColors.primary + "20",
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  mentorInitialsText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: homeColors.primary,
+  },
+  mentorDetails: {
+    flex: 1,
+  },
+  mentorName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: homeColors.onSurface,
+    marginBottom: 2,
+  },
+  mentorRole: {
+    fontSize: 12,
+    color: homeColors.onSurfaceVariant,
+    marginBottom: 6,
+  },
+  mentorRating: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  mentorRatingText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: homeColors.onSurface,
+  },
+  mentorSessions: {
+    fontSize: 11,
+    color: homeColors.onSurfaceVariant,
+    marginLeft: 4,
+    fontWeight: "500",
+  },
+  mentorBrowseBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: homeColors.cardBorder,
+    backgroundColor: homeColors.cardBg,
+  },
+  mentorBrowseBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: homeColors.primary,
   },
 });

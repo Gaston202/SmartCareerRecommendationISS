@@ -14,7 +14,6 @@ import {
   Pressable,
   Animated,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -173,44 +172,48 @@ export function GroupChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      {/* Header with gradient */}
-      <LinearGradient
-        colors={[homeColors.primary, homeColors.primaryDark]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}
-      >
-        <View style={styles.headerRow}>
+      {/* Premium Header */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}>
+        <View style={styles.headerTop}>
           <Pressable
             onPress={() => navigation.goBack()}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 8 }}
-            style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
+            style={({ pressed }) => [
+              styles.backBtn, 
+              pressed && { backgroundColor: '#f2e2ff' }
+            ]}
             accessibilityRole="button"
             accessibilityLabel="Go back"
           >
-            <Ionicons name="chevron-back" size={26} color="#fff" />
+            <Ionicons name="chevron-back" size={24} color="#8158F8" />
           </Pressable>
 
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {chat.title || 'Group Chat'}
-          </Text>
-
-          <View style={styles.headerAvatarWrapper}>
-            <AppLogo size={18} />
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {chat.title || 'Group Chat'}
+            </Text>
           </View>
+
+          <View style={styles.headerRight} />
         </View>
+
         {chat.mentor && (
           <View style={styles.mentorInfo}>
-            <Ionicons name="person-circle-outline" size={16} color="rgba(255,255,255,0.9)" />
-            <Text style={styles.mentorText}>Led by {chat.mentor.name}</Text>
+            <View style={styles.mentorIconBg}>
+              <Ionicons name="person" size={14} color="#8158F8" />
+            </View>
+            <View style={styles.mentorTextContainer}>
+              <Text style={styles.mentorLabel}>Led by</Text>
+              <Text style={styles.mentorName}>{chat.mentor.name}</Text>
+            </View>
           </View>
         )}
-      </LinearGradient>
+      </View>
 
       {/* Messages */}
       {messagesLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={homeColors.primary} />
+          <ActivityIndicator size="large" color="#8158F8" />
         </View>
       ) : (
         <FlatList
@@ -222,8 +225,12 @@ export function GroupChatScreen() {
           contentContainerStyle={styles.messagesList}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="chatbubbles-outline" size={52} color="#CBD5E1" />
+              </View>
+              <Text style={styles.emptyTitle}>No messages yet</Text>
               <Text style={styles.emptyText}>
-                No messages yet. Start the conversation!
+                Start the conversation!
               </Text>
             </View>
           }
@@ -232,44 +239,53 @@ export function GroupChatScreen() {
 
       {/* Message Input */}
       <View style={styles.inputContainer}>
-        <View style={styles.inputRow}>
-          <TextInput
-            placeholder="Type a message..."
-            value={messageText}
-            onChangeText={setMessageText}
-            multiline
-            numberOfLines={1}
-            maxLength={500}
-            editable={!sending}
-            style={styles.textInput}
-            placeholderTextColor={homeColors.textLight}
-          />
+        <View style={styles.inputWrapper}>
+          <View style={styles.inputRow}>
+            <TextInput
+              placeholder="Type a message..."
+              value={messageText}
+              onChangeText={setMessageText}
+              multiline
+              numberOfLines={1}
+              maxLength={500}
+              editable={!sending}
+              style={styles.textInput}
+              placeholderTextColor="#94A3B8"
+            />
 
-          {/* Char counter badge */}
-          {messageText.length > 400 && (
-            <View style={styles.charBadge}>
-              <Text style={[styles.charText, messageText.length > 480 && { color: '#ef4444' }]}>
-                {500 - messageText.length}
-              </Text>
-            </View>
-          )}
+            {/* Char counter badge */}
+            {messageText.length > 400 && (
+              <View style={styles.charBadge}>
+                <Text style={[
+                  styles.charText, 
+                  messageText.length > 480 && { color: '#DC2626' }
+                ]}>
+                  {500 - messageText.length}
+                </Text>
+              </View>
+            )}
 
-          {/* Send / mic button */}
-          <Animated.View style={{ transform: [{ scale: sendButtonScale }] }}>
-            <Pressable
-              onPress={handleSendMessage}
-              disabled={!canSend && !sending}
-              style={({ pressed }) => [styles.sendBtn, pressed && canSend && { opacity: 0.85 }]}
-              accessibilityRole="button"
-              accessibilityLabel={canSend ? 'Send message' : 'Voice input unavailable'}
-            >
-              {sending ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <Ionicons name="send" size={20} color="#fff" />
-              )}
-            </Pressable>
-          </Animated.View>
+            {/* Send button */}
+            <Animated.View style={{ transform: [{ scale: sendButtonScale }] }}>
+              <Pressable
+                onPress={handleSendMessage}
+                disabled={!canSend && !sending}
+                style={({ pressed }) => [
+                  styles.sendBtn, 
+                  !canSend && !sending && styles.sendBtnDisabled,
+                  pressed && canSend && { transform: [{ scale: 0.92 }] }
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={canSend ? 'Send message' : 'Message empty'}
+              >
+                {sending ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Ionicons name="send" size={18} color="#fff" />
+                )}
+              </Pressable>
+            </Animated.View>
+          </View>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -279,68 +295,117 @@ export function GroupChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: homeColors.backgroundMuted,
+    backgroundColor: '#F8F9FA',
   },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: homeColors.backgroundMuted,
+    backgroundColor: '#F8F9FA',
   },
   errorText: {
-    color: homeColors.textMuted,
-    fontSize: 18,
+    color: '#64748B',
+    fontSize: 16,
+    fontWeight: '500',
   },
+
+  // ========== HEADER ==========
   header: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 16,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f2e2ff',
   },
-  headerRow: {
+  headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 12,
+  },
+  backBtn: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: '#f8edff',
+  },
+  headerCenter: {
+    flex: 1,
+    marginHorizontal: 12,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-    flex: 1,
+    fontWeight: '700',
+    color: '#1F2937',
     textAlign: 'center',
-    marginHorizontal: 8,
+  },
+  headerRight: {
+    width: 44,
   },
   mentorInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#f8edff',
     borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    alignSelf: 'flex-start',
-  },
-  mentorText: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.9)',
-    marginLeft: 4,
-    fontWeight: '500',
-  },
-  messagesList: {
+    paddingHorizontal: 12,
     paddingVertical: 10,
+    gap: 10,
+  },
+  mentorIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f2e2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mentorTextContainer: {
+    flex: 1,
+  },
+  mentorLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94A3B8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  mentorName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginTop: 2,
+  },
+
+  // ========== MESSAGES ==========
+  messagesList: {
+    paddingVertical: 16,
   },
   emptyContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 80,
+    paddingVertical: 100,
+    gap: 16,
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+    textAlign: 'center',
   },
   emptyText: {
-    color: homeColors.textMuted,
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#64748B',
     textAlign: 'center',
-    fontSize: 15,
+    maxWidth: 260,
   },
   messageRow: {
     flexDirection: 'row',
@@ -363,7 +428,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: homeColors.primary,
+    backgroundColor: '#8158F8',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -376,117 +441,118 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     color: '#fff',
-    fontWeight: 'bold',
+    fontWeight: '700',
     fontSize: 16,
   },
   messageContent: {
     flexDirection: 'row',
-    maxWidth: '75%',
+    maxWidth: '80%',
   },
   messageBubble: {
-    borderRadius: 18,
+    borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   messageBubbleOwn: {
-    backgroundColor: homeColors.primary,
+    backgroundColor: '#8158F8',
     borderBottomRightRadius: 4,
   },
   messageBubbleOther: {
-    backgroundColor: homeColors.cardBg,
+    backgroundColor: '#f2e2ff',
     borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: homeColors.cardBorder,
   },
   senderName: {
     fontSize: 12,
-    fontWeight: '600',
-    color: homeColors.textDark,
+    fontWeight: '700',
+    color: '#1F2937',
     marginBottom: 4,
   },
   messageTextOwn: {
     color: '#fff',
     fontSize: 15,
     lineHeight: 20,
+    fontWeight: '500',
   },
   messageTextOther: {
-    color: homeColors.textDark,
+    color: '#1F2937',
     fontSize: 15,
     lineHeight: 20,
+    fontWeight: '500',
   },
   timestampOwn: {
-    fontSize: 10,
+    fontSize: 11,
     marginTop: 4,
     color: 'rgba(255,255,255,0.7)',
+    fontWeight: '500',
   },
   timestampOther: {
-    fontSize: 10,
+    fontSize: 11,
     marginTop: 4,
-    color: homeColors.textLight,
+    color: '#94A3B8',
+    fontWeight: '500',
   },
+
+  // ========== INPUT ==========
   inputContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: homeColors.cardBorder,
+    borderTopColor: '#f2e2ff',
+  },
+  inputWrapper: {
+    gap: 8,
   },
   inputRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 10,
   },
   textInput: {
     flex: 1,
-    backgroundColor: homeColors.backgroundMuted,
-    borderWidth: 1,
-    borderColor: homeColors.cardBorder,
-    borderRadius: 22,
+    backgroundColor: '#f8edff',
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    color: homeColors.textDark,
+    color: '#1F2937',
     maxHeight: 100,
     fontSize: 15,
-  },
-  sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backBtn: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  headerAvatarWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  charBadge: {
-    position: 'absolute',
-    right: 70,
-    top: -8,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  charText: {
-    fontSize: 11,
-    color: '#6b7280',
+    fontWeight: '500',
   },
   sendBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: homeColors.primary,
+    backgroundColor: '#8158F8',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#8158F8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  sendBtnDisabled: {
+    backgroundColor: '#CBD5E1',
+    shadowOpacity: 0.08,
+  },
+  charBadge: {
+    position: 'absolute',
+    right: 60,
+    bottom: 16,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  charText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
   },
 });

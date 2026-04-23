@@ -54,6 +54,8 @@ export type CvAnalysis = {
   id: string;
   cv_upload_id: string;
   user_id: string;
+  status?: "pending" | "processing" | "completed" | "failed";
+  error_message?: string | null;
   ats_score: number;
   ats_issues: AtsIssue[];
   suggested_improvements: AtsImprovement[]; // Matches database column name

@@ -8,7 +8,6 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Animated,
   Modal,
   TouchableWithoutFeedback,
   Keyboard,
@@ -402,42 +401,8 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [fpOpen, setFpOpen] = useState(false);
-  const [isMentorLogin, setIsMentorLogin] = useState(false);
-
-  // Floating animation values for background shapes
-  const float1 = useRef(new Animated.Value(0)).current;
-  const float2 = useRef(new Animated.Value(0)).current;
-  const float3 = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const createFloatLoop = (animValue: Animated.Value, duration: number, delay: number) => {
-      return Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(animValue, { toValue: 1, duration, useNativeDriver: true }),
-          Animated.timing(animValue, { toValue: 0, duration, useNativeDriver: true }),
-        ])
-      );
-    };
-    const a1 = createFloatLoop(float1, 2800, 0);
-    const a2 = createFloatLoop(float2, 3200, 400);
-    const a3 = createFloatLoop(float3, 2600, 800);
-    a1.start();
-    a2.start();
-    a3.start();
-    return () => {
-      a1.stop();
-      a2.stop();
-      a3.stop();
-    };
-  }, [float1, float2, float3]);
-
-  const floatY1 = float1.interpolate({ inputRange: [0, 1], outputRange: [0, 14] });
-  const floatX1 = float1.interpolate({ inputRange: [0, 1], outputRange: [0, 6] });
-  const floatY2 = float2.interpolate({ inputRange: [0, 1], outputRange: [0, -12] });
-  const floatX2 = float2.interpolate({ inputRange: [0, 1], outputRange: [0, -5] });
-  const floatY3 = float3.interpolate({ inputRange: [0, 1], outputRange: [0, 10] });
-  const floatX3 = float3.interpolate({ inputRange: [0, 1], outputRange: [0, 4] });
+  const [role, setRole] = useState<'student' | 'mentor'>('student');
+  const [showLoginForm, setShowLoginForm] = useState(false);
 
   const {
     control,
@@ -467,140 +432,56 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
     <View style={styles.container}>
       <ForgotPasswordModal visible={fpOpen} onClose={() => setFpOpen(false)} />
 
-      <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={StyleSheet.absoluteFill} />
-
-      <Animated.View
-        style={[
-          styles.shape,
-          styles.shapeCircle,
-          { transform: [{ translateY: floatY1 }, { translateX: floatX1 }] },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.shape,
-          styles.shapeSquare1,
-          { transform: [{ translateY: floatY2 }, { translateX: floatX2 }] },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.shape,
-          styles.shapeSquare2,
-          { transform: [{ translateY: floatY3 }, { translateX: floatX3 }] },
-        ]}
-      />
-
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <View style={styles.card}>
-            <View style={styles.logoCircle}>
-              <AppLogo size={42} />
+          <View style={styles.panel}>
+            <View style={styles.mobileBrandWrap}>
+              <AppLogo size={28} />
+              <Text style={styles.mobileBrandText}>MyPath</Text>
             </View>
 
-            <Text style={styles.title}>Welcome back</Text>
-            <Text style={styles.subtitle}>Sign in to continue your career journey</Text>
+            <Text style={styles.title}>Welcome to MyPath</Text>
+            <Text style={styles.subtitle}>Your AI-powered career navigator. Start your journey today.</Text>
 
-            {generalError ? (
-              <View style={styles.errorWrap}>
-                <Text style={styles.errorText}>{generalError}</Text>
-              </View>
-            ) : null}
+            <Text style={styles.roleLabel}>Choose your journey</Text>
+            <View style={styles.roleGrid}>
+              <Pressable
+                onPress={() => setRole('student')}
+                style={[styles.roleCard, role === 'student' && styles.roleCardActive]}
+              >
+                <View style={[styles.roleIcon, role === 'student' && styles.roleIconActive]}>
+                  <Ionicons name="school-outline" size={24} color={role === 'student' ? '#fff' : '#6B7280'} />
+                </View>
+                <Text style={[styles.roleTitle, role === 'student' && styles.roleTitleActive]}>Student</Text>
+                <Text style={styles.roleCaption}>Seeking Growth</Text>
+              </Pressable>
 
-            {/* Email */}
-            <View style={styles.fieldWrap}>
-              <Text style={styles.label}>Email Address</Text>
-              <View style={styles.inputWrap}>
-                <Ionicons name="mail-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
-                <Controller
-                  control={control}
-                  name="email"
-                  render={({ field: { value, onChange } }) => (
-                    <TextInput
-                      style={styles.input}
-                      placeholder="you@example.com"
-                      placeholderTextColor={colors.textMuted}
-                      value={value ?? ''}
-                      onChangeText={onChange}
-                      autoCapitalize="none"
-                      keyboardType="email-address"
-                      editable={!busy}
-                      testID="email-input"
-                    />
-                  )}
-                />
-              </View>
-              {errors.email?.message ? <Text style={styles.fieldError}>{errors.email.message}</Text> : null}
+              <Pressable
+                onPress={() => setRole('mentor')}
+                style={[styles.roleCard, role === 'mentor' && styles.roleCardActive]}
+              >
+                <View style={[styles.roleIcon, role === 'mentor' && styles.roleIconActive]}>
+                  <Ionicons name="people-outline" size={24} color={role === 'mentor' ? '#fff' : '#6B7280'} />
+                </View>
+                <Text style={[styles.roleTitle, role === 'mentor' && styles.roleTitleActive]}>Mentor</Text>
+                <Text style={styles.roleCaption}>Guiding Others</Text>
+              </Pressable>
             </View>
 
-            {/* Password */}
-            <View style={styles.fieldWrap}>
-              <View style={styles.passwordLabelRow}>
-                <Text style={styles.label}>Password</Text>
-
-                {/* ✅ now functional: opens modal */}
-                <Pressable hitSlop={8} onPress={() => setFpOpen(true)} disabled={busy}>
-                  <Text style={styles.forgotLink}>Forgot password?</Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.inputWrap}>
-                <Ionicons name="lock-closed-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
-                <Controller
-                  control={control}
-                  name="password"
-                  render={({ field: { value, onChange } }) => (
-                    <TextInput
-                      style={[styles.input, styles.inputRight]}
-                      placeholder="Enter your password"
-                      placeholderTextColor={colors.textMuted}
-                      value={value ?? ''}
-                      onChangeText={onChange}
-                      secureTextEntry={!showPassword}
-                      editable={!busy}
-                      testID="password-input"
-                    />
-                  )}
-                />
-                <Pressable onPress={() => setShowPassword((v) => !v)} style={styles.eyeIcon} hitSlop={8} disabled={busy}>
-                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textMuted} />
-                </Pressable>
-              </View>
-
-              {errors.password?.message ? <Text style={styles.fieldError}>{errors.password.message}</Text> : null}
-            </View>
-
-            {/* Sign In */}
             <Pressable
-              onPress={handleSubmit(onSubmit)}
-              disabled={busy}
-              style={({ pressed }) => [styles.buttonWrap, pressed && styles.buttonPressed]}
-              testID="login-button"
+              onPress={() => navigation.navigate('Signup')}
+              style={({ pressed }) => [styles.primaryCtaWrap, pressed && styles.buttonPressed]}
             >
               <LinearGradient
-                colors={[colors.buttonStart, colors.buttonEnd]}
+                colors={['#6437db', '#a98fff']}
                 start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.buttonGradient}
+                end={{ x: 1, y: 1 }}
+                style={styles.primaryCta}
               >
-                <Text style={styles.buttonText}>{busy ? 'Signing in…' : 'Sign In'}</Text>
+                <Text style={styles.primaryCtaText}>Get Started</Text>
                 <Ionicons name="arrow-forward" size={20} color="#fff" />
               </LinearGradient>
             </Pressable>
-
-            <View style={styles.roleHintRow}>
-              <Pressable
-                disabled={busy}
-                onPress={() => setIsMentorLogin((v) => !v)}
-                hitSlop={8}
-              >
-                <Text style={styles.roleHintText}>
-                  {isMentorLogin
-                    ? 'Logging in as Mentor (based on your account role)'
-                    : 'Are you a mentor? Tap here to switch focus.'}
-                </Text>
-              </Pressable>
-            </View>
 
             <View style={styles.orRow}>
               <View style={styles.orLine} />
@@ -608,12 +489,97 @@ export function LoginScreen({ navigation }: LoginScreenProps): React.ReactElemen
               <View style={styles.orLine} />
             </View>
 
-            <View style={styles.signupRow}>
-              <Text style={styles.signupPrompt}>Don't have an account? </Text>
-              <Pressable onPress={() => navigation?.navigate?.('Signup')} disabled={busy} hitSlop={8} testID="signup-link">
-                <Text style={styles.signupLink}>Sign Up</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={() => setShowLoginForm((v) => !v)}
+              style={({ pressed }) => [styles.secondaryCta, pressed && styles.secondaryCtaPressed]}
+            >
+              <Text style={styles.secondaryCtaText}>{showLoginForm ? 'Hide Login' : 'Log In'}</Text>
+            </Pressable>
+
+            {showLoginForm && (
+              <View style={styles.formShell}>
+                {generalError ? (
+                  <View style={styles.errorWrap}>
+                    <Text style={styles.errorText}>{generalError}</Text>
+                  </View>
+                ) : null}
+
+                <View style={styles.fieldWrap}>
+                  <Text style={styles.label}>Email Address</Text>
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="mail-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                    <Controller
+                      control={control}
+                      name="email"
+                      render={({ field: { value, onChange } }) => (
+                        <TextInput
+                          style={styles.input}
+                          placeholder="you@example.com"
+                          placeholderTextColor={colors.textMuted}
+                          value={value ?? ''}
+                          onChangeText={onChange}
+                          autoCapitalize="none"
+                          keyboardType="email-address"
+                          editable={!busy}
+                          testID="email-input"
+                        />
+                      )}
+                    />
+                  </View>
+                  {errors.email?.message ? <Text style={styles.fieldError}>{errors.email.message}</Text> : null}
+                </View>
+
+                <View style={styles.fieldWrap}>
+                  <View style={styles.passwordLabelRow}>
+                    <Text style={styles.label}>Password</Text>
+                    <Pressable hitSlop={8} onPress={() => setFpOpen(true)} disabled={busy}>
+                      <Text style={styles.forgotLink}>Forgot password?</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="lock-closed-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                    <Controller
+                      control={control}
+                      name="password"
+                      render={({ field: { value, onChange } }) => (
+                        <TextInput
+                          style={[styles.input, styles.inputRight]}
+                          placeholder="Enter your password"
+                          placeholderTextColor={colors.textMuted}
+                          value={value ?? ''}
+                          onChangeText={onChange}
+                          secureTextEntry={!showPassword}
+                          editable={!busy}
+                          testID="password-input"
+                        />
+                      )}
+                    />
+                    <Pressable onPress={() => setShowPassword((v) => !v)} style={styles.eyeIcon} hitSlop={8} disabled={busy}>
+                      <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+                  {errors.password?.message ? <Text style={styles.fieldError}>{errors.password.message}</Text> : null}
+                </View>
+
+                <Pressable
+                  onPress={handleSubmit(onSubmit)}
+                  disabled={busy}
+                  style={({ pressed }) => [styles.buttonWrap, pressed && styles.buttonPressed]}
+                  testID="login-button"
+                >
+                  <LinearGradient
+                    colors={[colors.buttonStart, colors.buttonEnd]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.buttonGradient}
+                  >
+                    <Text style={styles.buttonText}>{busy ? 'Signing in…' : 'Sign In'}</Text>
+                    <Ionicons name="arrow-forward" size={20} color="#fff" />
+                  </LinearGradient>
+                </Pressable>
+              </View>
+            )}
 
             <Text style={styles.terms}>
               By continuing, you agree to our Terms of Service and Privacy Policy.
@@ -680,82 +646,151 @@ const fpStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: '#fcf4ff' },
   keyboardView: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 32,
+    paddingBottom: 30,
+    paddingHorizontal: 16,
   },
-  shape: { position: 'absolute', borderRadius: 999 },
-  shapeCircle: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: colors.shapeTeal,
-    top: '18%',
-    left: -60,
-  },
-  shapeSquare1: {
-    width: 120,
-    height: 120,
-    borderRadius: 24,
-    backgroundColor: colors.shapePurple,
-    top: '8%',
-    right: -30,
-  },
-  shapeSquare2: {
-    width: 100,
-    height: 100,
-    borderRadius: 20,
-    backgroundColor: colors.shapeTeal,
-    bottom: '22%',
-    left: -20,
-  },
-  card: {
-    backgroundColor: colors.cardBg,
-    borderRadius: 24,
-    padding: 28,
-    marginBottom: 20,
-    shadowColor: '#000',
+  panel: {
+    marginHorizontal: 0,
+    borderRadius: 26,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 22,
+    shadowColor: '#37274d',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
-    shadowRadius: 24,
-    elevation: 8,
+    shadowRadius: 18,
+    elevation: 4,
   },
-  logoCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: colors.logoBg,
-    alignSelf: 'center',
+  mobileBrandWrap: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
+    gap: 8,
+    marginBottom: 12,
+  },
+  mobileBrandText: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#6437db',
+    letterSpacing: -0.7,
   },
   title: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.textDark,
-    textAlign: 'center',
-    marginBottom: 6,
+    fontSize: 30,
+    fontWeight: '900',
+    color: '#37274d',
+    letterSpacing: -0.8,
+    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginBottom: 24,
+    fontSize: 15,
+    color: '#6B5B95',
+    lineHeight: 22,
+    marginBottom: 18,
+  },
+  roleLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    color: '#6B5B95',
+    marginBottom: 12,
+  },
+  roleGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 18,
+  },
+  roleCard: {
+    flex: 1,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    backgroundColor: '#f8edff',
+    alignItems: 'center',
+  },
+  roleCardActive: {
+    backgroundColor: '#f2e2ff',
+  },
+  roleIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  roleIconActive: {
+    backgroundColor: '#6437db',
+  },
+  roleTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#37274d',
+    marginBottom: 2,
+  },
+  roleTitleActive: {
+    color: '#6437db',
+  },
+  roleCaption: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6B5B95',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  primaryCtaWrap: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    marginBottom: 14,
+  },
+  primaryCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  primaryCtaText: {
+    color: '#fff',
+    fontSize: 19,
+    fontWeight: '800',
+  },
+  secondaryCta: {
+    borderRadius: 18,
+    backgroundColor: '#f2e2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    marginBottom: 10,
+  },
+  secondaryCtaPressed: {
+    opacity: 0.85,
+  },
+  secondaryCtaText: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#6437db',
+  },
+  formShell: {
+    marginTop: 8,
+    backgroundColor: '#fcf4ff',
+    borderRadius: 16,
+    padding: 14,
   },
   errorWrap: { marginBottom: 12 },
   errorText: { fontSize: 13, color: '#DC2626' },
-  fieldWrap: { marginBottom: 18 },
+  fieldWrap: { marginBottom: 14 },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textDark,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#37274d',
     marginBottom: 8,
   },
   passwordLabelRow: {
@@ -764,13 +799,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  forgotLink: { fontSize: 13, color: colors.link, fontWeight: '500' },
+  forgotLink: { fontSize: 13, color: '#6437db', fontWeight: '700' },
   inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#e9d5ff',
     borderRadius: 12,
     paddingHorizontal: 14,
     minHeight: 48,
@@ -786,24 +821,19 @@ const styles = StyleSheet.create({
   inputRight: { paddingRight: 36 },
   eyeIcon: { position: 'absolute', right: 14 },
   fieldError: { fontSize: 12, color: '#DC2626', marginTop: 4 },
-  buttonWrap: { marginTop: 8, marginBottom: 20, borderRadius: 12, overflow: 'hidden' },
+  buttonWrap: { marginTop: 8, borderRadius: 12, overflow: 'hidden' },
   buttonPressed: { opacity: 0.9 },
   buttonGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, gap: 8 },
-  buttonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
+  buttonText: { fontSize: 16, fontWeight: '700', color: '#fff' },
   orRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  orLine: { flex: 1, height: 1, backgroundColor: colors.border },
-  orText: { fontSize: 12, color: colors.textMuted, marginHorizontal: 12 },
-  signupRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' },
-  signupPrompt: { fontSize: 14, color: colors.textDark },
-  signupLink: { fontSize: 14, color: colors.link, fontWeight: '600' },
-  terms: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: 20, paddingHorizontal: 8 },
-  roleHintRow: {
-    marginBottom: 8,
-    alignItems: 'center',
-  },
-  roleHintText: {
+  orLine: { flex: 1, height: 1, backgroundColor: '#e9d5ff' },
+  orText: { fontSize: 11, color: '#6B5B95', marginHorizontal: 12, fontWeight: '700', letterSpacing: 1 },
+  terms: {
     fontSize: 12,
-    color: colors.textMuted,
+    color: '#6B5B95',
     textAlign: 'center',
+    marginTop: 16,
+    lineHeight: 18,
+    paddingHorizontal: 6,
   },
 });
