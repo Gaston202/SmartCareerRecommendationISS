@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request, Query
 from typing import Dict, Any, Optional, List
-from app.modules.quiz.service import QuizService
-from app.modules.quiz.schemas import QuizAnswer
-from app.core.database import DatabaseService
-from app.core.ai_orchestrator import AIOrchestratorService
-from app.core.cache import CacheService
-from app.modules.career.service import CareerService
-from app.core.dependencies import (
+from backend.app.modules.quiz.service import QuizService
+from backend.app.modules.quiz.schemas import QuizAnswer
+from backend.app.core.database import DatabaseService
+from backend.app.core.ai_orchestrator import AIOrchestratorService
+from backend.app.core.cache import CacheService
+from backend.app.modules.career.service import CareerService
+from backend.app.core.dependencies import (
     get_database_service,
     get_ai_orchestrator_service,
     get_cache_service,

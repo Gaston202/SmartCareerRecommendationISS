@@ -5,9 +5,9 @@ import asyncio
 import re
 from typing import Any, Dict, List, Optional
 import httpx
-from app.core.ai.config import AIConfig
-from app.core.ai.client import OpenRouterClient
-from app.core.config import settings
+from backend.app.core.ai.config import AIConfig
+from backend.app.core.ai.client import OpenRouterClient
+from backend.app.core.config import settings
 
 logger = logging.getLogger(__name__)
 

@@ -1,10 +1,10 @@
 import logging
 import asyncio
 from typing import List, Dict, Any, Optional
-from app.core.database import DatabaseService
-from app.core.ai_orchestrator import AIOrchestratorService
-from app.core.cache import CacheService
-from app.modules.career.service import CareerService
+from backend.app.core.database import DatabaseService
+from backend.app.core.ai_orchestrator import AIOrchestratorService
+from backend.app.core.cache import CacheService
+from backend.app.modules.career.service import CareerService
 
 logger = logging.getLogger(__name__)
 
