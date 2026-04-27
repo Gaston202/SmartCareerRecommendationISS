@@ -1,319 +1,199 @@
-# Smart Career Recommendation - Production AI Backend
+# FastAPI Backend - Smart Career Recommendation System
 
-This is the **backend service** for the Smart Career Recommendation mobile app. It implements a production-grade AI architecture using **NestJS**, **Supabase**, **Redis**, and **OpenRouter**.
+This is the FastAPI-based backend for the Smart Career Recommendation System, migrated from the original NestJS implementation.
 
----
+## Overview
 
-## Architecture Overview
+The FastAPI backend provides all the functionality of the original NestJS backend with improved performance, better async support, and Python's rich ecosystem for AI/ML integration.
+
+## Features
+
+- **Authentication**: Supabase JWT token validation
+- **Quiz System**: 10-question adaptive quiz with DISC profile generation
+- **Career Recommendations**: AI-powered career matching with deterministic scoring
+- **CV Analysis**: PDF upload and AI-powered skill extraction
+- **Roadmaps**: Personalized career and learning roadmaps
+- **AI Integration**: OpenRouter integration for LLM-powered features
+- **Caching**: Redis-backed caching with in-memory fallback
+- **Queue System**: Background job processing for async tasks
+
+## Architecture
 
 ```
-┌─────────────────┐
-│  React Native   │
-│   Mobile App    │
-└────────┬────────┘
-         │ HTTPS (Bearer Token)
-         ▼
-    ┌───────┐
-    │ Backend│  NestJS API Server
-    │NestJS │  + AI Orchestration
-    └───┬───┘
-        │
-        ├─────────────┬─────────────┬──────────────┐
-        ▼             ▼             ▼              ▼
-    ┌───────┐   ┌───────┐   ┌─────────┐   ┌─────────┐
-    │Supabase│  │  Redis │   │OpenRouter│  │  BullMQ │
-    │ Postgres│ │ (Cache)│  │   AI    │  │ (Queue) │
-    └───────┘   └───────┘   └─────────┘   └─────────┘
+fastapi_backend/
+├── app/
+│   ├── api/
+│   │   └── v1/              # Versioned API routes
+│   ├── core/                # Core services (auth, cache, AI, etc.)
+│   ├── modules/             # Domain modules (auth, quiz, career, etc.)
+│   ├── workers/             # Background task workers
+│   └── main.py              # FastAPI application entry point
+├── tests/                   # Test suite (unit, integration, e2e)
+├── migrations/              # Database migrations
+└── pyproject.toml          # Project dependencies
 ```
 
----
-
-## Core Components
-
-### 1. AI Orchestration Layer (`src/core/ai-orchestrator/`)
-Centralized AI management:
-- **Prompt Registry**: Manages prompts for all use cases
-- **OpenRouter Service**: Multi-model failover with retry logic
-- **Structured Validation**: Zod schemas enforce JSON output
-- **Caching**: Reduces AI costs and latency
-
-**Supported AI Tasks:**
-- Quiz question generation
-- Quiz results (Nova profile + careers)
-- CV analysis (structured extraction)
-- CV suggestions (ATS improvements)
-- Roadmap personalization (RAG)
-
----
-
-### 2. Quiz Module (`src/modules/quiz/`)
-Stateful 10-question adaptive quiz.
-
-**Endpoints:**
-- `POST /quiz/start` - Create session, return Q1
-- `POST /quiz/answer` - Submit answer, get next Q or results
-- `GET /quiz/result/:sessionId` - Fetch final results
-- `GET /quiz/history` - Past quiz sessions
-
-**Features:**
-- Session persistence (Supabase)
-- Redis caching (24h TTL)
-- State machine (in_progress → completed)
-- Fallback to static questions if AI fails
-
----
-
-### 3. Career Module (`src/modules/career/`)
-**Hybrid recommendation** (AI + deterministic scoring).
-
-**Algorithm:**
-1. Deterministic score based on:
-   - Skill overlap (40%)
-   - Interest alignment (30%)
-   - Quiz traits (30%)
-2. AI generates personalized explanations
-
-**Endpoints:**
-- `POST /career/recommend` - Get top 5 matches
-- `GET / career/all` - Reference data
-
----
-
-### 4. CV Analysis Module (`src/modules/cv/`)
-Async pipeline for CV processing.
-
-**Pipeline:**
-```
-Upload PDF → Storage → Queue Job →
-  1. Extract text (PDF parser)
-  2. AI analyzes content
-  3. Calculate ATS score
-  4. Generate suggestions
-  5. Store in DB → Realtime notify
-```
-
-**Endpoints:**
-- `POST /cv/upload` - Upload PDF (multipart)
-- `GET /cv/result/:id` - Fetch analysis
-- `GET /cv/result/latest` - Latest for user
-- `GET /cv/status/:id` - Polling status
-
-**Statuses:** `pending` → `processing` → `completed` / `failed`
-
----
-
-### 5. Roadmap Module (`src/modules/roadmap/`)
-RAG-based roadmap personalization.
-
-**Sources:**
-- Base templates from `career_roadmaps` table
-- AI personalizes based on user profile (skills + quiz + CV)
-
-**Endpoints:**
-- `POST /roadmap/generate` - Generate (sync or async)
-- `GET /roadmap/career/:careerId` - Fetch cached roadmap
-- `GET /roadmap/status/:jobId` - Async job status
-
----
-
-### 6. Auth Module (`src/modules/auth/`)
-Supabase JWT validation.
-
-- Validates JWT tokens from Supabase Auth
-- Provides JWT guard for all endpoints
-- User profile CRUD
-
----
-
-## Database Schema
-
-See `migrations/001_initial_schema.sql`.
-
-### Key Tables
-| Table | Purpose |
-|-------|---------|
-| `quiz_sessions` | Quiz session state (user_id, status, current_question) |
-| `quiz_answers` | Individual answers (linked to session) |
-| `careers` | Reference data (skills, traits, salary ranges) |
-| `career_match_results` | Computed matches (with AI insights) |
-| `cv_analyses` | CV analysis results + status |
-| `career_roadmaps` | Roadmap templates (milestones JSON) |
-| `user_roadmaps` | Personalized roadmaps |
-| `async_jobs` | Job tracking for polling |
-
-**RLS:** All user tables have Row Level Security (users access own data only).
-
----
-
-## Caching Strategy
-
-Redis is used for:
-- Quiz questions (1h TTL)
-- Quiz results (24h TTL)
-- Career matches (6h TTL)
-- Roadmaps (12h TTL)
-- CV analysis (24h TTL)
-
-**Keys:**
-- `quiz:session:{sessionId}`
-- `quiz:results:{userId}:{sessionId}`
-- `career:matches:{userId}:{cvId}:{quizId}`
-- `roadmap:{userId}:{careerId}`
-- `cv:analysis:{userId}`
-
-Cache-aside pattern: Read through, write through on mutations.
-
----
-
-## Queue System (BullMQ)
-
-**Queues:**
-- `cv-analysis` - CV processing pipeline
-- `ai-processing` - Heavy AI tasks
-- `roadmap-generation` - Async roadmap generation
-
-**Job Tracking:** `async_jobs` table stores status for frontend polling.
-
-**Retry Policy:**
-- Max 3 attempts
-- Exponential backoff
-- Delayed jobs on failure
-
----
-
-## API Documentation
-
-Full API spec: [`docs/api.md`](./docs/api.md)
-
-### Quick Reference
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/quiz/start` | POST | Start quiz |
-| `/quiz/answer` | POST | Submit answer |
-| `/quiz/result/:id` | GET | Get results |
-| `/career/recommend` | POST | Get career matches |
-| `/cv/upload` | POST | Upload CV PDF |
-| `/cv/result/:id` | GET | Get CV analysis |
-| `/roadmap/generate` | POST | Generate roadmap |
-
----
-
-## Getting Started
+## Installation
 
 ### Prerequisites
-- Node.js 18+
-- Docker Compose (for local Postgres + Redis)
-- Supabase project
-- OpenRouter API key
+
+- Python 3.11+
+- Redis (optional, for caching and queue)
+- Supabase account
+- OpenRouter API key (optional, for AI features)
 
 ### Setup
 
-1. **Clone & Install**
+1. Install dependencies:
 ```bash
-cd backend
-npm install
+pip install -r requirements.txt
 ```
 
-2. **Start Local Services**
-```bash
-docker-compose up -d
-# Postgres: localhost:5432
-# Redis: localhost:6379
-```
-
-3. **Configure Environment**
+2. Configure environment variables:
 ```bash
 cp .env.example .env
-# Edit .env with your credentials
+# Edit .env with your configuration
 ```
 
-4. **Run Database Migration**
+3. Run the application:
 ```bash
-# In Supabase SQL console, paste contents of:
-# migrations/001_initial_schema.sql
+uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
 ```
 
-5. **Development**
-```bash
-npm run start:dev
-# API running on http://localhost:3000
-# Swagger docs: http://localhost:3000/api/docs
-```
+## Configuration
 
----
+Key environment variables (see `.env.example`):
 
-## Deployment
+- `SUPABASE_URL`: Your Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key
+- `SUPABASE_ANON_KEY`: Supabase anon key
+- `OPENROUTER_API_KEY`: OpenRouter API key (for AI features)
+- `REDIS_URL`: Redis connection URL (optional)
+- `REDIS_DISABLED`: Set to `true` to disable Redis
 
-### Vercel / Railway / ECS
+## API Documentation
 
-Build with Dockerfile or `npm run build`.
+Once the server is running, visit:
+- Swagger UI: http://localhost:3000/docs
+- ReDoc: http://localhost:3000/redoc
 
-**Required Environment Vars:**
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `OPENROUTER_API_KEY`
-- `REDIS_URL`
-- `JWT_SECRET`
-- `CORS_ORIGIN`
+## Key Differences from NestJS
 
-### Scaling Considerations
+### Advantages
 
-- **Stateless API**: Deploy multiple instances behind load balancer
-- **Redis**: Shared cache across instances
-- **Database**: Supabase handles scaling, add read replicas if needed
-- **Queue Workers**: Deploy separate worker processes (`npm run worker:cv`, `npm run worker:ai`)
-- **Rate Limiting**: Add at load balancer or API gateway
+1. **Performance**: FastAPI's async-first design provides better performance
+2. **Type Safety**: Pydantic models provide excellent type checking
+3. **Python Ecosystem**: Access to rich Python AI/ML libraries
+4. **Simplicity**: Less boilerplate than NestJS
+5. **Development Speed**: FastAPI's automatic docs and validation speed up development
 
----
+### Trade-offs
 
-## Mobile App Migration
+1. **Dependency Injection**: Less sophisticated than NestJS's DI system
+2. **Decorators**: Fewer built-in decorators for common patterns
+3. **Maturity**: NestJS has more enterprise patterns built-in
 
-### Changes Needed
-
-1. **Replace direct OpenRouter calls** with backend endpoints:
-   - Quiz: `/quiz/start`, `/quiz/answer`
-   - Career: `/career/recommend`
-   - CV: `/cv/upload`, `/cv/result`
-   - Roadmap: `/roadmap/generate`
-
-2. **Add JWT header** to all requests:
-```javascript
-headers: {
-  Authorization: `Bearer ${supabaseJwt}`,
-  'X-Session-Id': quizSessionId, // for quiz/answer
-}
-```
-
-3. **Implement CV polling** (if not using Realtime):
-```javascript
-const checkStatus = async (analysisId) => {
-  const res = await fetch(`/cv/status/${analysisId}`);
-  const { status } = await res.json();
-  if (status === 'completed') {
-    // fetch results
-  } else {
-    // wait and retry
-  }
-};
-```
-
-4. **Handle async jobs**: Show "processing" state while waiting for results.
-
----
-
-## Testing
+## Running Tests
 
 ```bash
-# Unit tests
-npm test
+# Run all tests
+pytest
 
-# E2E tests
-npm run test:e2e
+# Run with coverage
+pytest --cov=app --cov-report=html
 
-# With coverage
-npm run test:cov
+# Run specific test file
+pytest tests/e2e/test_health.py
 ```
 
----
+## Development
 
+### Code Style
+
+- Use `black` for formatting
+- Use `ruff` for linting
+- Use `mypy` for type checking
+
+```bash
+# Format code
+black app/
+
+# Lint
+ruff app/
+
+# Type check
+mypy app/
+```
+
+### Adding New Features
+
+1. Create Pydantic models in appropriate `schemas.py`
+2. Implement service layer in `modules/<domain>/service.py`
+3. Add routes in `modules/<domain>/router.py`
+4. Write tests in `tests/`
+5. Update documentation
+
+## Migration Status
+
+### Completed
+
+- ✅ Core infrastructure (FastAPI app, config, logging)
+- ✅ Database service (Supabase integration)
+- ✅ Cache service (Redis with fallback)
+- ✅ Auth service (JWT validation, user profiles)
+- ✅ AI orchestrator (OpenRouter integration)
+- ✅ Quiz service (adaptive quiz, DISC profiles)
+- ✅ Career service (deterministic matching, AI explanations)
+- ✅ CV service (PDF upload, AI analysis)
+- ✅ Roadmap service (legacy + personalized roadmaps)
+- ✅ Learning roadmap service (skill-based paths)
+- ✅ Queue service (background job processing)
+- ✅ Worker tasks (CV analysis, AI processing, roadmap generation)
+- ✅ API routers with proper endpoints
+- ✅ Comprehensive tests
+
+### Known Limitations
+
+1. Some AI features use simplified implementations (can be enhanced)
+2. Worker queue uses RQ (can be upgraded to Celery for production)
+3. Database models are minimal (expand based on needs)
+4. Authentication uses simple token validation (enhance with middleware)
+
+## Production Deployment
+
+### Using Gunicorn
+
+```bash
+gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:app
+```
+
+### Using Docker
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:3000"]
+```
+
+## Contributing
+
+1. Follow existing code patterns
+2. Add tests for new features
+3. Update documentation
+4. Ensure type checking passes
+5. Run full test suite before submitting
+
+## License
+
+Same as the main Smart Career Recommendation System project.
+
+## Support
+
+For issues or questions, refer to the main project documentation or contact the development team.

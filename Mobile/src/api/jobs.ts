@@ -1,6 +1,17 @@
 import { JobListing, JobFilters } from '../types/job';
+import { getBackendApiBaseUrl } from './backend';
 
-const API_BASE_URL = (process.env as Record<string, string | undefined>).EXPO_PUBLIC_JOB_API_URL || 'http://localhost:8000';
+function resolveJobApiBaseUrl(): string {
+  const configured = (process.env as Record<string, string | undefined>).EXPO_PUBLIC_JOB_API_URL?.trim();
+  if (configured && configured !== 'http://localhost:8000' && configured !== 'http://10.0.2.2:8000') {
+    return configured.replace(/\/+$/, '');
+  }
+
+  // Reuse backend host defaults (3000), but remove /api/v1 suffix for job endpoints.
+  return getBackendApiBaseUrl().replace(/\/api\/v1\/?$/, '');
+}
+
+const API_BASE_URL = resolveJobApiBaseUrl();
 
 export async function fetchJobs(filters: JobFilters = {}): Promise<JobListing[]> {
   const { search, location, siteNames, jobType, isRemoteOnly, resultsWanted = 20, hoursOld = 168 } = filters;

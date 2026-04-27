@@ -22,7 +22,7 @@ const AI_MATCHING_MAX_RETRIES_PER_MODEL = 2;
 const AI_MATCHING_BASE_RETRY_DELAY_MS = 1500;
 const AI_MATCHING_MODELS = [
   "stepfun/step-3.5-flash:free", // Faster and more reliable for JSON - try first
-  "arcee-ai/trinity-large-preview:free", // Fallback
+  "nvidia/nemotron-3-super-120b-a12b:free", // Fallback
 ];
 
 function sleep(ms: number): Promise<void> {

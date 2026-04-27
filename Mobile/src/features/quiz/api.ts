@@ -195,7 +195,7 @@ export interface QuizNextRequest {
 const QUIZ_MAX_RETRIES_PER_MODEL = 2;
 const QUIZ_BASE_RETRY_DELAY_MS = 1500;
 const QUIZ_MODELS = [
-  'arcee-ai/trinity-large-preview:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
   'stepfun/step-3.5-flash:free',
 ];
 
@@ -565,17 +565,16 @@ async function callOpenRouter(request: QuizNextRequest): Promise<QuizNextRespons
 /**
  * Get the next quiz step: first question (answers empty), next question, or results.
  * Calls OpenRouter directly with multi-model failover and per-model exponential backoff retry.
- * Falls back to hardcoded questions/results if all models exhausted.
+ * Falls back to hardcoded questions/results only if all AI models fail and retries exhausted.
  */
 export async function fetchQuizNext(request: QuizNextRequest): Promise<QuizNextResponse> {
-  if (request.answers.length < QUIZ_TOTAL_QUESTIONS) {
-    return generateFallbackQuestion(request.answers.length + 1);
-  }
-
   try {
     return await callOpenRouter(request);
   } catch (err) {
-    console.error('[Quiz] All OpenRouter attempts failed:', err);
+    console.error('[Quiz] OpenRouter failed:', err);
+    if (request.answers.length < QUIZ_TOTAL_QUESTIONS) {
+      return generateFallbackQuestion(request.answers.length + 1);
+    }
     return generateFallbackResults(computeDiscPercentages(request.answers));
   }
 }

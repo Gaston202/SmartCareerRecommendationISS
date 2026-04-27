@@ -16,7 +16,7 @@ import type {
   LearningRoadmapGraph,
 } from './types';
 
-const LEARNING_ROADMAP_MODEL = 'arcee-ai/trinity-large-preview:free';
+const LEARNING_ROADMAP_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
 async function buildLearningRoadmapUserProfile(): Promise<{
   skills?: string[];

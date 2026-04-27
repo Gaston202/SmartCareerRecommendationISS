@@ -13,3 +13,6 @@ node_modules/
 CLAUDE.md
 DATABASE_SCHEMA.md
 
+venv
+__pycache__/
+*.pyc

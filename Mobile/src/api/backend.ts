@@ -31,36 +31,65 @@ function isConnectivityError(error: unknown): boolean {
   return (
     message.includes("network request failed") ||
     message.includes("network request timed out") ||
-    message.includes("timed out") ||
     message.includes("failed to fetch")
   );
 }
 
 function getBackendReachabilityMessage(url: string): string {
-  const hostname = (() => {
+  const parsed = (() => {
     try {
-      return new URL(url).hostname;
+      return new URL(url);
     } catch {
       return null;
     }
   })();
+
+  const hostname = parsed?.hostname ?? null;
+  const port = parsed?.port ? `:${parsed.port}` : "";
 
   const hostHint =
     hostname === "localhost"
       ? "localhost only works on the iOS simulator, not on a physical phone."
       : hostname === "10.0.2.2"
         ? "10.0.2.2 only works on the Android emulator."
-        : "Make sure your phone/simulator can reach that host and the backend is running on port 3000.";
+        : `Make sure your phone/simulator can reach that host and the backend is running on ${hostname}${port}. If testing on a physical phone, use the same Wi-Fi network and allow inbound TCP on that port in Windows Firewall.`;
 
   return `Cannot reach backend at ${url}. ${hostHint}`;
 }
 
+function getBackendTimeoutMessage(url: string, timeoutMs: number): string {
+  return (
+    `Request timed out after ${timeoutMs / 1000}s while waiting for ${url}. ` +
+    `The backend may be slow, unavailable, or configured on a different port. ` +
+    `If you are using the FastAPI backend in this repo, it runs on :3000 by default.`
+  );
+}
+
+// Quiz result generation can be slow (LLM + DB + recommendations), especially on free models.
+// Keep a higher default so mobile doesn't abort long-running requests.
+const FETCH_TIMEOUT_MS = 90000; // 90 seconds
+
 export async function fetchBackend(path: string, init?: RequestInit): Promise<Response> {
   const url = buildBackendUrl(path);
 
+  // Add timeout using AbortController
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
   try {
-    return await fetch(url, init);
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
   } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(getBackendTimeoutMessage(url, FETCH_TIMEOUT_MS));
+    }
+
     if (isConnectivityError(error)) {
       throw new Error(getBackendReachabilityMessage(url));
     }

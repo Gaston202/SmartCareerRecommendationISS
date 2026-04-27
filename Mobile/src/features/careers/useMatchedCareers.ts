@@ -8,6 +8,7 @@ import { useCvAnalysis } from '../cv';
 import { getLatestQuizSessionId } from '../quiz/storage';
 import { recommendCareers } from './api';
 import type { CareerMatch } from './matching';
+import { getRoadmapPrereqStatus } from '../roadmaps/prerequisites';
 
 export function useMatchedCareers() {
   const { data: cvAnalysis, isLoading: cvLoading, error: cvError } = useCvAnalysis();
@@ -18,6 +19,13 @@ export function useMatchedCareers() {
       cvAnalysis?.id,
     ],
     queryFn: async (): Promise<CareerMatch[]> => {
+      // Requirement: user must have completed quiz AND have a completed CV analysis
+      const prereqs = await getRoadmapPrereqStatus();
+      if (!prereqs.hasCompletedQuiz || !prereqs.hasAnalyzedCv) {
+        console.log('[useMatchedCareers] ⏭️ Skipping: prerequisites not met', prereqs);
+        return [];
+      }
+
       const quizSessionId = await getLatestQuizSessionId();
 
       // REQUIREMENT CHECK: User must have completed the quiz
@@ -26,19 +34,20 @@ export function useMatchedCareers() {
         return [];
       }
 
-      // CV analysis is optional but preferred.
-      // If it is still processing or failed, we fall back to quiz-only matching.
-      const cvAnalysisId = cvAnalysis?.id;
+      // CV analysis is required for automatic recommendations.
+      if (!cvAnalysis?.id || cvAnalysis.status !== 'completed') {
+        console.log('[useMatchedCareers] ⏭️ Skipping: CV analysis not completed yet', {
+          status: cvAnalysis?.status,
+          cvAnalysisError: cvError instanceof Error ? cvError.message : null,
+        });
+        return [];
+      }
+      const cvAnalysisId = cvAnalysis.id;
 
       if (cvAnalysisId) {
         console.log('[useMatchedCareers] ✅ Fetching career recommendations from backend', {
           quizSessionId,
           cvAnalysisId,
-        });
-      } else {
-        console.log('[useMatchedCareers] ℹ️ Fetching quiz-only career recommendations', {
-          quizSessionId,
-          cvAnalysisError: cvError instanceof Error ? cvError.message : null,
         });
       }
 
@@ -48,6 +57,7 @@ export function useMatchedCareers() {
       // Return top 5 (backend already returns top 5)
       return matches;
     },
-    enabled: !cvLoading,
+    // Don’t auto-fire while CV is loading/processing.
+    enabled: !cvLoading && cvAnalysis?.status === 'completed',
   });
 }

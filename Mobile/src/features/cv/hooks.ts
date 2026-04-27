@@ -9,6 +9,7 @@ import type { UserSkill, CvAnalysis, CvUpload, SkillsUpdatePayload } from "./typ
 import {
   getLatestCvAnalysisFromBackend,
   uploadCvToBackend,
+  deleteCvFromBackend,
 } from "./api-backend";
 
 // Query keys
@@ -198,71 +199,10 @@ export function useDeleteCv() {
 
   return useMutation({
     mutationFn: async (cvUpload: CvUpload) => {
-      const userRes = await supabase.auth.getUser();
-      const userId = userRes.data.user?.id;
-
-      if (!userId) throw new Error("Not logged in");
-
-      // 1. Get cv_analysis records associated with this CV
-      const { data: cvAnalyses, error: analysisQueryError } = await supabase
-        .from("cv_analysis")
-        .select("id")
-        .eq("cv_upload_id", cvUpload.id)
-        .eq("user_id", userId);
-
-      if (analysisQueryError) {
-        console.warn("Error querying cv_analysis:", analysisQueryError);
-      }
-
-      // 2. Delete career_match_results that reference these cv_analysis records
-      if (cvAnalyses && cvAnalyses.length > 0) {
-        const analysisIds = cvAnalyses.map((a) => a.id);
-        const { error: matchResultsError } = await supabase
-          .from("career_match_results")
-          .delete()
-          .in("cv_analysis_id", analysisIds);
-
-        if (matchResultsError) {
-          console.warn("Error deleting career_match_results:", matchResultsError);
-          // Continue anyway to try cleaning up other records
-        }
-      }
-
-      // 3. Delete cv_analysis records
-      const { error: analysisError } = await supabase
-        .from("cv_analysis")
-        .delete()
-        .eq("cv_upload_id", cvUpload.id)
-        .eq("user_id", userId);
-
-      if (analysisError) {
-        console.warn("Error deleting cv_analysis:", analysisError);
-        // Continue to try deleting the CV record
-      }
-
-      // 4. Delete CV record
-      const { error: dbError } = await supabase
-        .from("cvs")
-        .delete()
-        .eq("id", cvUpload.id)
-        .eq("user_id", userId);
-
-      if (dbError) throw dbError;
-
-      // 5. Delete file from storage (do this last so if DB fails, file remains)
-      const { error: storageError } = await supabase.storage
-        .from("cv-uploads")
-        .remove([cvUpload.storage_path]);
-
-      if (storageError) {
-        console.warn("Storage delete warning:", storageError);
-        // This is non-critical - file might not exist
-      }
-
+      await deleteCvFromBackend(cvUpload.id);
       return { success: true };
     },
     onSuccess: () => {
-      // Refresh all CV-related queries
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.uploads() });
       queryClient.invalidateQueries({ queryKey: cvQueryKeys.analyses() });
     },

@@ -29,6 +29,7 @@ import {
   fetchRoadmapPlanFromBackend,
   type BackendPlannedRoadmapStep,
 } from '../features/roadmaps/api-backend';
+import { assertRoadmapPrerequisites } from '../features/roadmaps/prerequisites';
 
 type HomeStackParamList = {
   LearningRoadmap: {
@@ -300,6 +301,7 @@ export default function LearningRoadmapScreen(): React.ReactElement {
   const handleGenerate = async () => {
     setLoading(true);
     try {
+      await assertRoadmapPrerequisites();
       const planned = await fetchRoadmapPlanFromBackend({
         careerId: params.careerId,
         careerTitle: params.careerTitle,
@@ -308,7 +310,7 @@ export default function LearningRoadmapScreen(): React.ReactElement {
       setRoadmap(generated);
     } catch (error: any) {
       console.error('[LearningRoadmap] Generate failed', error);
-      alert('Generation failed: ' + (error?.message || 'Unknown error'));
+      alert(error?.message ? String(error.message) : 'Generation failed: Unknown error');
     } finally {
       setLoading(false);
     }
