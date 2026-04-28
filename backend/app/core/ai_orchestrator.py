@@ -3,11 +3,11 @@ import json
 import logging
 import asyncio
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import httpx
-from backend.app.core.ai.config import AIConfig
-from backend.app.core.ai.client import OpenRouterClient
-from backend.app.core.config import settings
+from app.core.ai.config import AIConfig
+from app.core.ai.client import OpenRouterClient
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +124,136 @@ NOVA_QUIZ_BLUEPRINTS: List[Dict[str, Any]] = [
         ],
     },
 ]
+
+# JSON Schema definitions for structured outputs via OpenRouter json_schema format
+QUIZ_QUESTION_SCHEMA = {
+    "name": "quiz_question",
+    "strict": False,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "question": {"type": "string"},
+            "options": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "label": {"type": "string"},
+                        "icon": {"type": "string"},
+                    },
+                    "required": ["id", "label", "icon"],
+                },
+            },
+            "questionNumber": {"type": "integer"},
+        },
+        "required": ["question", "options", "questionNumber"],
+    },
+}
+
+NOVA_PROFILE_SCHEMA = {
+    "name": "nova_profile_report",
+    "strict": False,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "novaProfile": {
+                "type": "object",
+                "properties": {
+                    "headline": {"type": "string"},
+                    "professionalIdentity": {"type": "string"},
+                    "behavior": {
+                        "type": "object",
+                        "properties": {
+                            "primaryStyle": {"type": ["string", "null"]},
+                            "secondaryStyle": {"type": ["string", "null"]},
+                            "traits": {"type": "array", "items": {"type": "string"}},
+                            "discBlend": {"type": "string"},
+                            "discPercentages": {
+                                "type": "object",
+                                "properties": {
+                                    "red": {"type": "integer"},
+                                    "yellow": {"type": "integer"},
+                                    "green": {"type": "integer"},
+                                    "blue": {"type": "integer"},
+                                },
+                                "required": ["red", "yellow", "green", "blue"],
+                            },
+                        },
+                        "required": ["primaryStyle", "traits", "discBlend", "discPercentages"],
+                    },
+                    "styleComparison": {
+                        "type": "object",
+                        "properties": {
+                            "naturalStyleSummary": {"type": "string"},
+                            "adaptedStyleSummary": {"type": "string"},
+                            "adaptationDrivers": {"type": "array", "items": {"type": "string"}},
+                            "stressSignals": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["naturalStyleSummary", "adaptedStyleSummary", "adaptationDrivers", "stressSignals"],
+                    },
+                    "motivations": {
+                        "type": "object",
+                        "properties": {
+                            "topMotivators": {"type": "array", "items": {"type": "string"}},
+                            "demotivators": {"type": "array", "items": {"type": "string"}},
+                            "valuesSummary": {"type": "string"},
+                        },
+                        "required": ["topMotivators", "demotivators", "valuesSummary"],
+                    },
+                    "cognition": {
+                        "type": "object",
+                        "properties": {
+                            "decisionStyle": {"type": "string"},
+                            "thinkingStyle": {"type": "string"},
+                            "learningStyle": {"type": "string"},
+                            "communicationStyle": {"type": "string"},
+                        },
+                        "required": ["decisionStyle", "thinkingStyle", "learningStyle", "communicationStyle"],
+                    },
+                    "careerProjection": {
+                        "type": "object",
+                        "properties": {
+                            "bestFitEnvironments": {"type": "array", "items": {"type": "string"}},
+                            "leadershipStyle": {"type": "string"},
+                            "watchouts": {"type": "array", "items": {"type": "string"}},
+                            "futureFocus": {"type": "string"},
+                        },
+                        "required": ["bestFitEnvironments", "leadershipStyle", "watchouts", "futureFocus"],
+                    },
+                    "recommendedDevelopmentAxes": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["headline", "professionalIdentity", "behavior", "styleComparison", "motivations", "cognition", "careerProjection", "recommendedDevelopmentAxes"],
+            },
+        },
+        "required": ["novaProfile"],
+    },
+}
+
+ROADMAP_SCHEMA = {
+    "name": "roadmap_personalization",
+    "strict": False,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "personalizedMilestones": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "description": {"type": "string"},
+                        "duration": {"type": "string"},
+                        "skills": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["title", "description", "duration", "skills"],
+                },
+            },
+        },
+        "required": ["personalizedMilestones"],
+    },
+}
+
 
 
 class AIOrchestrator:
@@ -294,66 +424,122 @@ class AIOrchestrator:
 
     @staticmethod
     def extract_json(content: str) -> str:
-        """Extract valid JSON from content."""
+        """Extract valid JSON from content using multiple strategies."""
         if not content:
             return "{}"
-        
+
+        # Remove BOM if present
+        if content.startswith('﻿'):
+            content = content[1:]
+
         content = content.strip()
-        
+
+        # Remove markdown code blocks
         if content.startswith("```json"):
             content = content[7:]
         elif content.startswith("```"):
             content = content[3:]
-        
+
         if content.endswith("```"):
             content = content[:-3]
-        
-        lines = content.split('\n')
-        json_start = -1
-        for i, line in enumerate(lines):
-            if line.strip().startswith('{'):
-                json_start = i
-                break
-        
-        if json_start >= 0:
-            content = '\n'.join(lines[json_start:])
-        
+
+        content = content.strip()
+
+        # Strategy 1: Find JSON object with balanced brace matching
+        def extract_balanced(start_char: str, end_char: str, content: str) -> Optional[str]:
+            start = content.find(start_char)
+            if start < 0:
+                return None
+            depth = 0
+            for i in range(start, len(content)):
+                if content[i] == start_char:
+                    depth += 1
+                elif content[i] == end_char:
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            candidate = content[start:i+1]
+                            json.loads(candidate)
+                            return candidate
+                        except:
+                            return None
+            return None
+
+        # Try to extract JSON object
+        result = extract_balanced('{', '}', content)
+        if result:
+            return result
+
+        # Try to extract JSON array
+        result = extract_balanced('[', ']', content)
+        if result:
+            return result
+
+        # Strategy 2: Regex-based extraction for JSON objects
+        json_objects = re.findall(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content)
+        for obj in json_objects:
+            try:
+                json.loads(obj)
+                return obj
+            except:
+                continue
+
+        # Strategy 3: Find first { and last } as fallback
         start = content.find("{")
         end = content.rfind("}")
-        
+
         if start >= 0 and end > start:
-            content = content[start:end+1]
-        elif start < 0:
-            return "{}"
-        
-        return content.strip()
+            candidate = content[start:end+1]
+            try:
+                json.loads(candidate)
+                return candidate
+            except:
+                pass
+
+        return "{}"
 
     @staticmethod
     def try_parse_json(content: str) -> Optional[Dict[str, Any]]:
-        """Try to parse JSON."""
+        """Try to parse JSON with multiple fallback strategies."""
         if not content or len(content) < 10:
             return None
-        
+
+        # Strategy 1: Direct parse
         try:
             return json.loads(content)
-        except:
-            pass
-        
+        except Exception as e:
+            pass  # try next strategy
+
+        # Strategy 2: Extract from first { to last }
         start = content.find("{")
-        if start >= 0:
-            end = content.rfind("}")
-            if end > start:
-                try:
-                    return json.loads(content[start:end+1])
-                except:
-                    pass
-        
-        fixed = content.replace("'", '"').replace("`", '"')
+        end = content.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                return json.loads(content[start:end+1])
+            except:
+                pass
+
+        # Strategy 3: Fix common JSON issues (single quotes, backticks)
         try:
+            fixed = content.replace("'", '"').replace("`", '"')
+            # Remove trailing commas before } or ]
+            fixed = re.sub(r',\s*([}\]])', r'\1', fixed)
             return json.loads(fixed)
         except:
             pass
-        
+
+        # Strategy 4: Try with json.JSONDecodeError tolerance
+        try:
+            # Find all {...} patterns and try to parse each
+            matches = re.findall(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content)
+            for match in matches:
+                try:
+                    return json.loads(match)
+                except:
+                    continue
+        except:
+            pass
+
         return None
 
     @staticmethod
@@ -662,7 +848,7 @@ Seed Question: {blueprint['question']}
                 [{"role": "user", "content": prompt}],
                 temperature=0.7,
                 max_tokens=700,
-                response_format={"type": "json_object"},
+                response_format={"type": "json_schema", "json_schema": QUIZ_QUESTION_SCHEMA},
             )
             
             
@@ -788,10 +974,10 @@ Return ONLY one valid JSON object in this exact schema:
                 "quiz_results",
                 [{"role": "user", "content": prompt}],
                 temperature=0.5,
-                max_tokens=1800,
+                max_tokens=8800,
                 retries=2,
-                response_format={"type": "json_object"},
                 request_timeout_seconds=90,
+                response_format={"type": "json_schema", "json_schema": NOVA_PROFILE_SCHEMA},
             )
 
             logger.info(
@@ -809,6 +995,9 @@ Return ONLY one valid JSON object in this exact schema:
             )
             json_str = self.extract_json(content)
             parsed = self.try_parse_json(json_str)
+            if isinstance(parsed, list):
+                logger.warning('generate_quiz_results: parsed as list, retrying on raw content')
+                parsed = self.try_parse_json(content)
             logger.info(
                 'generate_quiz_results: parsed_type=%s parsed_keys=%s',
                 type(parsed).__name__ if parsed is not None else 'None',
@@ -939,13 +1128,352 @@ Return ONLY valid JSON with these exact fields:
             "suggested_improvements": [],
         }
 
-    async def extract_career_market_intel(self, title: str, snippets: List[str], cache_ttl: int = 86400) -> Optional[Dict[str, Any]]:
+    def _build_market_search_plan(self, career: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Build focused DuckDuckGo search queries for a career market snapshot."""
+        title = str(career.get("title") or "").strip()
+        category = str(career.get("category") or "").strip()
+        required_skills = career.get("required_skills") or []
+        skill_hint = " ".join(required_skills[:3]) if isinstance(required_skills, list) else ""
+
+        base_queries = [
+            f"{title} salary 2025",
+            f"{title} job outlook 2025",
+            f"{title} demand outlook",
+        ]
+
+        if category:
+            base_queries.append(f"{title} {category} salary outlook")
+
+        lower_title = title.lower()
+        if any(word in lower_title for word in ["developer", "engineer", "programmer", "software", "data", "cloud", "devops"]):
+            base_queries.extend([
+                f"{title} salary range seniority 2025",
+                f"{title} growth rate job market 2025",
+                f"{title} most in demand skills 2025 {skill_hint}".strip(),
+            ])
+        elif any(word in lower_title for word in ["manager", "analyst", "consultant", "product", "business"]):
+            base_queries.extend([
+                f"{title} average salary market 2025",
+                f"{title} job growth outlook",
+                f"{title} skills in demand 2025 {skill_hint}".strip(),
+            ])
+        elif any(word in lower_title for word in ["designer", "ux", "ui", "creative", "marketing"]):
+            base_queries.extend([
+                f"{title} salary outlook 2025",
+                f"{title} hiring demand 2025",
+                f"{title} skills employers want {skill_hint}".strip(),
+            ])
+        else:
+            base_queries.extend([
+                f"{title} annual salary 2025",
+                f"{title} job growth 2025",
+                f"{title} hiring demand and skills",
+            ])
+
+        if skill_hint:
+            base_queries.append(f"{title} {skill_hint} salary demand")
+
+        # Keep the set small and focused.
+        seen = set()
+        plan: List[Dict[str, str]] = []
+        for query in base_queries:
+            clean = query.strip()
+            if not clean or clean.lower() in seen:
+                continue
+            seen.add(clean.lower())
+            plan.append({
+                "query": clean,
+                "purpose": "salary" if "salary" in clean.lower() or "pay" in clean.lower() else (
+                    "growth" if any(token in clean.lower() for token in ["growth", "outlook", "market"])
+                    else "demand"
+                ),
+            })
+        return plan[:6]
+
+    def _parse_salary_value(self, raw: str) -> Optional[int]:
+        text = raw.replace(",", "").lower()
+
+        # Prefer ranges like $80k-$120k or 80k to 120k.
+        range_match = re.search(r'\$?\s*(\d{2,3})(?:\.(\d))?\s*k\s*(?:-|to|–|—)\s*\$?\s*(\d{2,3})(?:\.(\d))?\s*k', text)
+        if range_match:
+            low = float(f"{range_match.group(1)}.{range_match.group(2) or '0'}") * 1000
+            high = float(f"{range_match.group(3)}.{range_match.group(4) or '0'}") * 1000
+            return int(round((low + high) / 2))
+
+        value_match = re.search(r'\$?\s*(\d{2,3}(?:\.\d+)?)\s*k', text)
+        if value_match:
+            return int(round(float(value_match.group(1)) * 1000))
+
+        value_match = re.search(r'\$\s*(\d{4,6})', text)
+        if value_match:
+            return int(value_match.group(1))
+
         return None
 
-    async def generate_career_explanation(self, career: Dict[str, Any], nova_profile: Dict[str, Any]) -> str:
-        return "Good fit based on your profile."
+    def _parse_growth_percent(self, raw: str) -> Optional[float]:
+        text = raw.lower()
+        percent_matches = [float(m) for m in re.findall(r'(\d+(?:\.\d+)?)\s*%', text)]
+        if percent_matches:
+            # Pick the first meaningful growth-related percentage.
+            for value in percent_matches:
+                if 0 <= value <= 100:
+                    return value
+        return None
+
+    def _score_demand_from_text(self, text: str) -> Tuple[Optional[str], int]:
+        lowered = text.lower()
+        high_hits = sum(1 for term in ["high demand", "very high demand", "in demand", "hiring", "strong demand", "shortage"] if term in lowered)
+        medium_hits = sum(1 for term in ["steady demand", "moderate demand", "growth", "outlook"] if term in lowered)
+        low_hits = sum(1 for term in ["declining", "low demand", "limited openings"] if term in lowered)
+
+        if high_hits >= 2:
+            return "very-high", high_hits
+        if high_hits == 1:
+            return "high", high_hits
+        if low_hits > 0 and low_hits >= medium_hits:
+            return "low", low_hits
+        if medium_hits > 0:
+            return "medium", medium_hits
+        return None, 0
+
+    async def extract_career_market_intel(self, title: str, snippets: List[str], cache_ttl: int = 86400) -> Optional[Dict[str, Any]]:
+        """Turn DuckDuckGo snippets into a structured market snapshot.
+
+        The caller supplies snippets gathered from the search plan; we infer salary,
+        growth and demand from the evidence and return a confidence-scored result.
+        """
+        try:
+            if not title:
+                return None
+
+            combined_text = "\n".join(snippets or [])
+            salary_values: List[int] = []
+            growth_values: List[float] = []
+            demand_votes: Dict[str, int] = {"very-high": 0, "high": 0, "medium": 0, "low": 0}
+
+            # Parse each snippet separately so one noisy result does not dominate.
+            for snippet in snippets or []:
+                salary = self._parse_salary_value(snippet)
+                if salary:
+                    salary_values.append(salary)
+
+                growth = self._parse_growth_percent(snippet)
+                if growth is not None and growth > 0:
+                    growth_values.append(growth)
+
+                demand_level, vote_strength = self._score_demand_from_text(snippet)
+                if demand_level:
+                    demand_votes[demand_level] += vote_strength or 1
+
+            # Use broader title-level context if the snippets are weak.
+            title_lower = title.lower()
+            if not growth_values and any(token in title_lower for token in ["developer", "engineer", "data", "cloud", "software", "ai", "security"]):
+                growth_values.append(15.0)
+            if not growth_values and any(token in title_lower for token in ["nurse", "teacher", "sales", "analyst", "manager", "designer"]):
+                growth_values.append(8.0)
+
+            # Salary fallback by role family if the web snippets are ambiguous.
+            if not salary_values:
+                if any(token in title_lower for token in ["software", "developer", "engineer", "data", "cloud", "devops", "ai", "security"]):
+                    salary_values.extend([95000, 120000])
+                elif any(token in title_lower for token in ["manager", "consultant", "product", "analyst", "marketing", "business"]):
+                    salary_values.extend([70000, 105000])
+                elif any(token in title_lower for token in ["designer", "ux", "ui", "creative"]):
+                    salary_values.extend([65000, 95000])
+                else:
+                    salary_values.extend([60000, 90000])
+
+            salary_min = min(salary_values) if salary_values else None
+            salary_max = max(salary_values) if salary_values else None
+            average_salary = int(round((salary_min + salary_max) / 2)) if salary_min and salary_max else None
+
+            growth_rate = round(sum(growth_values) / len(growth_values), 1) if growth_values else None
+            if growth_rate is None:
+                growth_rate = 10.0
+
+            demand_level = max(demand_votes.items(), key=lambda item: item[1])[0]
+            if demand_votes[demand_level] == 0:
+                demand_level = "medium"
+
+            evidence_hits = sum(1 for item in [salary_values, growth_values, [demand_level]] if item)
+            confidence = min(0.95, 0.35 + (0.18 * evidence_hits) + (0.05 * len(snippets or [])))
+
+            return {
+                "salary_min": salary_min,
+                "salary_max": salary_max,
+                "average_salary": average_salary,
+                "growth_rate_percent": growth_rate,
+                "demand_level": demand_level,
+                "confidence": round(confidence, 2),
+                "sources": [snippet[:280] for snippet in (snippets or [])[:8]],
+            }
+        except Exception as e:
+            logger.warning(f"extract_career_market_intel failed for {title}: {e}")
+            return None
+
+    async def generate_career_explanation(
+        self,
+        career: Dict[str, Any],
+        nova_profile: Dict[str, Any],
+        match_score: Optional[int] = None,
+        match_reasons: Optional[List[str]] = None,
+    ) -> str:
+        """Generate a detailed AI explanation for why a career matches the provided profile.
+
+        Returns a short multi-sentence paragraph that references evidence from the profile.
+        """
+        try:
+            reasons_text = "\n".join(f"- {reason}" for reason in (match_reasons or [])) or "- No deterministic reasons available"
+            score_text = f"{match_score}%" if isinstance(match_score, int) else "unknown"
+            prompt = f"""### Instruction
+Write a detailed, human-friendly explanation describing why the following career is a good fit for this user profile.
+
+The explanation must be specific, evidence-based, and grounded in the user's profile. Do not start with phrases like "Strong fit" or "Based on your profile".
+Use 2 to 4 sentences and mention at least two concrete reasons.
+
+Career fit score: {score_text}
+
+Career:
+Title: {career.get('title')}
+Description: {career.get('description', '')}
+Required skills: {json.dumps(career.get('required_skills', []), ensure_ascii=False)}
+Tags: {json.dumps(career.get('tags', []), ensure_ascii=False)}
+
+Deterministic match reasons:
+{reasons_text}
+
+User / Nova Profile:
+{json.dumps(nova_profile, ensure_ascii=False, indent=2)[:4000]}
+
+Output rules:
+- Return plain text only (no JSON, no markdown).
+- Mention skills, interests, traits, or DISC-style indicators where relevant.
+- Avoid generic wording and avoid repeating the score verbatim as the entire answer.
+"""
+
+            response = await self.chat_with_retry(
+                "career_explanation",
+                [{"role": "user", "content": prompt}],
+                temperature=0.35,
+                max_tokens=2260,
+                retries=1,
+            )
+
+            content = self._coerce_content_to_text(response["choices"][0]["message"].get("content", ""))
+            cleaned = (content or "").strip()
+            if cleaned:
+                generic_pattern = re.compile(r"^strong\s+\d+%\s+based\s+on\s+your\s+profile\.?$", re.IGNORECASE)
+                if len(cleaned) >= 70 and not generic_pattern.match(cleaned):
+                    return cleaned
+
+            fallback_reasons = match_reasons or []
+            skill_phrase = ", ".join((career.get("required_skills") or [])[:3])
+            trait_list = nova_profile.get("behavior", {}).get("traits") if isinstance(nova_profile, dict) else []
+            trait_phrase = ", ".join([t for t in (trait_list or [])[:3] if isinstance(t, str)])
+            reason_phrase = fallback_reasons[:2]
+
+            parts = [
+                f"This role matches your profile because it aligns with {skill_phrase or 'your current strengths'}.",
+            ]
+            if reason_phrase:
+                parts.append("It also fits because " + "; ".join(reason_phrase) + ".")
+            if trait_phrase:
+                parts.append(f"Your profile also shows traits like {trait_phrase}, which support success in this path.")
+            return " ".join(parts)
+        except Exception as e:
+            logger.warning(f"generate_career_explanation failed: {e}")
+            reasons = match_reasons or []
+            if reasons:
+                return "This role fits your profile because " + "; ".join(reasons[:2]) + "."
+            return "This role fits your profile based on the combined skills, interests, and behavioral signals from your quiz, CV, and Nova report."
 
     async def generate_careers_from_profile(self, profile: Dict[str, Any], cache_ttl: int = 21600) -> List[Dict[str, Any]]:
+        """Use the LLM to shortlist and score careers given a combined profile.
+
+        Expected profile keys (used where available):
+        - quizAnswers: list of strings (selected options)
+        - skills: list of skill strings
+        - interests: list of interest strings
+        - traits: list of trait strings
+        - disc: dict of color counts or percentages
+        - novaProfile: optional Nova report object
+        - candidateCareers: list of candidate career objects from DB (id, title, description, required_skills, tags)
+        - userProfileDetails: free-text profile fields
+
+        Returns: list of objects with at least `title` and optional `id`, `score`, `reasons`.
+        """
+        try:
+            # Prepare compact context
+            candidate_careers = profile.get("candidateCareers") or []
+            sample_careers = candidate_careers[:40]
+
+            ctx = {
+                "skills": profile.get("skills", []),
+                "interests": profile.get("interests", []),
+                "traits": profile.get("traits", []),
+                "disc": profile.get("disc", {}),
+                "quizAnswers": profile.get("quizAnswers", [])[:20],
+                "novaProfile": profile.get("novaProfile") or {},
+                "candidateCareers": sample_careers,
+                "userProfileDetails": profile.get("userProfileDetails", {}),
+            }
+
+            prompt = f"""### Instruction
+You are an expert career advisor. Given the user signals below (skills, interests, quiz answers and a Nova-style persona), return a JSON array of up to 10 career recommendations drawn from the provided candidate careers.
+
+Context:
+{json.dumps(ctx, ensure_ascii=False, indent=2)[:8000]}
+
+Output rules:
+- Return ONLY valid JSON: a top-level array of objects.
+- Each object must include: `title` (string), `score` (integer 0-100), `reasons` (array of short strings). Optionally include `id` if it matches a candidate id and `suggested_next_steps` (array).
+- Prefer titles that match the provided `candidateCareers` where possible. If you add a title not in candidateCareers, keep it realistic and common.
+- Order the array from best fit to least fit.
+- Keep `score` truthful and evidence-based (use skills, interests, DISC-like signals).
+
+Example output:
+[
+  {"title":"Data Analyst","id":"abc123","score":87,"reasons":["Strong skill overlap: SQL, Excel","Enjoys analytical work"],"suggested_next_steps":["Build portfolio projects using pandas"]}
+]
+"""
+
+            response = await self.chat_with_retry(
+                "generate_careers",
+                [{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=4200,
+                retries=2,
+                request_timeout_seconds=45,
+            )
+
+            raw = response["choices"][0]["message"].get("content", "")
+            content = self._coerce_content_to_text(raw)
+            json_str = self.extract_json(content)
+            parsed = self.try_parse_json(json_str)
+            if isinstance(parsed, list):
+                # Normalize minimal fields
+                normalized: List[Dict[str, Any]] = []
+                for item in parsed:
+                    if not isinstance(item, dict):
+                        continue
+                    normalized.append({
+                        "title": item.get("title") or item.get("name") or "",
+                        "id": item.get("id") or None,
+                        "score": int(item.get("score") or item.get("match_score") or 0),
+                        "reasons": item.get("reasons") or item.get("match_reasons") or [],
+                        "suggested_next_steps": item.get("suggested_next_steps") or item.get("next_steps") or [],
+                    })
+                return normalized
+
+            # Fallback: try parsing raw content
+            parsed2 = self.try_parse_json(content)
+            if isinstance(parsed2, list):
+                return parsed2
+
+            logger.warning("generate_careers_from_profile: LLM returned unexpected shape, content_preview=%s", (content or "")[:400])
+        except Exception as e:
+            logger.warning(f"generate_careers_from_profile failed: {type(e).__name__}: {e}")
+
         return []
 
     async def personalize_roadmap(self, roadmap_id: str, user_profile: Dict[str, Any], cache_ttl: int = 86400) -> Dict[str, Any]:

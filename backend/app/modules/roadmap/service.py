@@ -150,15 +150,18 @@ CV Summary: {cv_summary}
 Return personalized milestones that account for the user's current skills and goals.
 Only return JSON with key "personalizedMilestones" containing the updated milestones array."""
 
-            response = await self.ai_orchestrator.client.chat.completions.create(
-                model='anthropic/claude-3-haiku-20240307',
-                messages=[{'role': 'user', 'content': prompt}],
-                response_format={'type': 'json_object'},
-                max_tokens=1000,
+            from app.core.ai_orchestrator import ROADMAP_SCHEMA
+
+            response = await self.ai_orchestrator.chat_with_retry(
+                "roadmap",
+                [{'role': 'user', 'content': prompt}],
                 temperature=0.7,
+                max_tokens=1000,
+                response_format={"type": "json_schema", "json_schema": ROADMAP_SCHEMA},
             )
 
-            result = json.loads(response.choices[0].message.content)
+            content = self.ai_orchestrator._coerce_content_to_text(response["choices"][0]["message"].get("content", ""))
+            result = json.loads(content) if content else {'personalizedMilestones': base_roadmap.get('milestones', [])}
             return result
         except Exception as e:
             logger.warning(f'Roadmap personalization failed: {e}')

@@ -6,36 +6,34 @@ class AIConfig:
     """AI model configuration."""
 
     # Primary models for each task
+    # Using openrouter/free router which auto-selects models that support required features
     MODELS: Dict[str, str] = {
-        "quiz": "nvidia/nemotron-3-super-120b-a12b:free",
-        "quiz_results": "tencent/hy3-preview:free",
-        "cv": "nvidia/nemotron-3-super-120b-a12b:free",
-        "roadmap": "nvidia/nemotron-3-super-120b-a12b:free",
-        "explanation": "nvidia/nemotron-3-super-120b-a12b:free",
+        "quiz": "openrouter/free",
+        "quiz_results": "openrouter/free",
+        "cv": "openrouter/free",
+        "roadmap": "openrouter/free",
+        "explanation": "openrouter/free",
     }
 
-    # Fallback model pools
+    # Fallback model pools (specific models if router is unavailable)
     CV_FALLBACK_MODELS: List[str] = [
-        "tencent/hy3-preview:free",
-        "deepseek/deepseek-r1-0528:free",
-        "qwen/qwen-2.5-coder-32b:free",
-        "meta-llama/llama-3.1-8b-instruct:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "google/gemma-3-4b-it:free",
     ]
 
     QUIZ_FALLBACK_MODELS: List[str] = [
-        "tencent/hy3-preview:free",
-        "qwen/qwen-2.5-coder-32b:free",
-        "meta-llama/llama-3.1-8b-instruct:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "mistralai/mistral-7b-instruct:free",
     ]
 
     QUIZ_RESULTS_FALLBACK_MODELS: List[str] = [
-        "qwen/qwen-2.5-coder-32b:free",
-        "nvidia/nemotron-3-super-120b-a12b:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "mistralai/mistral-7b-instruct:free",
     ]
 
     ROADMAP_FALLBACK_MODELS: List[str] = [
-        "tencent/hy3-preview:free",
-        "qwen/qwen-2.5-coder-32b:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "google/gemma-3-4b-it:free",
     ]
 
     @classmethod

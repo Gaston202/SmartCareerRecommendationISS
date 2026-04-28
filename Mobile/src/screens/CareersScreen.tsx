@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -7,44 +7,21 @@ import {
   Pressable,
   ActivityIndicator,
   Animated,
-  Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCareersWithSkills } from "../features/careers";
 import { useMatchedCareers } from "../features/careers/useMatchedCareers";
 import { generatePersona } from "../features/careers/ai-persona.service";
-import type { CareerWithSkills } from "../features/careers";
 import { homeColors } from "./homeTheme";
-import {
-  getSavedAiCareers,
-  saveAiCareer,
-  removeSavedAiCareer,
-} from "../features/roadmaps/storage";
-import type { SavedAiCareer } from "../features/roadmaps/types";
-import { useAuth } from "../auth/AuthProvider";
-import { AppBrand } from "../ui/AppBrand";
 import { MainTopBar } from "../ui/MainTopBar";
-
-const CATEGORY_COLORS: Record<string, string> = {
-  Technology: homeColors.primary,
-  Business: homeColors.accentOrange,
-  Design: homeColors.accentTeal,
-  Healthcare: homeColors.accentGreen,
-};
 
 const DEMAND_LABELS: Record<string, { label: string; color: string }> = {
   "very-high": { label: "Very High", color: "#4CAF50" },
   high: { label: "High", color: "#8BC34A" },
   medium: { label: "Medium", color: "#FFC107" },
   low: { label: "Low", color: "#FF9800" },
-};
-
-const IMPORTANCE_COLORS: Record<string, string> = {
-  required: "#f44336",
-  preferred: "#FF9800",
-  optional: "#9E9E9E",
 };
 
 // Career title patterns to icon mapping (lucide-inspired icons using Ionicons)
@@ -141,9 +118,7 @@ const getDemandMeta = (value?: string): { label: string; color: string } => {
 };
 
 const ProgressCircle = ({ percentage, size = 64 }: { percentage: number; size?: number }) => {
-  const radius = size / 2 - 4;
-  const circumference = 2 * Math.PI * radius;
-  const animatedValue = new Animated.Value(0);
+  const animatedValue = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(animatedValue, {
@@ -152,11 +127,6 @@ const ProgressCircle = ({ percentage, size = 64 }: { percentage: number; size?: 
       useNativeDriver: false,
     }).start();
   }, [percentage, animatedValue]);
-
-  const strokeDashoffset = animatedValue.interpolate({
-    inputRange: [0, 100],
-    outputRange: [circumference, 0],
-  });
 
   return (
     <View style={[styles.progressCircle, { width: size, height: size }]}>
@@ -178,17 +148,14 @@ const ProgressCircle = ({ percentage, size = 64 }: { percentage: number; size?: 
 export default function CareersScreen(): React.ReactElement {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { data: careers, isLoading, error } = useCareersWithSkills();
+  const { isLoading, error } = useCareersWithSkills();
   const { data: matchedCareers, isLoading: matchedLoading } = useMatchedCareers();
-  const [expandedCareer, setExpandedCareer] = useState<string | null>(null);
-  const [savedAiCareers, setSavedAiCareers] = useState<SavedAiCareer[]>([]);
   const [persona, setPersona] = useState<{
     title: string;
     description: string;
     traits: string[];
   } | null>(null);
   const [personaLoading, setPersonaLoading] = useState(true);
-  const { state } = useAuth();
   const insetBottom = useSafeAreaInsets().bottom;
 
   // Load AI-generated persona
@@ -221,67 +188,6 @@ export default function CareersScreen(): React.ReactElement {
       isActive = false;
     };
   }, []);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      let isActive = true;
-      (async () => {
-        if (!state.user?.id) return;
-        const aiCareers = await getSavedAiCareers(state.user.id);
-        if (!isActive) return;
-        setSavedAiCareers(
-          [...aiCareers].sort(
-            (a, b) =>
-              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-          ),
-        );
-      })();
-      return () => {
-        isActive = false;
-      };
-    }, [state.user?.id]),
-  );
-
-  const toggleCareer = (careerId: string) => {
-    setExpandedCareer(expandedCareer === careerId ? null : careerId);
-  };
-
-  const handleToggleSaveAiCareer = async (match: any) => {
-    if (!state.user?.id) return;
-
-    const title = String(match?.career?.title || "").trim();
-    if (!title) return;
-
-    const existing = savedAiCareers.find(
-      (item) => item.careerTitle.toLocaleLowerCase() === title.toLocaleLowerCase(),
-    );
-
-    if (existing) {
-      await removeSavedAiCareer(state.user.id, title);
-      setSavedAiCareers((prev) =>
-        prev.filter(
-          (item) =>
-            item.careerTitle.toLocaleLowerCase() !== title.toLocaleLowerCase(),
-        ),
-      );
-      return;
-    }
-
-    const saved: SavedAiCareer = {
-      id: `${title}-${Date.now()}`,
-      careerId: String(match?.career?.id || "") || undefined,
-      careerTitle: title,
-      careerDescription: String(match?.career?.description || ""),
-      matchPercent: typeof match?.score === "number" ? match.score : undefined,
-      tags: Array.isArray(match?.career?.tags)
-        ? match.career.tags.filter(Boolean)
-        : undefined,
-      createdAt: new Date().toISOString(),
-    };
-
-    await saveAiCareer(state.user.id, saved);
-    setSavedAiCareers((prev) => [saved, ...prev]);
-  };
 
   if (isLoading || matchedLoading) {
     return (
@@ -363,6 +269,16 @@ export default function CareersScreen(): React.ReactElement {
               </View>
 
               <Text style={styles.careerDescription}>{topMatch.career.description}</Text>
+
+              {/* Why AI chose this career */}
+              {topMatch.aiInsight ? (
+                <View style={styles.aiReasonSection}>
+                  <Text style={styles.aiReasonLabel}>Why AI chose this career</Text>
+                  <Text style={styles.aiReasonText}>
+                    {topMatch.aiInsight}
+                  </Text>
+                </View>
+              ) : null}
 
               <View style={styles.marketSnapshot}>
                 <Text style={styles.marketSnapshotLabel}>Market Snapshot</Text>
@@ -486,6 +402,11 @@ export default function CareersScreen(): React.ReactElement {
                         </Text>
                       </View>
                     </View>
+                    {alt.aiInsight ? (
+                      <Text style={styles.alternativeAiText} numberOfLines={4}>
+                        {alt.aiInsight}
+                      </Text>
+                    ) : null}
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={homeColors.textMuted} />
                 </Pressable>
@@ -847,6 +768,28 @@ const styles = StyleSheet.create({
   alternativeDemandChipText: {
     fontSize: 10,
     fontWeight: "700",
+  },
+  aiReasonSection: {
+    backgroundColor: "#f7f5ff",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  aiReasonLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#6B5B95",
+    marginBottom: 6,
+  },
+  aiReasonText: {
+    fontSize: 13,
+    color: "#37274d",
+    lineHeight: 18,
+  },
+  alternativeAiText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#6B5B95",
   },
   insightCard: {
     backgroundColor: "#f2e2ff",

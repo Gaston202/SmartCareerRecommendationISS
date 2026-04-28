@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { startQuiz, submitAnswer, setSessionId, getSessionId, regenerateQuizResults, getQuizHistory } from "../features/quiz/api-backend";
+import { startQuiz, submitAnswer, setSessionId, getSessionId, getQuizResults, regenerateQuizResults, getQuizHistory } from "../features/quiz/api-backend";
 import { clearQuizSession, getQuizSession, saveQuizSession } from "../features/quiz/storage";
 import { AppLogo } from "../ui/AppLogo";
 import { supabase } from "../api/supabase";
@@ -762,18 +762,19 @@ export default function QuizScreen(): React.ReactElement {
     setError(null);
 
     try {
-      let response: any;
+      let response: { question?: QuizQuestion; results?: QuizResults };
 
       if (nextAnswers.length === 0) {
         // Starting new quiz - call backend start endpoint
         const result = await startQuiz();
-        response = result.question;
+        response = { question: result.question };
         // Store backend session ID for future requests (do not save incomplete quiz session)
         await setSessionId(result.session.id);
         console.log('[QuizScreen] Started new backend session:', result.session.id);
       } else {
         // Submitting an answer
         response = await submitAnswer(nextAnswers[nextAnswers.length - 1], {
+          questionNumber: currentQuestion?.questionNumber,
           question: currentQuestion?.question || '',
           options: (currentQuestion?.options || []).map((o) => o.label),
         });
@@ -781,45 +782,7 @@ export default function QuizScreen(): React.ReactElement {
 
       console.log('[QuizScreen] API response:', JSON.stringify(response, null, 2));
 
-      // The API returns either:
-      // - { question: {...} }  (after submitAnswer)
-      // - { results: {...} }  (after all answers)
-      // - direct question object from fallback? Actually startQuiz returns { session, question }
-      // But looking at logs: first response is direct question, second is { question: {...} }
-
-      let questionObj: QuizQuestion | null = null;
-
-      if ('question' in response && response.question) {
-        // Either direct question or nested
-        if (typeof response.question === 'object' && response.question !== null && 'options' in response.question) {
-          // Nested: { question: { type, question, options } }
-          questionObj = response.question as QuizQuestion;
-        } else {
-          // Direct: response IS the question (but this shouldn't happen if type is 'question')
-          // Actually looking at first log, response is { type, question, options } - so it's the question
-          questionObj = response as QuizQuestion;
-        }
-      }
-
-      if (questionObj) {
-        console.log('[QuizScreen] Got question:', questionObj.question, 'questionNumber:', questionObj.questionNumber);
-        // Ensure questionNumber is set
-        const safeQuestionNumber = questionObj.questionNumber ?? answers.length + 1;
-        const questionWithNumber = { ...questionObj, questionNumber: safeQuestionNumber };
-        setCurrentQuestion(questionWithNumber);
-        setQuestionsAsked((prev) => [
-          ...prev,
-          {
-            questionNumber: safeQuestionNumber,
-            question: questionObj.question,
-            options: questionObj.options?.map((o) => o.label) || [],
-          },
-        ]);
-        setMessages((prev) => [
-          ...prev,
-          { id: `q-${safeQuestionNumber}-${Date.now()}`, role: "ai", content: questionObj.question },
-        ]);
-      } else if ('results' in response && response.results) {
+      if (response.results) {
         // Quiz completed - got results
         const results = response.results as QuizResults;
         console.log('[QuizScreen] Got results with careers:', results.careers?.length);
@@ -855,10 +818,38 @@ export default function QuizScreen(): React.ReactElement {
               "Your Nova report is ready. Review your profile insights below.",
           },
         ]);
+        return;
       }
+
+      if (response.question) {
+        const questionObj = response.question;
+        console.log('[QuizScreen] Got question:', questionObj.question, 'questionNumber:', questionObj.questionNumber);
+        // Ensure questionNumber is set
+        const safeQuestionNumber = questionObj.questionNumber ?? answers.length + 1;
+        const questionWithNumber = { ...questionObj, questionNumber: safeQuestionNumber };
+        setCurrentQuestion(questionWithNumber);
+        setQuestionsAsked((prev) => [
+          ...prev,
+          {
+            questionNumber: safeQuestionNumber,
+            question: questionObj.question,
+            options: questionObj.options?.map((o) => o.label) || [],
+          },
+        ]);
+        setMessages((prev) => [
+          ...prev,
+          { id: `q-${safeQuestionNumber}-${Date.now()}`, role: "ai", content: questionObj.question },
+        ]);
+        return;
+      }
+
+      throw new Error(`Unexpected quiz response shape: ${JSON.stringify(response).slice(0, 300)}`);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Something went wrong";
+      const msg = e instanceof Error ? e.message : 'Something went wrong';
       console.error('[Quiz] loadNext error:', e);
+
+      // Check for network errors
+      const isNetworkError = msg.includes('Network request failed') || msg.includes('timeout') || msg.includes('Unable to connect');
 
       // Check if it's an authentication error
       if (msg.includes('not authenticated') || msg.includes('Invalid or expired token') || msg.includes('401')) {
@@ -873,10 +864,12 @@ export default function QuizScreen(): React.ReactElement {
             }},
           ]
         );
+      } else if (isNetworkError) {
+        setError('Network error. Please check your connection and try again.');
+        Alert.alert('Connection Error', 'Please check your internet connection and try again.');
       } else {
         setError(msg);
-        Alert.alert("Quiz error", msg);
-        console.warn('[Quiz] Backend failed. Keeping AI-only flow, no static fallback:', msg);
+        Alert.alert('Quiz Error', msg);
       }
     } finally {
       setLoading(false);
@@ -992,7 +985,6 @@ export default function QuizScreen(): React.ReactElement {
         }
 
         // Check if we have a backend session ID - try to get results
-        const { getSessionId, getQuizResults } = await import('../features/quiz/api-backend');
         const sessionId = await getSessionId();
 
         if (sessionId) {

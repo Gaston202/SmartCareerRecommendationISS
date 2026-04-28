@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request, Query
 from typing import Dict, Any, Optional, List
-from backend.app.modules.quiz.service import QuizService
-from backend.app.modules.quiz.schemas import QuizAnswer
-from backend.app.core.database import DatabaseService
-from backend.app.core.ai_orchestrator import AIOrchestratorService
-from backend.app.core.cache import CacheService
-from backend.app.modules.career.service import CareerService
-from backend.app.core.dependencies import (
+from app.modules.quiz.service import QuizService
+from app.modules.quiz.schemas import QuizAnswer
+from app.core.database import DatabaseService
+from app.core.ai_orchestrator import AIOrchestratorService
+from app.core.cache import CacheService
+from app.modules.career.service import CareerService
+from app.core.dependencies import (
     get_database_service,
     get_ai_orchestrator_service,
     get_cache_service,
@@ -18,9 +18,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/quiz", tags=["quiz"])
 
-print("=" * 50)
-print("DEBUG: QUIZ ROUTER MODULE LOADED - NEW CODE!")
-print("=" * 50)
+logger.debug("Quiz router module loaded")
 
 
 def get_user_id_from_token(authorization: Optional[str] = None) -> str:
@@ -103,23 +101,6 @@ async def start_quiz(
             detail=f"Failed to start quiz: {str(e)}",
         )
 
-
-@router.post("/test-answer")
-async def test_answer(
-    request: Request,
-) -> Dict[str, Any]:
-    """Test endpoint to verify the code is updated."""
-    try:
-        body = await request.json()
-        headers = dict(request.headers)
-        return {
-            "success": True,
-            "message": "NEW CODE IS RUNNING!",
-            "received_body": body,
-            "received_headers": {k: v for k, v in headers.items() if "auth" in k.lower() or "session" in k.lower()},
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 
 @router.post("/answer")

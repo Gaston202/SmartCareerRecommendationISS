@@ -130,16 +130,13 @@ class CareerService:
             logger.warning(f'DuckDuckGo search failed for "{query}": {e}')
             return []
 
-    async def collect_market_snippets(self, career_title: str) -> List[str]:
-        """Collect market data snippets for a career."""
-        queries = [
-            f"{career_title} average salary 2025",
-            f"{career_title} job growth rate",
-            f"{career_title} demand outlook job market",
-        ]
+    async def collect_market_snippets(self, career: Dict[str, Any]) -> List[str]:
+        """Collect market data snippets for a career using the AI orchestrator search plan."""
+        queries = self.ai_orchestrator._build_market_search_plan(career)
 
         results = []
-        for query in queries:
+        for query_item in queries:
+            query = query_item.get('query') if isinstance(query_item, dict) else str(query_item)
             snippets = await self.fetch_duckduckgo_snippets(query)
             results.extend(snippets)
 
@@ -161,7 +158,7 @@ class CareerService:
         if cached:
             return {**career, **cached}
 
-        snippets = await self.collect_market_snippets(career['title'])
+        snippets = await self.collect_market_snippets(career)
         if not snippets:
             return career
 
@@ -314,10 +311,13 @@ class CareerService:
                         'title': match['career']['title'],
                         'description': match['career']['description'],
                         'required_skills': match['career']['required_skills'],
+                        'tags': match['career'].get('tags', []),
                         'match_score': match['match_score'],
                         'match_reasons': match['match_reasons'],
                     },
                     nova_profile,
+                    match_score=match['match_score'],
+                    match_reasons=match['match_reasons'],
                 )
                 enhanced.append({**match, 'ai_explanation': explanation})
             except Exception as e:
@@ -430,7 +430,7 @@ class CareerService:
             try:
                 for idx, m in enumerate(deterministic_matches):
                     try:
-                        await self.db.get_client().from_('career_match_results').insert({
+                        await self.db.get_client().from_('career_match_results').upsert({
                             'user_id': user_id,
                             'quiz_session_id': quiz_session_id,
                             'cv_analysis_id': resolved_cv_analysis_id,
@@ -439,10 +439,9 @@ class CareerService:
                             'match_reasons': m['match_reasons'],
                             'ai_insights': {'explanation': None, 'status': 'pending'},
                             'ranking': idx + 1,
-                        }).execute()
+                        }, on_conflict='user_id,cv_analysis_id,quiz_session_id,career_id').execute()
                     except Exception as insert_err:
-                        # Row may already exist, skip
-                        logger.warning(f"[{trace_id}] Skipped duplicate: {insert_err}")
+                        logger.warning(f"[{trace_id}] Upsert failed: {insert_err}")
             except Exception as e:
                 logger.warning(f"[{trace_id}] Failed to save deterministic matches: {e}")
 
@@ -457,7 +456,7 @@ class CareerService:
             try:
                 for idx, m in enumerate(market_enriched):
                     try:
-                        await self.db.get_client().from_('career_match_results').insert({
+                        await self.db.get_client().from_('career_match_results').upsert({
                             'user_id': user_id,
                             'quiz_session_id': quiz_session_id,
                             'cv_analysis_id': resolved_cv_analysis_id,
@@ -466,9 +465,9 @@ class CareerService:
                             'match_reasons': m['match_reasons'],
                             'ai_insights': {'explanation': m['ai_explanation'], 'status': 'completed'},
                             'ranking': idx + 1,
-                        }).execute()
+                        }, on_conflict='user_id,cv_analysis_id,quiz_session_id,career_id').execute()
                     except Exception as insert_err:
-                        logger.warning(f"[{trace_id}] Skipped duplicate: {insert_err}")
+                        logger.warning(f"[{trace_id}] Upsert failed: {insert_err}")
             except Exception as e:
                 logger.warning(f"[{trace_id}] Failed to save AI-enhanced matches: {e}")
 

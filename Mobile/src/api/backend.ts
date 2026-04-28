@@ -65,9 +65,9 @@ function getBackendTimeoutMessage(url: string, timeoutMs: number): string {
   );
 }
 
-// Quiz result generation can be slow (LLM + DB + recommendations), especially on free models.
-// Keep a higher default so mobile doesn't abort long-running requests.
-const FETCH_TIMEOUT_MS = 90000; // 90 seconds
+// Quiz result generation can take longer than the normal API flow because the backend
+// waits on AI generation before returning the final Nova report.
+const FETCH_TIMEOUT_MS = 300000; // 300 seconds
 
 export async function fetchBackend(path: string, init?: RequestInit): Promise<Response> {
   const url = buildBackendUrl(path);

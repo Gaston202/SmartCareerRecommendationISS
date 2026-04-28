@@ -207,6 +207,7 @@ export async function clearQuizSession(): Promise<void> {
       QUIZ_RESULTS_KEY,
       'quiz_backend_session_id',
     ]);
+    await clearBackendSessionId();
   } catch (err) {
     console.warn('[quiz] Failed to clear quiz session:', err);
   }

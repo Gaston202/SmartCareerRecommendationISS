@@ -1,10 +1,10 @@
 import logging
 import asyncio
 from typing import List, Dict, Any, Optional
-from backend.app.core.database import DatabaseService
-from backend.app.core.ai_orchestrator import AIOrchestratorService
-from backend.app.core.cache import CacheService
-from backend.app.modules.career.service import CareerService
+from app.core.database import DatabaseService
+from app.core.ai_orchestrator import AIOrchestratorService
+from app.core.cache import CacheService
+from app.modules.career.service import CareerService
 
 logger = logging.getLogger(__name__)
 
@@ -456,31 +456,100 @@ class QuizService:
         } for a in responses]
 
     def _compute_disc_from_answers(self, answers: List[Dict[str, Any]]) -> Dict[str, int]:
-        """Compute DISC percentages from quiz answers."""
-        scores = {'red': 0, 'blue': 0, 'green': 0, 'yellow': 0}
-        total = len(answers) or 1
+        """Compute DISC percentages from quiz answers using keyword signals and mapping."""
+        colors = ['red', 'blue', 'green', 'yellow']
+        raw = {c: 0 for c in colors}
+
+        keyword_sets = {
+            'red': ['lead', 'control', 'result', 'target', 'goal', 'decis', 'action', 'perform', 'accountability', 'ownership', 'drive', 'compete', 'win', 'assert', 'direct', 'fast', 'immediate', 'bottom line', 'dominant'],
+            'blue': ['analy', 'evidence', 'precision', 'detail', 'quality', 'accuracy', 'logic', 'structured', 'data', 'expert', 'mastery', 'rules', 'standard', 'procedure', 'plan', 'method', 'system'],
+            'green': ['support', 'collab', 'team', 'trust', 'empath', 'coach', 'harmony', 'relationship', 'encouragement', 'patient', 'listen', 'help', 'care', 'loyal', 'stable', 'consistent', 'together'],
+            'yellow': ['creative', 'innov', 'idea', 'inspire', 'express', 'possibilit', 'experiment', 'variety', 'dialogue', 'vision', 'enthusiasm', 'social', 'influence', 'persuade', 'energetic', 'fun', 'spontane'],
+        }
 
         for ans in answers:
-            q_num = ans['questionNumber']
-            label = ans['selectedLabel']
-            mapped = self.LABEL_TO_DISC.get(q_num, {}).get(label)
-            signal_scores = self._infer_disc_signal_scores(label)
+            label = (ans.get('selectedLabel') or '').lower()
+            question = (ans.get('question') or '').lower()
+            combined = label + ' ' + question
 
-            for color in ['red', 'blue', 'green', 'yellow']:
-                mapped_strength = 1 if mapped == color else 0
-                keyword_strength = min(1, signal_scores[color] / 3)
-                blended = mapped_strength * 0.75 + keyword_strength * 0.25
-                scores[color] += blended
+            # Score each color based on keyword matches in label + question
+            for color in colors:
+                score = 0
+                for kw in keyword_sets[color]:
+                    if kw in combined:
+                        score += 1
+                # Weight question text less than selected label
+                label_score = sum(1 for kw in keyword_sets[color] if kw in label)
+                question_score = sum(0.5 for kw in keyword_sets[color] if kw in question)
+                raw[color] += label_score + question_score
 
-        red = min(100, round((scores['red'] / total) * 100))
-        blue = min(100, round((scores['blue'] / total) * 100))
-        green = min(100, round((scores['green'] / total) * 100))
-        yellow = min(100, round((scores['yellow'] / total) * 100))
+        total = sum(raw.values()) or 1
 
-        entries = sorted([('red', red), ('blue', blue), ('green', green), ('yellow', yellow)], key=lambda x: x[1], reverse=True)
-        dominant = entries[0][0]
+        # Compute raw percentages
+        pct = {c: round(raw[c] / total * 100) for c in colors}
 
-        return {'red': red, 'blue': blue, 'green': green, 'yellow': yellow, 'dominant': dominant}
+        # Ensure sum is exactly 100
+        total_pct = sum(pct.values())
+        if total_pct != 100:
+            diff = 100 - total_pct
+            dominant_color = max(raw, key=raw.get)
+            pct[dominant_color] += diff
+
+        # Guarantee a dominant >70% if clearly dominant (2x the second highest raw score)
+        sorted_raw = sorted(raw.items(), key=lambda x: x[1], reverse=True)
+        dominant_color = sorted_raw[0][0]
+        dominant_raw = sorted_raw[0][1]
+        second_raw = sorted_raw[1][1]
+
+        if dominant_raw >= 1.5 * second_raw and pct[dominant_color] < 70:
+            # Boost dominant to 70%
+            others_sum_raw = sum(raw[c] for c in colors if c != dominant_color)
+            if others_sum_raw > 0:
+                for c in colors:
+                    if c == dominant_color:
+                        pct[c] = 70
+                    else:
+                        pct[c] = round(30 * raw[c] / others_sum_raw)
+            else:
+                # All others zero, set dominant to 100
+                for c in colors:
+                    pct[c] = 100 if c == dominant_color else 0
+
+            # Final adjustment to ensure sum 100
+            total_pct = sum(pct.values())
+            if total_pct != 100:
+                pct[dominant_color] += 100 - total_pct
+
+        # If still no clear dominant, apply fallback static mapping blend
+        if pct[dominant_color] < 40:
+            static_scores = {c: 0 for c in colors}
+            for ans in answers:
+                q_num = ans.get('questionNumber')
+                label = ans.get('selectedLabel', '')
+                mapped = self.LABEL_TO_DISC.get(q_num, {}).get(label)
+                if mapped:
+                    static_scores[mapped] += 3
+            static_total = sum(static_scores.values()) or 1
+            static_pct = {c: round(static_scores[c] / static_total * 100) for c in colors}
+            for c in colors:
+                pct[c] = round(pct[c] * 0.6 + static_pct[c] * 0.4)
+            # Ensure sum 100 after blend
+            total_pct = sum(pct.values())
+            if total_pct != 100:
+                pct[dominant_color] += 100 - total_pct
+
+        # Final guarantee: sum must be 100
+        total_pct = sum(pct.values())
+        if total_pct != 100:
+            pct[dominant_color] += 100 - total_pct
+
+        return {
+            'red': pct.get('red', 25),
+            'blue': pct.get('blue', 25),
+            'green': pct.get('green', 25),
+            'yellow': pct.get('yellow', 25),
+            'dominant': dominant_color,
+        }
 
     def _infer_disc_signal_scores(self, label: str) -> Dict[str, int]:
         """Infer DISC signal scores from answer label."""
