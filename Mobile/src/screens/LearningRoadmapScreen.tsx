@@ -27,6 +27,7 @@ import type {
 } from '../features/learning-roadmap/types';
 import {
   fetchRoadmapPlanFromBackend,
+  saveLearningRoadmapToBackend,
   type BackendPlannedRoadmapStep,
 } from '../features/roadmaps/api-backend';
 import { assertRoadmapPrerequisites } from '../features/roadmaps/prerequisites';
@@ -236,6 +237,11 @@ export default function LearningRoadmapScreen(): React.ReactElement {
       try {
         const roadmapWithUser = { ...roadmap, user_id: state.user!.id };
         await saveLearningRoadmap(state.user!.id, roadmapWithUser);
+        await saveLearningRoadmapToBackend({
+          careerId: String(roadmap.career_id || params.careerId || params.careerTitle),
+          careerTitle: String(roadmap.career_title || params.careerTitle),
+          roadmapData: roadmapWithUser as unknown as Record<string, unknown>,
+        });
         console.log('[LearningRoadmap] Auto-saved progress');
       } catch (error) {
         console.warn('[LearningRoadmap] Auto-save failed', error);
@@ -305,6 +311,7 @@ export default function LearningRoadmapScreen(): React.ReactElement {
       const planned = await fetchRoadmapPlanFromBackend({
         careerId: params.careerId,
         careerTitle: params.careerTitle,
+        careerDescription: params.careerDescription,
       });
       const generated = buildLearningRoadmapFromPlan(planned.steps || []);
       setRoadmap(generated);
@@ -322,6 +329,11 @@ export default function LearningRoadmapScreen(): React.ReactElement {
     try {
       const roadmapWithUser = { ...roadmap, user_id: state.user.id };
       await saveLearningRoadmap(state.user.id, roadmapWithUser);
+      await saveLearningRoadmapToBackend({
+        careerId: String(roadmap.career_id || params.careerId || params.careerTitle),
+        careerTitle: String(roadmap.career_title || params.careerTitle),
+        roadmapData: roadmapWithUser as unknown as Record<string, unknown>,
+      });
       alert('Learning roadmap saved successfully!');
       navigation.goBack();
     } catch (error) {

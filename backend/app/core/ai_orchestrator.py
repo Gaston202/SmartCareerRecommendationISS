@@ -1476,8 +1476,151 @@ Example output:
 
         return []
 
-    async def personalize_roadmap(self, roadmap_id: str, user_profile: Dict[str, Any], cache_ttl: int = 86400) -> Dict[str, Any]:
-        return {"phases": [], "message": "Personalization coming soon"}
+    async def personalize_roadmap(
+        self,
+        roadmap_or_template: Any,
+        user_profile: Any = None,
+        nova_profile: Optional[Dict[str, Any]] = None,
+        cv_summary: str = "",
+        cache_ttl: int = 86400,
+    ) -> Dict[str, Any]:
+        """Personalize roadmap content using user profile signals.
+
+        Supports two call styles for backward compatibility:
+        1) personalize_roadmap(base_roadmap_dict, user_profile_dict)
+        2) personalize_roadmap(base_roadmap_dict, skills_list, nova_profile_dict, cv_summary)
+        """
+        try:
+            base_roadmap = roadmap_or_template if isinstance(roadmap_or_template, dict) else {}
+
+            # Backward-compatible normalization for legacy callers.
+            normalized_profile: Dict[str, Any] = {}
+            if isinstance(user_profile, dict):
+                normalized_profile = user_profile
+            elif isinstance(user_profile, list):
+                normalized_profile = {
+                    "skills": user_profile,
+                    "novaProfile": nova_profile or {},
+                    "cvSummary": cv_summary,
+                }
+
+            role_title = (
+                base_roadmap.get("career_title")
+                or base_roadmap.get("title")
+                or normalized_profile.get("selected_role")
+                or "target role"
+            )
+
+            existing_steps = base_roadmap.get("steps", []) if isinstance(base_roadmap.get("steps"), list) else []
+            existing_skills = base_roadmap.get("skills", []) if isinstance(base_roadmap.get("skills"), list) else []
+
+            context = {
+                "role": role_title,
+                "existing_steps": existing_steps[:20],
+                "existing_skills": existing_skills[:30],
+                "user_profile": {
+                    "skills": normalized_profile.get("skills", []),
+                    "interests": normalized_profile.get("interests", []),
+                    "quizAnswers": normalized_profile.get("quizAnswers", []),
+                    "novaProfile": normalized_profile.get("novaProfile", {}),
+                    "cvSummary": normalized_profile.get("cvSummary", ""),
+                },
+            }
+
+            prompt = f"""### Instruction
+Personalize this learning roadmap for the target role using the user profile.
+
+### Context
+{json.dumps(context, ensure_ascii=False, indent=2)[:10000]}
+
+### Output Rules
+- Return ONLY valid JSON.
+- Keep output concise and practical.
+- Respect prerequisite ordering in a realistic way.
+- Add confidence_score in [0,1].
+- Use fields exactly:
+{{
+  "steps": [
+    {{
+      "skill_name": "string",
+      "why_it_matters": "string",
+      "difficulty": "beginner|intermediate|advanced",
+      "estimated_duration_hours": 8,
+      "prerequisites": ["string"],
+      "resource_title": "string or null",
+      "provider": "string or null",
+      "source_url": "string or null",
+      "confidence_score": 0.8,
+      "order_index": 0
+    }}
+  ]
+}}
+"""
+
+            response = await self.chat_with_retry(
+                "roadmap",
+                [{"role": "user", "content": prompt}],
+                temperature=0.35,
+                max_tokens=2600,
+                retries=2,
+                request_timeout_seconds=45,
+            )
+
+            raw = response["choices"][0]["message"].get("content", "")
+            content = self._coerce_content_to_text(raw)
+            json_str = self.extract_json(content)
+            parsed = self.try_parse_json(json_str) or self.try_parse_json(content)
+
+            steps = parsed.get("steps") if isinstance(parsed, dict) else None
+            if not isinstance(steps, list) or not steps:
+                steps = existing_steps
+
+            normalized_steps: List[Dict[str, Any]] = []
+            for idx, step in enumerate(steps[:20]):
+                if not isinstance(step, dict):
+                    continue
+                normalized_steps.append(
+                    {
+                        "skill_name": str(step.get("skill_name") or step.get("title") or f"Skill {idx + 1}"),
+                        "why_it_matters": str(step.get("why_it_matters") or step.get("description") or "Build this capability for role success."),
+                        "difficulty": str(step.get("difficulty") or "intermediate").lower(),
+                        "estimated_duration_hours": max(1, int(step.get("estimated_duration_hours") or 8)),
+                        "prerequisites": step.get("prerequisites") if isinstance(step.get("prerequisites"), list) else [],
+                        "resource_title": step.get("resource_title"),
+                        "provider": step.get("provider"),
+                        "source_url": step.get("source_url"),
+                        "confidence_score": float(step.get("confidence_score") or 0.7),
+                        "order_index": idx,
+                    }
+                )
+
+            # Legacy compatibility: roadmap.service expects personalizedMilestones.
+            legacy_milestones = [
+                {
+                    "title": item["skill_name"],
+                    "description": item["why_it_matters"],
+                    "duration": f"{item['estimated_duration_hours']}h",
+                    "skills": [item["skill_name"]],
+                }
+                for item in normalized_steps
+            ]
+
+            return {
+                "steps": normalized_steps,
+                "personalizedMilestones": legacy_milestones,
+            }
+        except Exception as e:
+            logger.warning(f"personalize_roadmap failed: {type(e).__name__}: {e}")
+            fallback_steps = []
+            if isinstance(roadmap_or_template, dict):
+                maybe_steps = roadmap_or_template.get("steps")
+                if isinstance(maybe_steps, list):
+                    fallback_steps = maybe_steps
+            return {
+                "steps": fallback_steps,
+                "personalizedMilestones": [],
+                "message": "Personalization fallback",
+            }
 
 
 def get_ai_service() -> AIOrchestrator:

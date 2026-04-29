@@ -5,6 +5,7 @@ from app.core.database import DatabaseService
 from app.core.cache import CacheService
 from app.core.ai_orchestrator import AIOrchestratorService
 from app.core.queue import QueueService
+import logging
 
 # Security scheme
 security = HTTPBearer()
@@ -47,6 +48,16 @@ async def get_current_user(
     Equivalent to NestJS JwtAuthGuard.
     """
     token = credentials.credentials
+    # Temporary debug logging to help diagnose token validation issues (non-sensitive)
+    try:
+        logger = logging.getLogger(__name__)
+        if token:
+            logger.debug(f"Auth token received (len={len(token)}), prefix={token[:8]}")
+        else:
+            logger.debug("No auth token received in request")
+    except Exception:
+        # Ensure logging never blocks authentication flow
+        pass
     try:
         user_data = await auth_service.validate_user_from_supabase(token)
         return user_data

@@ -22,24 +22,30 @@ class AuthService:
         Equivalent to NestJS AuthService.validateUserFromSupabase.
         """
         try:
-            logger.debug(f"Validating token with Supabase (token length: {len(token)})")
-            # Use the anon client to get user from token
+            logger.info(f"Validating token with Supabase (token length: {len(token)})")
             response = await self.db.get_anon_client().auth.get_user(token)
 
-            if response.error:
+            error = getattr(response, 'error', None)
+            if error:
                 logger.warning('Supabase token validation error:', {
-                    'message': response.error.message,
-                    'status': response.error.status,
-                    'code': response.error.code,
+                    'message': getattr(error, 'message', str(error)),
+                    'status': getattr(error, 'status', None),
+                    'code': getattr(error, 'code', None),
                 })
                 raise ValueError('Invalid or expired token')
 
-            user = response.data.user
+            # Handle various Supabase response structures
+            user = getattr(response, 'user', None)
+            if user is None:
+                data = getattr(response, 'data', None)
+                if data:
+                    user = getattr(data, 'user', None)
+
             if not user:
                 logger.warning('No user returned from Supabase for token')
                 raise ValueError('Invalid or expired token')
 
-            logger.debug(f'Token valid for user: {user.id}, email: {user.email}')
+            logger.info(f'Token valid for user: {user.id}, email: {user.email}')
 
             return {
                 'id': user.id,
@@ -54,6 +60,7 @@ class AuthService:
         except Exception as e:
             logger.warning('Token validation failed', {
                 'error': str(e),
+                'error_type': type(e).__name__,
             })
             raise ValueError('Token validation failed')
 

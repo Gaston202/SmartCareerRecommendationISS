@@ -45,6 +45,7 @@ export interface BackendPlannedRoadmapResponse {
 export async function fetchRoadmapPlanFromBackend(input: {
   careerId?: string;
   careerTitle: string;
+  careerDescription?: string;
   maxSteps?: number;
 }): Promise<BackendPlannedRoadmapResponse> {
   const token = await getAuthToken();
@@ -52,7 +53,7 @@ export async function fetchRoadmapPlanFromBackend(input: {
     throw new Error("Not authenticated. Please log in.");
   }
 
-  const response = await fetchBackend("/roadmap/plan", {
+  const response = await fetchBackend("/learning-roadmap/generate", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -60,7 +61,8 @@ export async function fetchRoadmapPlanFromBackend(input: {
     },
     body: JSON.stringify({
       career_id: input.careerId,
-      target_role: input.careerTitle,
+      career_title: input.careerTitle,
+      career_description: input.careerDescription,
       max_steps: input.maxSteps ?? 6,
       user_profile: {
         selected_role: input.careerTitle,
@@ -74,6 +76,70 @@ export async function fetchRoadmapPlanFromBackend(input: {
   }
 
   return payload.data as BackendPlannedRoadmapResponse;
+}
+
+export async function saveLearningRoadmapToBackend(input: {
+  careerId: string;
+  careerTitle: string;
+  roadmapData: Record<string, unknown>;
+}): Promise<Record<string, unknown>> {
+  const token = await getAuthToken();
+  if (!token) {
+    throw new Error("Not authenticated. Please log in.");
+  }
+
+  const response = await fetchBackend("/learning-roadmap/save", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      career_id: input.careerId,
+      career_title: input.careerTitle,
+      roadmap_data: input.roadmapData,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success) {
+    throw new Error(payload?.detail || payload?.message || "Failed to save learning roadmap to backend.");
+  }
+
+  return payload.data as Record<string, unknown>;
+}
+
+export async function updateRoadmapSkillProgressOnBackend(input: {
+  roadmapId: string;
+  skillId: string;
+  started?: boolean;
+  completedPercentage?: number;
+}): Promise<Record<string, unknown>> {
+  const token = await getAuthToken();
+  if (!token) {
+    throw new Error("Not authenticated. Please log in.");
+  }
+
+  const response = await fetchBackend("/learning-roadmap/progress", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      roadmap_id: input.roadmapId,
+      skill_id: input.skillId,
+      started: input.started,
+      completed_percentage: input.completedPercentage,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success) {
+    throw new Error(payload?.detail || payload?.message || "Failed to update roadmap progress on backend.");
+  }
+
+  return payload.data as Record<string, unknown>;
 }
 
 async function getAuthToken(): Promise<string | null> {

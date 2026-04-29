@@ -1,9 +1,10 @@
 import logging
+import uuid
 from typing import List, Dict, Any, Optional
 from app.core.database import DatabaseService
 from app.core.ai_orchestrator import AIOrchestratorService
 from app.core.cache import CacheService
-from app.core.config import settings
+from app.modules.learning_roadmap.repository import LearningRoadmapRepository
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class LearningRoadmapService:
         self.db = db
         self.ai_orchestrator = ai_orchestrator
         self.cache_service = cache_service
+        self.repository = LearningRoadmapRepository(db)
 
     async def generate_learning_roadmap(
         self,
@@ -42,19 +44,49 @@ class LearningRoadmapService:
             return cached
 
         try:
-            # For now, return a structured response
-            # In production, this would call the AI orchestrator to generate skills
-            roadmap_data = self._generate_fallback_roadmap(
-                career_id,
-                career_title,
-                career_description,
-                user_profile,
-            )
+            skills = await self.get_skills_for_career(career_id)
+            if not skills:
+                roadmap_data = self._generate_fallback_roadmap(
+                    career_id,
+                    career_title,
+                    career_description,
+                    user_profile,
+                )
+                steps = roadmap_data.get("steps", [])
+            else:
+                roadmap_data = self._build_roadmap_from_skills(
+                    user_id,
+                    career_id,
+                    career_title,
+                    career_description,
+                    skills,
+                )
+                steps = self._build_steps_from_skills(skills)
+
+            if user_profile:
+                personalized = await self.ai_orchestrator.personalize_roadmap(
+                    roadmap_data,
+                    user_profile,
+                )
+                if isinstance(personalized, dict):
+                    personalized_steps = personalized.get("steps")
+                    if isinstance(personalized_steps, list) and personalized_steps:
+                        steps = personalized_steps
+
+            payload = {
+                "mode": "learning_roadmap_v1",
+                "target_role": career_title,
+                "career_id": career_id,
+                "confidence": 0.78,
+                "weak_evidence": len(skills) == 0,
+                "steps": steps,
+                "roadmap": roadmap_data,
+            }
 
             # Cache for 24 hours
-            await self.cache_service.set(cache_key, roadmap_data, 86400)
+            await self.cache_service.set(cache_key, payload, 86400)
 
-            return roadmap_data
+            return payload
         except Exception as e:
             logger.error('Failed to generate learning roadmap', e)
             raise
@@ -70,8 +102,8 @@ class LearningRoadmapService:
         Generate a fallback learning roadmap structure.
         """
         return {
-            'id': f'learning-roadmap-{career_id}-{hash(career_title) % 10000}',
-            'user_id': '',  # Will be set by caller
+            'id': f'learning-roadmap-{career_id}-{uuid.uuid4().hex[:8]}',
+            'user_id': '',
             'career_id': career_id,
             'career_title': career_title,
             'title': f'Learning Path: {career_title}',
@@ -81,7 +113,64 @@ class LearningRoadmapService:
             'estimated_weeks': 0,
             'skill_count': 0,
             'created_at': 'now()',
+            'steps': [
+                {
+                    "skill_name": f"Introduction to {career_title}",
+                    "why_it_matters": "Build baseline understanding before tackling advanced capabilities.",
+                    "difficulty": "beginner",
+                    "estimated_duration_hours": 12,
+                    "prerequisites": [],
+                    "resource_title": None,
+                    "provider": None,
+                    "source_url": None,
+                    "confidence_score": 0.45,
+                    "order_index": 0,
+                }
+            ],
         }
+
+    def _build_roadmap_from_skills(
+        self,
+        user_id: str,
+        career_id: str,
+        career_title: str,
+        career_description: str,
+        skills: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        total_duration = sum(int(skill.get("duration_hours") or 0) for skill in skills)
+        return {
+            "id": f"learning-roadmap-{career_id}-{uuid.uuid4().hex[:8]}",
+            "user_id": user_id,
+            "career_id": career_id,
+            "career_title": career_title,
+            "title": f"Learning Path: {career_title}",
+            "description": career_description or f"A comprehensive skill-based learning roadmap to become a {career_title}",
+            "skills": skills,
+            "total_duration_hours": total_duration,
+            "estimated_weeks": max(1, total_duration // 8) if total_duration else 1,
+            "skill_count": len(skills),
+            "created_at": "now()",
+        }
+
+    def _build_steps_from_skills(self, skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        steps: List[Dict[str, Any]] = []
+        for idx, skill in enumerate(skills):
+            course = (skill.get("courses") or [None])[0] if isinstance(skill.get("courses"), list) else None
+            steps.append(
+                {
+                    "skill_name": skill.get("name") or skill.get("title") or f"Skill {idx + 1}",
+                    "why_it_matters": skill.get("description") or "This skill is essential for career growth.",
+                    "difficulty": (skill.get("level") or "intermediate").lower(),
+                    "estimated_duration_hours": max(1, int(skill.get("duration_hours") or 8)),
+                    "prerequisites": skill.get("prerequisites") or [],
+                    "resource_title": (course or {}).get("title") if isinstance(course, dict) else None,
+                    "provider": (course or {}).get("provider") if isinstance(course, dict) else None,
+                    "source_url": (course or {}).get("url") if isinstance(course, dict) else None,
+                    "confidence_score": 0.8,
+                    "order_index": idx,
+                }
+            )
+        return steps
 
     async def get_skills_for_career(self, career_id: str) -> List[Dict[str, Any]]:
         """
@@ -94,16 +183,17 @@ class LearningRoadmapService:
             return cached
 
         try:
-            result = await self.db.get_client().from_('learning_skills').select('*').eq('career_id', career_id).order('level').execute()
-            skills = result.data or []
+            skills = await self.repository.get_career_skills(career_id)
 
             # Add prerequisites
             enriched_skills = []
             for skill in skills:
                 prereqs = await self._get_skill_prerequisites(skill['id'])
+                courses = await self.get_courses_for_skill(skill['id'])
                 enriched_skills.append({
                     **skill,
                     'prerequisites': [p['from_skill_id'] for p in prereqs],
+                    'courses': courses[:1],
                 })
 
             await self.cache_service.set(cache_key, enriched_skills, 86400)
@@ -115,8 +205,7 @@ class LearningRoadmapService:
     async def _get_skill_prerequisites(self, skill_id: str) -> List[Dict[str, str]]:
         """Get prerequisites for a skill."""
         try:
-            result = await self.db.get_client().from_('skill_dependencies').select('*').eq('to_skill_id', skill_id).execute()
-            return result.data or []
+            return await self.repository.get_skill_prerequisites(skill_id)
         except Exception as e:
             logger.error(f'Failed to fetch prerequisites for skill {skill_id}', e)
             return []
@@ -132,8 +221,7 @@ class LearningRoadmapService:
             return cached
 
         try:
-            result = await self.db.get_client().from_('learning_courses').select('*').eq('skill_id', skill_id).order('rating', desc=True).execute()
-            courses = result.data or []
+            courses = await self.repository.get_skill_courses(skill_id)
 
             await self.cache_service.set(cache_key, courses, 86400)
             return courses
@@ -153,22 +241,12 @@ class LearningRoadmapService:
         Equivalent to NestJS LearningRoadmapService.saveLearningRoadmap.
         """
         try:
-            result = await self.db.get_client().from_('user_learning_roadmaps').insert({
-                'user_id': user_id,
-                'career_id': career_id,
-                'career_title': career_title,
-                'title': roadmap_data.get('title', f'Learning Path: {career_title}'),
-                'description': roadmap_data.get('description', f'A comprehensive skill-based learning roadmap to become a {career_title}'),
-                'skills': roadmap_data.get('skills', []),
-                'total_duration_hours': roadmap_data.get('total_duration_hours', 0),
-                'estimated_weeks': roadmap_data.get('estimated_weeks', 0),
-                'skill_count': roadmap_data.get('skill_count', 0),
-            }).select().single().execute()
-
-            if result.error:
-                raise result.error
-
-            return result.data
+            return await self.repository.save_user_learning_roadmap(
+                user_id,
+                career_id,
+                career_title,
+                roadmap_data,
+            )
         except Exception as e:
             logger.error('Failed to save learning roadmap', e)
             raise
@@ -179,8 +257,57 @@ class LearningRoadmapService:
         Equivalent to NestJS LearningRoadmapService.getUserLearningRoadmaps.
         """
         try:
-            result = await self.db.get_client().from_('user_learning_roadmaps').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
-            return result.data or []
+            return await self.repository.list_user_learning_roadmaps(user_id)
         except Exception as e:
             logger.error(f'Failed to fetch roadmaps for user {user_id}', e)
             return []
+
+    async def get_user_learning_roadmap_for_career(self, user_id: str, career_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            return await self.repository.get_user_learning_roadmap_by_career(user_id, career_id)
+        except Exception as e:
+            logger.error(f'Failed to fetch roadmap for user={user_id} career={career_id}', e)
+            return None
+
+    async def update_learning_roadmap_progress(
+        self,
+        user_id: str,
+        roadmap_id: str,
+        skill_id: str,
+        started: Optional[bool] = None,
+        completed_percentage: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        roadmap = await self.repository.get_user_learning_roadmap_by_id(user_id, roadmap_id)
+        if not roadmap:
+            raise ValueError("Roadmap not found")
+
+        skills = roadmap.get("skills") or []
+        updated = False
+        for item in skills:
+            skill = item.get("skill") if isinstance(item, dict) else None
+            if not isinstance(skill, dict) or skill.get("id") != skill_id:
+                continue
+
+            progress = item.get("userProgress")
+            if not isinstance(progress, dict):
+                progress = {
+                    "started": False,
+                    "completedPercentage": 0,
+                    "completedCourses": [],
+                }
+
+            if started is not None:
+                progress["started"] = started
+            if completed_percentage is not None:
+                progress["completedPercentage"] = max(0, min(completed_percentage, 100))
+                if progress["completedPercentage"] > 0:
+                    progress["started"] = True
+
+            item["userProgress"] = progress
+            updated = True
+            break
+
+        if not updated:
+            raise ValueError("Skill not found in roadmap")
+
+        return await self.repository.update_learning_roadmap_skills(roadmap_id, skills)

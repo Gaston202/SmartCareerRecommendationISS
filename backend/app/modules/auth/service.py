@@ -25,15 +25,17 @@ class AuthService:
             # Use the anon client to get user from token
             response = await self.db.get_anon_client().auth.get_user(token)
 
-            if response.error:
-                logger.warning('Supabase token validation error:', {
-                    'message': response.error.message,
-                    'status': response.error.status,
-                    'code': response.error.code,
+            error = getattr(response, 'error', None)
+            if error:
+                logger.warning('Supabase token validation error: %s', {
+                    'message': getattr(error, 'message', str(error)),
+                    'status': getattr(error, 'status', None),
+                    'code': getattr(error, 'code', None),
                 })
                 raise ValueError('Invalid or expired token')
 
-            user = response.data.user
+            data = getattr(response, 'data', None)
+            user = getattr(data, 'user', None) if data else None
             if not user:
                 logger.warning('No user returned from Supabase for token')
                 raise ValueError('Invalid or expired token')

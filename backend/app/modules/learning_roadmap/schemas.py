@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Literal, Dict
 from datetime import datetime
 
 
@@ -52,7 +52,55 @@ class LearningRoadmapResponse(BaseModel):
 
 
 class GenerateLearningRoadmapRequest(BaseModel):
+    career_id: Optional[str] = None
+    career_title: str
+    career_description: Optional[str] = None
+    max_steps: int = Field(default=6, ge=1, le=20)
+    user_profile: Optional[dict] = None
+
+
+RoadmapLevel = Literal["beginner", "intermediate", "advanced"]
+
+
+class LearningRoadmapStep(BaseModel):
+    skill_name: str
+    why_it_matters: str
+    difficulty: RoadmapLevel
+    estimated_duration_hours: int = Field(..., ge=1)
+    prerequisites: List[str] = []
+    resource_title: Optional[str] = None
+    provider: Optional[str] = None
+    source_url: Optional[str] = None
+    confidence_score: float = Field(default=0.7, ge=0, le=1)
+    order_index: int = Field(..., ge=0)
+
+
+class LearningRoadmapGenerateResponse(BaseModel):
+    success: bool = True
+    mode: str = "learning_roadmap_v1"
+    target_role: str
+    career_id: Optional[str] = None
+    confidence: float = Field(default=0.7, ge=0, le=1)
+    weak_evidence: bool = False
+    message: Optional[str] = None
+    steps: List[LearningRoadmapStep]
+    roadmap: Dict[str, Any]
+
+
+class SaveLearningRoadmapRequest(BaseModel):
     career_id: str
     career_title: str
-    career_description: str
-    user_profile: Optional[dict] = None
+    roadmap_data: Dict[str, Any]
+
+
+class UpdateLearningRoadmapProgressRequest(BaseModel):
+    roadmap_id: str
+    skill_id: str
+    started: Optional[bool] = None
+    completed_percentage: Optional[int] = Field(default=None, ge=0, le=100)
+
+
+class LearningRoadmapApiResponse(BaseModel):
+    success: bool
+    data: Any
+    message: Optional[str] = None
