@@ -619,54 +619,60 @@ class AIOrchestrator:
 
     @staticmethod
     def _get_previous_answer_summary(previous_questions: List[Dict[str, Any]]) -> str:
-        prev_ans: List[str] = []
-        for question in previous_questions:
-            if isinstance(question, dict):
-                selected = question.get("selectedLabel") or question.get("answer") or question.get("label") or question.get("question")
-                if isinstance(selected, str) and selected.strip():
-                    prev_ans.append(selected.strip())
-            elif isinstance(question, str) and question.strip():
-                prev_ans.append(question.strip())
-
-        if not prev_ans:
+        if not previous_questions:
             return "none"
-
-        return ", ".join(prev_ans[-3:])
+        parts: List[str] = []
+        for q in previous_questions[-5:]:  # last 5 for full context
+            if isinstance(q, dict):
+                topic = q.get("question", "")[:60]
+                label = q.get("selectedLabel") or q.get("answer", "")[:60]
+                if topic or label:
+                    parts.append(f"Q: {topic} | A: {label}")
+            elif isinstance(q, str) and q.strip():
+                parts.append(q.strip()[:80])
+        return "\n".join(parts) if parts else "none"
 
     @classmethod
     def _build_nova_question_prompt(cls, question_number: int, previous_questions: List[Dict[str, Any]]) -> str:
         blueprint = cls._get_nova_question_blueprint(question_number)
-        previous_summary = cls._get_previous_answer_summary(previous_questions)
-        options_json = json.dumps(blueprint["options"], ensure_ascii=True)
+        previous_context = cls._get_previous_answer_summary(previous_questions)
 
         return f"""### Instruction
-Generate ONE unique Nova Global Profile question for step {question_number} of 10.
+Generate ONE unique, contextually-adaptive Nova Global Profile question for step {question_number} of 10.
 
 ### Nova Profile Principles
-Nova measures relational intelligence through behavioral style, motivation, cognition, and work preference.
-The question must feel distinct from the others and should expand coverage of the current focus instead of repeating a previous topic.
+Nova measures relational intelligence across: behavioral style, motivation, cognition, communication, and work preferences.
+Questions must collectively reveal the user's dominant DISC pattern (Dominance, Conscientiousness, Steadiness, Influence).
 
-### Question Blueprint
-Focus: {blueprint['focus']}
-Intent: {blueprint['intent']}
-Seed Question: {blueprint['question']}
+### Question Requirements
+- The question must be GENERATED FRESH — do NOT use or adapt the seed question below
+- It must explore the same broad DISC dimension as the blueprint focus, but from a different angle
+- Each question must feel like a natural conversation follow-up given the previous answers
+- Avoid any wording or scenario that directly duplicates a previous question (even rephrased)
+- Option labels must be distinct from all previously-seen labels
 
-### Previous Answer Context
-{previous_summary}
+### Current Blueprint Focus
+- DISC dimension: {blueprint['focus']}
+- Intent: {blueprint['intent']}
+
+### Previous Q&A History
+{previous_context}
 
 ### Output Rules
 - Return only valid JSON
-- Use exactly 4 options
-- Keep option ids exactly B, V, O, and A
-- Keep labels short, human, and non-duplicated
-- Keep the question tightly aligned with the blueprint focus
-- Avoid repeating the wording or scenario from previous answers
+- Exactly 4 options with unique ids B, V, O, A
+- Each option label maps to a DIFFERENT DISC style: B=Conscientiousness, V=Steadiness, O=Dominance, A=Influence
+- Labels must be short (under 60 chars), specific, and non-overlapping in meaning
+- The question must be genuinely different from any previous question even if covering the same DISC area
 
 ### Required Schema
 {{"question":"string","options":[{{"id":"B","label":"string","icon":"string"}},{{"id":"V","label":"string","icon":"string"}},{{"id":"O","label":"string","icon":"string"}},{{"id":"A","label":"string","icon":"string"}}],"questionNumber":{question_number}}}
 
-### Reference Option Set
-{options_json}
+### Icon Requirements
+Pick icon values EXACTLY from this list (one per option):
+analytics, people, globe, locate, flash, trophy, school, heart, star, bulb, book, time, document, call, videocam, chatbubble-ellipses, shield-checkmark, fitness, car, home, wallet, ear, code, construct, hand-left, briefcase, ribbon, color-palette, pulse, bookmark
+
+Map icons to the option that best matches its meaning: analytics→analysis, people→team/support, globe→creativity/influence, flash→speed/action, trophy→achievement, school→learning, etc.
 """
 
     @staticmethod
@@ -679,22 +685,43 @@ Seed Question: {blueprint['question']}
         if not isinstance(question, str) or not question.strip():
             return None
 
+        # Guard: if the "question" looks like an answer label (too short, no question mark,
+        # or matches a DISC label pattern), reject it — the model likely confused fields.
+        q_text = question.strip()
+        if (
+            len(q_text) < 10
+            or q_text.endswith((".", "!"))
+            or not any(q_text.lower().startswith(w) for w in ("when", "how", "what", "which", "where", "why", "who", "would", "do you", "can you", "if "))
+            and "?" not in q_text
+        ):
+            logger.warning(
+                "generate_quiz_next: question field rejected as answer label (len=%s, text=%s)",
+                len(q_text),
+                q_text[:60],
+            )
+            return None
+
         raw_options = parsed.get("options")
         if not isinstance(raw_options, list) or not raw_options:
             return None
 
         expected_ids = ["B", "V", "O", "A"]
-        default_icons = {
-            "B": "analytics",
-            "V": "people",
-            "O": "flash",
-            "A": "globe",
+        # DISC-to-icon mapping: each DISC dimension maps to a default icon
+        # Icons must be valid Ionicons names (matching ICON_MAP in QuizScreen.tsx)
+        disc_default_icons = {
+            "B": "analytics",   # Conscientiousness — structured, analytical
+            "V": "people",      # Steadiness — collaborative, supportive
+            "O": "flash",       # Dominance — fast, action-oriented
+            "A": "globe",       # Influence — creative, expansive
         }
-        default_labels = {
-            "B": "Review details and plan",
-            "V": "Coordinate and support the team",
-            "O": "Decide quickly and execute",
-            "A": "Explore a creative approach",
+        valid_icon_names = {
+            "analytics", "people", "globe", "locate", "flash", "trophy", "school",
+            "heart", "star", "bulb", "book", "time", "document", "call", "videocam",
+            "chatbubble-ellipses", "shield-checkmark", "fitness", "car", "home",
+            "wallet", "ear", "code", "construct", "hand-left", "briefcase", "ribbon",
+            "color-palette", "pulse", "bookmark", "ellipse", "map", "checkmark",
+            "checkmark-circle", "alert-circle", "settings", "trending-up", "cash",
+            "sparkles", "person", "person-outline", "arrow-back", "reload",
         }
 
         normalized_options: List[Dict[str, str]] = []
@@ -704,7 +731,7 @@ Seed Question: {blueprint['question']}
         for idx, option in enumerate(raw_options[:8]):
             option_id = expected_ids[idx] if idx < len(expected_ids) else None
             label = ""
-            icon = default_icons.get(option_id or "B", "analytics")
+            icon = disc_default_icons.get(option_id or "B", "analytics")
 
             if isinstance(option, dict):
                 raw_id = option.get("id")
@@ -719,7 +746,18 @@ Seed Question: {blueprint['question']}
                         label = alt_text.strip()
                 raw_icon = option.get("icon")
                 if isinstance(raw_icon, str) and raw_icon.strip():
-                    icon = raw_icon.strip()
+                    raw_icon_normalized = raw_icon.strip().lower().replace("-", "").replace("_", "")
+                    # Validate: if not in valid set, fall back to DISC default
+                    if raw_icon_normalized in {i.replace("-", "").replace("_", "") for i in valid_icon_names}:
+                        icon = raw_icon.strip()
+                    else:
+                        logger.warning(
+                            "generate_quiz_next: invalid icon '%s' for option %s, falling back to '%s'",
+                            raw_icon,
+                            option_id,
+                            icon,
+                        )
+                        icon = disc_default_icons.get(option_id or "B", "analytics")
             elif isinstance(option, str):
                 label = option.strip()
 
@@ -755,20 +793,26 @@ Seed Question: {blueprint['question']}
                     {
                         "id": expected_id,
                         "label": sequential_labels[idx],
-                        "icon": default_icons[expected_id],
+                        "icon": disc_default_icons[expected_id],
                     }
                     for idx, expected_id in enumerate(expected_ids)
                 ]
             # If we have fewer than 4 sequential labels, continue and backfill missing options.
 
-        # Backfill any blank/missing labels defensively for partially truncated model outputs.
+        # Backfill any blank/missing labels and icons defensively for partially truncated model outputs.
         normalized_by_id = {opt["id"]: opt for opt in normalized_options}
+        default_labels = {
+            "B": "Review details and plan",
+            "V": "Coordinate and support the team",
+            "O": "Decide quickly and execute",
+            "A": "Explore a creative approach",
+        }
         for expected_id in expected_ids:
             if expected_id not in normalized_by_id:
                 normalized_by_id[expected_id] = {
                     "id": expected_id,
                     "label": default_labels[expected_id],
-                    "icon": default_icons[expected_id],
+                    "icon": disc_default_icons[expected_id],
                 }
                 continue
 
@@ -778,7 +822,12 @@ Seed Question: {blueprint['question']}
 
             existing_icon = normalized_by_id[expected_id].get("icon")
             if not isinstance(existing_icon, str) or not existing_icon.strip():
-                normalized_by_id[expected_id]["icon"] = default_icons[expected_id]
+                normalized_by_id[expected_id]["icon"] = disc_default_icons[expected_id]
+            else:
+                # Validate icon even on backfill - normalize and check
+                icon_normalized = existing_icon.lower().replace("-", "").replace("_", "")
+                if icon_normalized not in {i.replace("-", "").replace("_", "") for i in valid_icon_names}:
+                    normalized_by_id[expected_id]["icon"] = disc_default_icons[expected_id]
 
         normalized_options = [normalized_by_id[expected_id] for expected_id in expected_ids]
 
@@ -842,16 +891,16 @@ Seed Question: {blueprint['question']}
         """Get next quiz question using AI."""
         try:
             prompt = self._build_nova_question_prompt(question_number, previous_questions)
-            
+
             response = await self.chat_with_retry(
                 "quiz",
                 [{"role": "user", "content": prompt}],
-                temperature=0.7,
+                temperature=0.8,
                 max_tokens=700,
                 response_format={"type": "json_schema", "json_schema": QUIZ_QUESTION_SCHEMA},
             )
-            
-            
+
+
             content = self._coerce_content_to_text(response["choices"][0]["message"].get("content"))
             json_str = self.extract_json(content)
             parsed = self.try_parse_json(json_str)
@@ -860,9 +909,17 @@ Seed Question: {blueprint['question']}
 
             normalized = self._normalize_quiz_payload(parsed, question_number) if parsed else None
             if normalized:
-                logger.info(f"generate_quiz_next: AI Q{question_number}")
-                return normalized
-            
+                # Verify options don't look like answer labels (guard against field confusion)
+                option_labels = [opt.get("label", "") for opt in normalized.get("options", [])]
+                if any(len(l) > 80 for l in option_labels):  # DISC answer labels are ~40-60 chars
+                    logger.warning(
+                        "generate_quiz_next: options rejected — labels too long (likely answers), falling back",
+                    )
+                    normalized = None
+                else:
+                    logger.info(f"generate_quiz_next: AI Q{question_number}")
+                    return normalized
+
             # Log what we got for debugging
             parsed_question = parsed.get("question") if isinstance(parsed, dict) else None
             question_preview = parsed_question[:30] if isinstance(parsed_question, str) else None
@@ -874,14 +931,19 @@ Seed Question: {blueprint['question']}
                 options_count,
                 content_preview,
             )
-            
+
         except Exception as e:
             logger.warning(f"generate_quiz_next error: {e}")
-        
+
         return self._get_nova_fallback_question(question_number)
 
     async def generate_quiz_results(self, quiz_session: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Generate a Nova Global Profile report from the full quiz session."""
+        """Generate a Nova Global Profile report from the full quiz session.
+
+        The AI analyzes ALL 10 Q&A pairs to compute DISC percentages, then writes
+        the full profile (behavior, motivations, cognition, career projection) around
+        those computed values.
+        """
         try:
             session_payload = self._build_quiz_session_payload(quiz_session)
             session_json = json.dumps(session_payload, ensure_ascii=True, indent=2)
@@ -891,77 +953,91 @@ Seed Question: {blueprint['question']}
                 len(session_json),
             )
 
-            prompt = f"""### Instruction
-Generate a complete Nova Global Profile report from the full quiz session.
+            prompt = f"""### Task
+Analyze ALL 10 quiz Q&A pairs to build a complete Nova Global Profile.
+Step 1: Compute the user's DISC percentages from the answers.
+Step 2: Write the full profile using those DISC values as the foundation.
 
-### Nova Profile Principles
-Nova is a relational-intelligence assessment that integrates behavioral style, motivations, cognition, communication, and career fit.
-Use the complete quiz session, not any single answer, to infer the user's consistent work patterns.
-Treat the DISC colors as independent indicators and look for the strongest recurring pattern across the whole session.
+### Step 1 — DISC Analysis
+For each of the 10 questions, identify which DISC style the SELECTED ANSWER reflects:
+- RED/Dominance (D): leading, deciding fast, results, competition, challenge, taking charge
+- YELLOW/Influence (I): inspiring, persuading, socializing, entertaining, ideas, enthusiasm
+- GREEN/Steadiness (S): supporting, helping, listening, cooperating, stabilizing, sustaining
+- BLUE/Conscientiousness (C): planning, analyzing, organizing, quality, precision, expertise
 
-### Quiz Session Structure
-The data below follows the same ordered structure used by QuizScreen.tsx: questionNumber, question, selectedOption, and allOptions.
-Analyze the full sequence in order, including the wording of each question and the selected answer.
+Count answers per DISC style across ALL 10 questions (each = 10%, total = 100%).
+Dominant = highest count. Compute percentages as: (count × 10)%.
 
-### Full Quiz Session
+Example: 4 Blue, 3 Green, 2 Red, 1 Yellow → Blue=40%, Green=30%, Red=20%, Yellow=10%
+
+### Step 2 — Full Nova Profile
+Write the complete profile using the computed DISC percentages.
+
+### Quiz Session (10 Q&As — use ALL of them)
 {session_json}
 
-### Report Requirements
-- Derive the full Nova profile from the entire session
-- Reflect the dominant and secondary behavioral style
-- Explain the user's natural style and adapted style
-- Identify top motivators, demotivators, and values
-- Summarize decision style, thinking style, learning style, and communication style
-- Describe the best-fit environments, leadership style, watchouts, and future focus
-- Provide 3 to 5 development axes that are practical and specific
-- Keep the language clear, human, and evidence-based
+### Output Schema — Return ONLY valid JSON, no markdown, no code fences:
 
-### Output Format
-Return ONLY one valid JSON object in this exact schema:
 {{
+    "discAnalysis": {{
+        "red": <0 or 10 or 20 or 30 or 40 or 50 or 60 or 70 or 80 or 90 or 100>,
+        "yellow": <0-100>,
+        "green": <0-100>,
+        "blue": <0-100>,
+        "dominant": "<red|yellow|green|blue>"
+    }},
     "novaProfile": {{
-        "headline": "string",
-        "professionalIdentity": "string",
+        "headline": "<1 sentence career coaching headline tied to dominant style>",
+        "professionalIdentity": "<1 sentence work style identity>",
         "behavior": {{
-            "primaryStyle": "string",
-            "secondaryStyle": "string",
-            "traits": ["string"],
-            "discBlend": "string",
-            "discPercentages": {{"red": 0, "yellow": 0, "green": 0, "blue": 0}}
+            "primaryStyle": "<full name e.g. 'Conscientiousness (Blue)'>",
+            "secondaryStyle": "<second highest or null if dominant >= 60>",
+            "traits": ["<trait1>", "<trait2>", "<trait3>"],
+            "discBlend": "<e.g. 'R20 / Y30 / G30 / B20'>",
+            "discPercentages": {{
+                "red": <0-100>,
+                "yellow": <0-100>,
+                "green": <0-100>,
+                "blue": <0-100>
+            }}
         }},
         "styleComparison": {{
-            "naturalStyleSummary": "string",
-            "adaptedStyleSummary": "string",
-            "adaptationDrivers": ["string"],
-            "stressSignals": ["string"]
+            "naturalStyleSummary": "<2-3 sentences on how they behave when comfortable>",
+            "adaptedStyleSummary": "<2-3 sentences on how they adapt professionally>",
+            "adaptationDrivers": ["<driver1>", "<driver2>", "<driver3>"],
+            "stressSignals": ["<signal1>", "<signal2>", "<signal3>"]
         }},
         "motivations": {{
-            "topMotivators": ["string"],
-            "demotivators": ["string"],
-            "valuesSummary": "string"
+            "topMotivators": ["<what drives them most>"],
+            "demotivators": ["<what frustrates or disengages them>"],
+            "valuesSummary": "<2 sentences connecting their DISC to values>"
         }},
         "cognition": {{
-            "decisionStyle": "string",
-            "thinkingStyle": "string",
-            "learningStyle": "string",
-            "communicationStyle": "string"
+            "decisionStyle": "<how they make decisions>",
+            "thinkingStyle": "<how they approach problems and thinking>",
+            "learningStyle": "<how they prefer to learn>",
+            "communicationStyle": "<how they communicate with others>"
         }},
         "careerProjection": {{
-            "bestFitEnvironments": ["string"],
-            "leadershipStyle": "string",
-            "watchouts": ["string"],
-            "futureFocus": "string"
+            "bestFitEnvironments": ["<env1>", "<env2>", "<env3>"],
+            "leadershipStyle": "<their natural leadership approach>",
+            "watchouts": ["<behavioral watchout 1>", "<2>", "<3>"],
+            "futureFocus": "<1 sentence on career direction>"
         }},
-        "recommendedDevelopmentAxes": ["string"]
+        "recommendedDevelopmentAxes": ["<axis1>", "<axis2>", "<axis3>", "<axis4>"]
     }}
 }}
 
-### Negative Constraints
-- Do not return markdown or code fences
-- Do not add extra keys outside novaProfile
-- Do not invent unsupported evidence from the session
-- Do not collapse the report into a short DISC summary
-- Use the session order to ground the interpretation
+### Writing Rules
+- DISC percentages MUST sum to exactly 100
+- discBlend MUST match the percentages exactly (e.g. R20 / Y30 / G30 / B20)
+- Every field must be specific — reference actual question themes from the session
+- Do NOT use generic phrases like "your unique blend" or "varies by situation"
+- RED traits (high D): Decisive, Competitive, Impatient, Bold, Direct
+- YELLOW traits (high I): Enthusiastic, Persuasive, Spontaneous, Optimistic, Social
+- GREEN traits (high S): Patient, Loyal, Supportive, Calm, Consistent
+- BLUE traits (high C): Analytical, Systematic, Perfectionist, Precise, Thorough
+- Do NOT return markdown or code fences
 """
 
             logger.info(

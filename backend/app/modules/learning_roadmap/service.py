@@ -1,9 +1,11 @@
 import logging
+import os
 import uuid
 from typing import List, Dict, Any, Optional
 from app.core.database import DatabaseService
 from app.core.ai_orchestrator import AIOrchestratorService
 from app.core.cache import CacheService
+from app.core.course_search_service import CourseSearchService, get_course_search_service
 from app.modules.learning_roadmap.repository import LearningRoadmapRepository
 
 logger = logging.getLogger(__name__)
@@ -20,11 +22,14 @@ class LearningRoadmapService:
         db: DatabaseService,
         ai_orchestrator: AIOrchestratorService,
         cache_service: CacheService,
+        course_search_service: Optional[CourseSearchService] = None,
     ):
         self.db = db
         self.ai_orchestrator = ai_orchestrator
         self.cache_service = cache_service
         self.repository = LearningRoadmapRepository(db)
+        self.course_search = course_search_service or get_course_search_service()
+        self._enable_web_search = os.getenv("ENABLE_WEB_COURSE_SEARCH", "true").lower() == "true"
 
     async def generate_learning_roadmap(
         self,
@@ -72,6 +77,10 @@ class LearningRoadmapService:
                     personalized_steps = personalized.get("steps")
                     if isinstance(personalized_steps, list) and personalized_steps:
                         steps = personalized_steps
+
+            # Always search web for courses (never use DB courses for resource_title/provider/url)
+            if self._enable_web_search:
+                steps = await self._enhance_steps_with_web_search(steps)
 
             payload = {
                 "mode": "learning_roadmap_v1",
@@ -153,9 +162,9 @@ class LearningRoadmapService:
         }
 
     def _build_steps_from_skills(self, skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Build steps from skills - resource_title/provider/url filled by web search."""
         steps: List[Dict[str, Any]] = []
         for idx, skill in enumerate(skills):
-            course = (skill.get("courses") or [None])[0] if isinstance(skill.get("courses"), list) else None
             steps.append(
                 {
                     "skill_name": skill.get("name") or skill.get("title") or f"Skill {idx + 1}",
@@ -163,9 +172,9 @@ class LearningRoadmapService:
                     "difficulty": (skill.get("level") or "intermediate").lower(),
                     "estimated_duration_hours": max(1, int(skill.get("duration_hours") or 8)),
                     "prerequisites": skill.get("prerequisites") or [],
-                    "resource_title": (course or {}).get("title") if isinstance(course, dict) else None,
-                    "provider": (course or {}).get("provider") if isinstance(course, dict) else None,
-                    "source_url": (course or {}).get("url") if isinstance(course, dict) else None,
+                    "resource_title": None,
+                    "provider": None,
+                    "source_url": None,
                     "confidence_score": 0.8,
                     "order_index": idx,
                 }
@@ -229,6 +238,22 @@ class LearningRoadmapService:
             logger.error(f'Failed to fetch courses for skill {skill_id}', e)
             return []
 
+    async def _enhance_steps_with_web_search(self, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Populate resource_title, provider, source_url via web search for ALL steps."""
+        enhanced = []
+        for step in steps:
+            courses = self.course_search.search_courses(
+                step.get("skill_name", ""),
+                step.get("difficulty"),
+            )
+            if courses:
+                top = courses[0]
+                step["resource_title"] = top.get("title")
+                step["source_url"] = top.get("url")
+                step["provider"] = top.get("provider")
+            enhanced.append(step)
+        return enhanced
+
     async def save_learning_roadmap(
         self,
         user_id: str,
@@ -248,7 +273,7 @@ class LearningRoadmapService:
                 roadmap_data,
             )
         except Exception as e:
-            logger.error('Failed to save learning roadmap', e)
+            logger.error('Failed to save learning roadmap: %s', e)
             raise
 
     async def get_user_learning_roadmaps(self, user_id: str) -> List[Dict[str, Any]]:

@@ -178,7 +178,7 @@ class QuizService:
             next_q_num = q_num + 1
 
             if next_q_num > QUIZ_TOTAL_QUESTIONS:
-                logger.info('[Quiz] Quiz completed. Generating career recommendations...')
+                logger.info('[Quiz] Quiz completed. Computing Nova profile...')
 
                 full_answers = await self._build_full_answers_array(session_id, user_id)
                 disc = self._compute_disc_from_answers(full_answers)
@@ -200,7 +200,7 @@ class QuizService:
                             timeout=120,
                         )
                         if ai_results:
-                            logger.info(f'[Quiz] AI results generated successfully (attempt {attempt + 1})')
+                            logger.info(f'[Quiz] AI Nova profile generated (attempt {attempt + 1})')
                             break
                     except Exception as e:
                         logger.warning(f'[Quiz] AI results generation attempt {attempt + 1} failed: {type(e).__name__}: {e!r}')
@@ -212,9 +212,13 @@ class QuizService:
                     'interests': [],
                 })
                 ai_nova = ai_results.get('novaProfile') if ai_results and isinstance(ai_results, dict) else None
+                ai_disc = ai_results.get('discAnalysis') if ai_results and isinstance(ai_results, dict) else None
                 nova_profile = self._ensure_complete_nova_profile(ai_nova, fallback_nova)
-                nova_profile = self._enforce_deterministic_disc_on_nova_profile(nova_profile, disc)
+                # Use AI-computed DISC if available, otherwise fall back to deterministic
+                final_disc = ai_disc if isinstance(ai_disc, dict) and ai_disc.get('dominant') else disc
+                nova_profile = self._enforce_deterministic_disc_on_nova_profile(nova_profile, final_disc)
 
+                logger.info('[Quiz] Generating career recommendations from Nova profile...')
                 try:
                     careers = await asyncio.wait_for(
                         self._resolve_career_recommendations(user_id, session_id, nova_profile),
@@ -366,7 +370,7 @@ class QuizService:
                         len(full_answers),
                     )
                     ai_results = await asyncio.wait_for(
-                        self.ai_orchestrator.generate_quiz_results(full_answers),
+                        self.ai_orchestrator.generate_quiz_results(full_answers, disc),
                         timeout=120,
                     )
                     if ai_results:
@@ -396,8 +400,10 @@ class QuizService:
                 bool(ai_nova),
                 fallback_nova.get('headline'),
             )
+            ai_disc = ai_results.get('discAnalysis') if ai_results and isinstance(ai_results, dict) else None
+            final_disc = ai_disc if isinstance(ai_disc, dict) and ai_disc.get('dominant') else disc
             nova_profile = self._ensure_complete_nova_profile(ai_nova, fallback_nova)
-            nova_profile = self._enforce_deterministic_disc_on_nova_profile(nova_profile, disc)
+            nova_profile = self._enforce_deterministic_disc_on_nova_profile(nova_profile, final_disc)
             logger.info(
                 '[Quiz] get_quiz_result nova_profile ready session=%s keys=%s behavior_keys=%s',
                 session_id,

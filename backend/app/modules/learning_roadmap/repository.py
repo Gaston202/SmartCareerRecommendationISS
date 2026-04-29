@@ -40,10 +40,10 @@ class LearningRoadmapRepository:
 			"skill_count": roadmap_data.get("skill_count", 0),
 		}
 
-		result = await self.db.get_client().from_("user_learning_roadmaps").insert(payload).select().single().execute()
+		result = await self.db.get_client().from_("user_learning_roadmaps").insert(payload).execute()
 		if result.error:
 			raise result.error
-		return result.data
+		return result.data[0] if result.data else None
 
 	async def list_user_learning_roadmaps(self, user_id: str) -> List[Dict[str, Any]]:
 		result = await self.db.get_client().from_("user_learning_roadmaps").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
