@@ -33,6 +33,7 @@ import {
 } from "../features/learning-roadmap/storage";
 import type { SavedLearningRoadmap } from "../features/learning-roadmap/types";
 import { MainTopBar } from "../ui/MainTopBar";
+import { ChatbotButton, ChatbotPanel } from "../features/chatbot";
 
 // ============================================================================
 // STATE MACHINE TYPES
@@ -169,6 +170,9 @@ export default function HomeScreen(): React.ReactElement {
   // Learning Roadmap state
   const [roadmapData, setRoadmapData] = useState<SavedLearningRoadmap | null>(null);
   const [careerProgress, setCareerProgress] = useState(0);
+
+  // Chatbot state
+  const [chatbotOpen, setChatbotOpen] = useState(false);
 
   // Fetch roadmap for top matched career
   React.useEffect(() => {
@@ -914,6 +918,10 @@ export default function HomeScreen(): React.ReactElement {
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
+
+      {/* Floating Chatbot */}
+      <ChatbotButton onPress={() => setChatbotOpen(true)} />
+      <ChatbotPanel visible={chatbotOpen} onClose={() => setChatbotOpen(false)} />
     </SafeAreaView>
   );
 }

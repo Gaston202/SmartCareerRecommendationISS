@@ -71,6 +71,7 @@ const FETCH_TIMEOUT_MS = 300000; // 300 seconds
 
 export async function fetchBackend(path: string, init?: RequestInit): Promise<Response> {
   const url = buildBackendUrl(path);
+  console.log(`[fetchBackend] ${init?.method || 'GET'} ${url}`);
 
   // Add timeout using AbortController
   const controller = new AbortController();
@@ -82,6 +83,11 @@ export async function fetchBackend(path: string, init?: RequestInit): Promise<Re
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
+    console.log(`[fetchBackend] Response: ${response.status} ${response.statusText}`);
+    if (!response.ok) {
+      const text = await response.clone().text();
+      console.log(`[fetchBackend] Error body:`, text.slice(0, 500));
+    }
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
