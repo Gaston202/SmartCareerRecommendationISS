@@ -16,7 +16,7 @@ ROUTER_SYSTEM_PROMPT = """You are an intent classifier and entity extractor for 
 Analyze the user's latest message and classify it into one of these intents:
 - **greeting**: Pure greetings, hellos, hi, hey, good morning/afternoon/evening with no action request
 - **general**: Casual chat, small talk, asking what the bot can do, help request, or general questions
-- **booking**: User wants to schedule, book, or manage a mentor session. Extract date, time, mentor name, and specialty if mentioned.
+- **booking**: User wants to schedule, book, or manage a mentor session. Also includes browsing or listing available mentors. Extract date, time, mentor name, and specialty if mentioned.
 - **search**: User asks about careers, jobs, salaries, trends, skills, market data. Extract the search query/topic.
 - **user_sessions**: User asks about their own upcoming or past mentor sessions
 - **explain_feature**: User asks about app features (quiz, mentors, roadmap, careers, CV analysis)
@@ -68,6 +68,19 @@ HELP_PATTERNS = [
     re.compile(r'^help[!.]*$', re.IGNORECASE),
 ]
 
+MENTOR_BROWSE_PATTERNS = [
+    re.compile(r'list\b.*\bmentor', re.IGNORECASE),
+    re.compile(r'show\b.*\bmentor', re.IGNORECASE),
+    re.compile(r'available\b.*\bmentor', re.IGNORECASE),
+    re.compile(r'browse\b.*\bmentor', re.IGNORECASE),
+    re.compile(r'find\b.*\bmentor', re.IGNORECASE),
+    re.compile(r'get\b.*\bmentor', re.IGNORECASE),
+    re.compile(r'who\b.*\bmentor', re.IGNORECASE),
+    re.compile(r'which\b.*\bmentor', re.IGNORECASE),
+    re.compile(r'any\b.*\bmentor', re.IGNORECASE),
+    re.compile(r'all\b.*\bmentor', re.IGNORECASE),
+]
+
 BOOKING_MULTI_WORD = [
     re.compile(r'book a session', re.IGNORECASE),
     re.compile(r'schedule (a |an )?(session|appointment|meeting|call)', re.IGNORECASE),
@@ -112,8 +125,7 @@ def _resolve_date(date_str: Optional[str]) -> Optional[str]:
     if lower in day_map:
         target = day_map[lower]
         days_ahead = (target - today.weekday()) % 7
-        if days_ahead == 0:
-            days_ahead = 7
+        # If today is the requested weekday, return today (not next week)
         return (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
 
     if re.match(r"\d{4}-\d{2}-\d{2}", date_str):
@@ -244,10 +256,12 @@ def _keyword_route(content: str, state: Dict[str, Any]) -> Dict[str, Any]:
     2. Compound greeting + action → action intent with compound_greeting flag
     3. Pure greetings → GREETING
     4. Help requests → HELP
-    5. Multi-word booking patterns → BOOKING
-    6. Confirmation keywords → CONFIRMATION
-    7. Search patterns → SEARCH
-    8. Default → GENERAL
+    5. Mentor browsing / listing → BOOKING
+    6. Multi-word booking patterns → BOOKING
+    7. Single booking keywords → BOOKING
+    8. Confirmation keywords → CONFIRMATION
+    9. Search patterns → SEARCH
+    10. Default → GENERAL
     """
     content_lower = content.lower()
 
@@ -269,25 +283,30 @@ def _keyword_route(content: str, state: Dict[str, Any]) -> Dict[str, Any]:
         if pattern.search(content_lower):
             return {"current_intent": Intent.HELP, "booking_data": None, "compound_greeting": False}
 
-    # Tier 5: Multi-word booking patterns
+    # Tier 5: Mentor browsing / listing (no date needed)
+    for pattern in MENTOR_BROWSE_PATTERNS:
+        if pattern.search(content_lower):
+            return {"current_intent": Intent.BOOKING, "booking_data": None, "compound_greeting": False}
+
+    # Tier 6: Multi-word booking patterns
     for pattern in BOOKING_MULTI_WORD:
         if pattern.search(content_lower):
             return {"current_intent": Intent.BOOKING, "booking_data": None, "compound_greeting": False}
 
-    # Tier 6: Single booking keywords (contextual)
+    # Tier 7: Single booking keywords (contextual)
     booking_singles = {"book", "schedule", "mentor", "appointment", "session", "available"}
     words = set(content_lower.split())
     if words & booking_singles:
         return {"current_intent": Intent.BOOKING, "booking_data": None, "compound_greeting": False}
 
-    # Tier 7: Confirmation keywords (with word boundaries)
+    # Tier 8: Confirmation keywords (with word boundaries)
     confirmation_words = ["yes", "confirm", "ok", "okay", "sure", "go ahead", "do it",
                           "book it", "proceed", "correct", "right", "that's right", "exactly"]
     for keyword in confirmation_words:
         if re.search(r'\b' + re.escape(keyword) + r'\b', content_lower):
             return {"current_intent": Intent.CONFIRMATION, "booking_data": None, "compound_greeting": False}
 
-    # Tier 8: Search / career info patterns
+    # Tier 9: Search / career info patterns
     search_keywords = [
         "what", "how", "why", "who", "where", "when", "tell me about",
         "explain", "search", "find", "look up", "salary", "jobs",

@@ -9,8 +9,6 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
-  TouchableWithoutFeedback,
-  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useChatbot } from './hooks';
@@ -61,83 +59,82 @@ export function ChatbotPanel({ visible, onClose }: ChatbotPanelProps) {
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.overlay}
-        >
-          <View style={styles.container}>
-            {/* Header */}
-            <View style={styles.header}>
-              <View style={styles.headerLeft}>
-                <Ionicons name="chatbubbles" size={20} color={homeColors.onPrimary} />
-                <Text style={styles.headerTitle}>Career Assistant</Text>
-              </View>
-              <View style={styles.headerActions}>
-                <Pressable onPress={resetConversation} style={styles.headerBtn}>
-                  <Ionicons name="refresh" size={18} color="rgba(255,255,255,0.8)" />
-                </Pressable>
-                <Pressable onPress={onClose} style={styles.headerBtn}>
-                  <Ionicons name="close" size={22} color="rgba(255,255,255,0.8)" />
-                </Pressable>
-              </View>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.overlay}
+      >
+        <View style={styles.container}>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <Ionicons name="chatbubbles" size={20} color={homeColors.onPrimary} />
+              <Text style={styles.headerTitle}>Career Assistant</Text>
             </View>
-
-            {/* Messages */}
-            <ScrollView
-              ref={scrollViewRef}
-              style={styles.messagesContainer}
-              contentContainerStyle={styles.messagesContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              {messages.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <Ionicons name="chatbubble-ellipses" size={48} color={homeColors.primaryLight} />
-                  <Text style={styles.emptyTitle}>How can I help you?</Text>
-                  <Text style={styles.emptySubtitle}>
-                    Ask me about careers, mentor bookings, or skill recommendations.
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  {messages.map((message) => (
-                    <MessageBubble key={message.id} message={message} />
-                  ))}
-                  {isLoading && <LoadingBubble />}
-                </>
-              )}
-            </ScrollView>
-
-            {/* Input */}
-            <View style={styles.inputContainer}>
-              <TextInput
-                ref={inputRef}
-                style={styles.input}
-                value={inputValue}
-                onChangeText={setInputValue}
-                placeholder="Type a message..."
-                placeholderTextColor={homeColors.textLight}
-                multiline={false}
-                returnKeyType="send"
-                onSubmitEditing={handleSubmit}
-                blurOnSubmit={false}
-                editable={!isLoading}
-              />
-              <Pressable
-                onPress={handleSubmit}
-                disabled={!inputValue.trim() || isLoading}
-                style={({ pressed }) => [
-                  styles.sendButton,
-                  (!inputValue.trim() || isLoading) && styles.sendButtonDisabled,
-                  pressed && styles.sendButtonPressed,
-                ]}
-              >
-                <Ionicons name="send" size={18} color={homeColors.onPrimary} />
+            <View style={styles.headerActions}>
+              <Pressable onPress={resetConversation} style={styles.headerBtn}>
+                <Ionicons name="refresh" size={18} color="rgba(255,255,255,0.8)" />
+              </Pressable>
+              <Pressable onPress={onClose} style={styles.headerBtn}>
+                <Ionicons name="close" size={22} color="rgba(255,255,255,0.8)" />
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </TouchableWithoutFeedback>
+
+          {/* Messages */}
+          <ScrollView
+            ref={scrollViewRef}
+            style={styles.messagesContainer}
+            contentContainerStyle={styles.messagesContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            {messages.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="chatbubble-ellipses" size={48} color={homeColors.primaryLight} />
+                <Text style={styles.emptyTitle}>How can I help you?</Text>
+                <Text style={styles.emptySubtitle}>
+                  Ask me about careers, mentor bookings, or skill recommendations.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {messages.map((message) => (
+                  <MessageBubble key={message.id} message={message} />
+                ))}
+                {isLoading && <LoadingBubble />}
+              </>
+            )}
+          </ScrollView>
+
+          {/* Input */}
+          <View style={styles.inputContainer}>
+            <TextInput
+              ref={inputRef}
+              style={styles.input}
+              value={inputValue}
+              onChangeText={setInputValue}
+              placeholder="Type a message..."
+              placeholderTextColor={homeColors.textLight}
+              multiline={false}
+              returnKeyType="send"
+              onSubmitEditing={handleSubmit}
+              blurOnSubmit={false}
+              editable={!isLoading}
+            />
+            <Pressable
+              onPress={handleSubmit}
+              disabled={!inputValue.trim() || isLoading}
+              style={({ pressed }) => [
+                styles.sendButton,
+                (!inputValue.trim() || isLoading) && styles.sendButtonDisabled,
+                pressed && styles.sendButtonPressed,
+              ]}
+            >
+              <Ionicons name="send" size={18} color={homeColors.onPrimary} />
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

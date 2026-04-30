@@ -153,7 +153,14 @@ async def booking_clarify_node(state: Dict[str, Any], orchestrator: Optional[AIO
         if extracted.get("time"):
             booking_data.preferred_time = extracted["time"]
         if extracted.get("mentor_name"):
-            booking_data.mentor_name = booking_data.mentor_name or extracted["mentor_name"]
+            booking_data.mentor_name = extracted["mentor_name"]
+            # Resolve mentor name to ID immediately
+            from app.agents.chatbot.tools.booking import find_mentor_by_name
+            resolved = await find_mentor_by_name.ainvoke({"name": extracted["mentor_name"]})
+            if resolved.get("found"):
+                mentor = resolved["mentor"]
+                booking_data.mentor_id = mentor.get("id")
+                booking_data.mentor_name = mentor.get("name", booking_data.mentor_name)
 
         if is_compound and not response_text.lower().startswith(("hello", "hi ", "hey", "greetings", "good ")):
             response_text = f"Hello! {response_text}"
@@ -236,7 +243,7 @@ If all details present → "ready_to_book"
     return None
 
 
-def booking_availability_node(state: Dict[str, Any]) -> Dict[str, Any]:
+async def booking_availability_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Phase 2: Query Supabase for real mentor availability. Zero LLM calls.
 
     - If mentor_id + date known: check that mentor's slots
@@ -246,12 +253,20 @@ def booking_availability_node(state: Dict[str, Any]) -> Dict[str, Any]:
     user_message = _get_last_user_message(state)
 
     try:
-        from app.agents.chatbot.tools.booking import check_mentor_availability, get_available_mentors
+        from app.agents.chatbot.tools.booking import check_mentor_availability, get_available_mentors, find_mentor_by_name
+
+        # Resolve mentor name to ID if missing
+        if not booking_data.mentor_id and booking_data.mentor_name:
+            resolved = await find_mentor_by_name.ainvoke({"name": booking_data.mentor_name})
+            if resolved.get("found"):
+                mentor = resolved["mentor"]
+                booking_data.mentor_id = mentor.get("id")
+                booking_data.mentor_name = mentor.get("name", booking_data.mentor_name)
 
         response_text = ""
 
         if booking_data.mentor_id and booking_data.preferred_date:
-            result = check_mentor_availability.invoke({
+            result = await check_mentor_availability.ainvoke({
                 "mentor_id": booking_data.mentor_id,
                 "date": booking_data.preferred_date,
                 "duration_minutes": booking_data.duration_minutes,
@@ -280,7 +295,7 @@ def booking_availability_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
         else:
             date_to_check = booking_data.preferred_date
-            result = get_available_mentors.invoke({
+            result = await get_available_mentors.ainvoke({
                 "date": date_to_check,
                 "limit": 5,
             })
@@ -328,7 +343,7 @@ def booking_availability_node(state: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
-def booking_execute_node(state: Dict[str, Any]) -> Dict[str, Any]:
+async def booking_execute_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Phase 3: Execute the booking. Validates fields, calls book_mentor_session.
 
     Returns success with session_id or error prompting retry.
@@ -337,9 +352,17 @@ def booking_execute_node(state: Dict[str, Any]) -> Dict[str, Any]:
     user_id = state.get("user_id", "unknown")
 
     try:
-        from app.agents.chatbot.tools.booking import book_mentor_session
+        from app.agents.chatbot.tools.booking import book_mentor_session, find_mentor_by_name
 
-        if not booking_data.mentor_id and not booking_data.mentor_name:
+        # Resolve mentor name to ID if needed
+        if not booking_data.mentor_id and booking_data.mentor_name:
+            resolved = await find_mentor_by_name.ainvoke({"name": booking_data.mentor_name})
+            if resolved.get("found"):
+                mentor = resolved["mentor"]
+                booking_data.mentor_id = mentor.get("id")
+                booking_data.mentor_name = mentor.get("name", booking_data.mentor_name)
+
+        if not booking_data.mentor_id:
             return {
                 "messages": [AIMessage(content="I need to know which mentor you'd like to book. Could you tell me their name?")],
                 "booking_data": booking_data,
@@ -367,8 +390,8 @@ def booking_execute_node(state: Dict[str, Any]) -> Dict[str, Any]:
             }
 
         mentor_name = booking_data.mentor_name or "your mentor"
-        result = book_mentor_session.invoke({
-            "mentor_id": booking_data.mentor_id or "",
+        result = await book_mentor_session.ainvoke({
+            "mentor_id": booking_data.mentor_id,
             "user_id": user_id,
             "date": booking_data.preferred_date,
             "time": booking_data.preferred_time,
@@ -379,13 +402,13 @@ def booking_execute_node(state: Dict[str, Any]) -> Dict[str, Any]:
         if result.get("success"):
             booking_data.confirmed = True
             booking_data.stage = "completed"
-            session_id = result.get("session_id", "")
+            booking_data.session_id = result.get("session_id", "")
             response_text = (
                 f"Your session with {mentor_name} is confirmed!\n\n"
                 f"Date: {booking_data.preferred_date}\n"
                 f"Time: {booking_data.preferred_time}\n"
                 f"Duration: {booking_data.duration_minutes} minutes\n"
-                f"Session ID: {session_id}\n\n"
+                f"Session ID: {booking_data.session_id}\n\n"
                 f"Is there anything else I can help with?"
             )
             return {

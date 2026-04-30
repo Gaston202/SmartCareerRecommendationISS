@@ -16,3 +16,4 @@ DATABASE_SCHEMA.md
 venv
 __pycache__/
 *.pyc
+.mypy_cache

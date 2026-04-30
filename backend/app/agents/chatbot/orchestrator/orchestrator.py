@@ -286,6 +286,8 @@ class ChatbotOrchestrator:
         if result.get("confirmed") and booking_data:
             if hasattr(booking_data, 'session_id'):
                 booking_session_id = booking_data.session_id
+            elif isinstance(booking_data, dict):
+                booking_session_id = booking_data.get("session_id")
 
         search_data = result.get("search_data") or {}
         return ChatResponse(

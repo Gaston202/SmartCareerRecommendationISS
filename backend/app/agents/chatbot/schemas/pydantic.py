@@ -85,6 +85,7 @@ class BookingContext(BaseModel):
     confirmed: bool = False
     stage: str = "clarification"
     attempts: int = 0
+    session_id: Optional[str] = None
 
 
 class SearchContext(BaseModel):

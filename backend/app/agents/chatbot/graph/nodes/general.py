@@ -107,7 +107,7 @@ def fallback_node(state: dict) -> dict:
     }
 
 
-def user_sessions_node(state: dict) -> dict:
+async def user_sessions_node(state: dict) -> dict:
     """
     Display user's upcoming mentor sessions.
 
@@ -123,7 +123,7 @@ def user_sessions_node(state: dict) -> dict:
 
     from app.agents.chatbot.tools.booking import get_user_sessions
 
-    result = get_user_sessions.invoke({"user_id": user_id, "status": "scheduled"})
+    result = await get_user_sessions.ainvoke({"user_id": user_id, "status": "scheduled"})
 
     sessions = result.get("sessions", [])
 

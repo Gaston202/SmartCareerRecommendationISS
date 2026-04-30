@@ -1,5 +1,6 @@
 """QA and search nodes for the chatbot, now with LLM answer synthesis."""
 import logging
+import re
 from typing import Dict, Any, Optional
 from langchain_core.messages import AIMessage
 
@@ -27,12 +28,16 @@ def search_node(state: dict) -> dict:
     trend_keywords = ["trend", "demand", "in-demand", "most wanted", "popular"]
     salary_keywords = ["salary", "pay", "compensation", "earning"]
 
-    if any(kw in content.lower() for kw in career_keywords + trend_keywords):
-        query = f"{content} 2026"
-    elif any(kw in content.lower() for kw in salary_keywords):
-        query = f"{content} 2026"
-    elif "?" not in content and len(content.split()) < 5:
-        query = f"{content} 2026 information"
+    # Only append year if user didn't already include one
+    has_year = bool(re.search(r"\b20\d{2}\b", content))
+
+    if not has_year:
+        if any(kw in content.lower() for kw in career_keywords + trend_keywords):
+            query = f"{content} 2026"
+        elif any(kw in content.lower() for kw in salary_keywords):
+            query = f"{content} 2026"
+        elif "?" not in content and len(content.split()) < 5:
+            query = f"{content} 2026 information"
 
     result = web_search.invoke({"query": query, "max_results": 5})
 
