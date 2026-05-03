@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from typing import Dict, Any
+from app.ingestion.pipeline import run_ingestion
 from app.modules.roadmap.service import RoadmapService
 from app.modules.roadmap.schemas import (
     GenerateRoadmapRequest,
     PlanRoadmapRequest,
     PlannedRoadmapResponse,
+    RefreshProviderRequest,
+    SearchResourcesRequest,
 )
 from app.core.database import DatabaseService
 from app.core.ai_orchestrator import AIOrchestratorService
@@ -42,7 +45,7 @@ async def generate_roadmap(
     """
     try:
         # Note: user_id should come from auth
-        user_id = "test-user"  # Should come from auth dependency
+        user_id = None  # Should come from auth dependency when auth is wired in
         
         if request.use_async:
             result = await roadmap_service.generate_roadmap_async(
@@ -82,94 +85,80 @@ async def plan_roadmap(
     Equivalent to NestJS RoadmapController.planRoadmap.
     """
     try:
-        # Note: user_id should come from auth
-        user_id = "test-user"  # Should come from auth dependency
-        
-        # For now, use the legacy roadmap as fallback since RAG planner is not yet implemented
-        # This returns a basic plan based on the career template
-        roadmap = await roadmap_service.get_or_generate_roadmap(
-            user_id,
-            request.career_id or "",
-            request.user_profile,
+        user_profile = request.user_profile or {}
+        user_skills = list(
+            dict.fromkeys(
+                (request.user_skills or [])
+                + (user_profile.get("skills") or [])
+                + (user_profile.get("declared_skills") or [])
+                + (user_profile.get("cv_extracted_skills") or [])
+            )
         )
-        
-        # Convert roadmap to planned response format
-        steps = []
-        for idx, milestone in enumerate(roadmap.get("milestones", [])):
-            for task in milestone.get("tasks", []):
-                steps.append({
-                    "skill_name": task.get("title", "Skill"),
-                    "why_it_matters": task.get("description", "This skill is important for this career path."),
-                    "difficulty": "intermediate",
-                    "estimated_duration_hours": task.get("estimated_hours", 20),
-                    "prerequisites": task.get("dependencies", []),
-                    "resource_id": None,
-                    "resource_title": None,
-                    "resource_type": None,
-                    "free_or_paid": None,
-                    "language": None,
-                    "level": None,
-                    "provider": None,
-                    "source_url": None,
-                    "confidence_score": 0.7,
-                    "order_index": idx,
-                    "primary_resource": None,
-                    "backup_resources": [],
-                    "evidence_reasons": ["Based on career roadmap template"],
-                })
-        
-        # If no steps from template, create a basic plan
-        if not steps:
-            steps = [{
-                "skill_name": "Introduction to Career",
-                "why_it_matters": "Foundational knowledge for starting this career path.",
-                "difficulty": "beginner",
-                "estimated_duration_hours": 20,
-                "prerequisites": [],
-                "resource_id": None,
-                "resource_title": None,
-                "resource_type": None,
-                "free_or_paid": None,
-                "language": None,
-                "level": None,
-                "provider": None,
-                "source_url": None,
-                "confidence_score": 0.5,
-                "order_index": 0,
-                "primary_resource": None,
-                "backup_resources": [],
-                "evidence_reasons": ["Basic career introduction"],
-            }]
-        
-        return PlannedRoadmapResponse(
-            success=True,
-            mode="stored_kb_v1",
-            target_role=request.target_role or roadmap.get("title", "Career"),
-            career_id=request.career_id,
-            confidence=0.7,
-            weak_evidence=True,
-            message="insufficient reliable sources for some steps",
-            steps=steps,
-            diagnostics={
-                "totalCandidates": len(steps),
-                "poolSize": len(steps),
-                "coverageBySkill": {step["skill_name"]: step["confidence_score"] for step in steps},
-            },
-            metadata={
-                "required_skills": [],
-                "existing_skills": request.user_profile.get("skills", []) if request.user_profile else [],
-                "missing_skills": [step["skill_name"] for step in steps],
-                "evidence_summary": {
-                    "strong_steps": 0,
-                    "weak_steps": len(steps),
-                    "source_count": 0,
-                },
-            },
+        target_role = request.target_role or user_profile.get("selected_role") or request.career_id or "Career"
+
+        return await roadmap_service.build_roadmap(
+            user_skills=user_skills,
+            target_role=target_role,
+            max_steps=request.max_steps or 8,
         )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate roadmap plan: {str(e)}",
+        )
+
+
+@router.post("/resources/search")
+async def search_resources(
+    request: SearchResourcesRequest,
+    roadmap_service: RoadmapService = Depends(get_roadmap_service),
+) -> Dict[str, Any]:
+    """Hybrid retrieval across roadmap resources."""
+    try:
+        return await roadmap_service.search_resources(request.query, request.top_k)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to search roadmap resources: {str(e)}",
+        )
+
+
+@router.post("/refresh-provider")
+async def refresh_provider(
+    request: RefreshProviderRequest,
+    background_tasks: BackgroundTasks,
+    roadmap_service: RoadmapService = Depends(get_roadmap_service),
+) -> Dict[str, Any]:
+    """Request ingestion refresh for a trusted provider."""
+    try:
+        user_id = None  # Should come from auth dependency when auth is wired in
+        filters = request.filters or {}
+        urls = list(filters.get("urls") or [])
+        if request.url:
+            urls.append(request.url)
+        if request.urls:
+            urls.extend(request.urls)
+        if urls:
+            filters["urls"] = list(dict.fromkeys(urls))
+
+        result = await roadmap_service.request_provider_refresh(
+            user_id=user_id,
+            provider=request.provider,
+            mode=request.mode,
+            reason=request.reason,
+            filters=filters,
+        )
+        if result.get("id"):
+            background_tasks.add_task(run_ingestion, result["id"])
+        return {
+            "success": True,
+            "data": result,
+            "message": "Refresh request queued",
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to queue provider refresh: {str(e)}",
         )
 
 

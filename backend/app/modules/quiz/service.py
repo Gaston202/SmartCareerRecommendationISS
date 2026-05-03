@@ -464,6 +464,15 @@ class QuizService:
     def _compute_disc_from_answers(self, answers: List[Dict[str, Any]]) -> Dict[str, int]:
         """Compute DISC percentages from quiz answers using keyword signals and mapping."""
         colors = ['red', 'blue', 'green', 'yellow']
+        if not answers:
+            return {
+                'red': 0,
+                'blue': 0,
+                'green': 0,
+                'yellow': 0,
+                'dominant': 'blue',
+            }
+
         raw = {c: 0 for c in colors}
 
         keyword_sets = {

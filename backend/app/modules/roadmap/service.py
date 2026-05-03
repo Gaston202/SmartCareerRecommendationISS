@@ -1,4 +1,5 @@
 import logging
+import json
 import uuid
 from typing import Dict, Any, List, Optional
 from app.core.database import DatabaseService
@@ -6,6 +7,12 @@ from app.core.ai_orchestrator import AIOrchestratorService
 from app.core.queue import QueueService
 from app.core.cache import CacheService
 from app.core.config import settings
+from app.modules.roadmap.badges import build_resource_presentation
+from app.modules.roadmap.evidence import RoadmapEvidenceService
+from app.modules.roadmap.retrieval import RoadmapRetrievalService
+from app.modules.roadmap.schemas import PlannedRoadmapResponse, ResourceResult, RoadmapStep
+from app.modules.roadmap.skill_gap import SkillGapService
+from app.modules.roadmap.web_search import RoadmapWebSearchService
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +34,156 @@ class RoadmapService:
         self.ai_orchestrator = ai_orchestrator
         self.queue_service = queue_service
         self.cache_service = cache_service
+        self.skill_gap = SkillGapService(db)
+        self.retrieval = RoadmapRetrievalService(db)
+        self.evidence = RoadmapEvidenceService(db)
+        self.web_search = RoadmapWebSearchService()
+
+    async def build_roadmap(
+        self,
+        user_skills: List[str],
+        target_role: str,
+        max_steps: int = 8,
+    ) -> PlannedRoadmapResponse:
+        """
+        Build a stored-knowledge RAG roadmap from user skill gaps and retrieved evidence.
+        """
+        cache_key = f"roadmap:rag:v2:{target_role}:{','.join(sorted(user_skills))}:{max_steps}"
+        cached = await self.cache_service.get(cache_key)
+        if cached:
+            return PlannedRoadmapResponse(**cached)
+
+        gaps = await self.skill_gap.compute_gap(user_skills, target_role)
+        shortlisted = gaps[: max(1, max_steps)]
+        steps: List[RoadmapStep] = []
+        source_urls = set()
+        weak_steps = 0
+
+        for index, gap in enumerate(shortlisted):
+            resources = await self.retrieval.search_resources(gap.canonical_name, top_k=10)
+            evidence = await self.evidence.score_evidence(gap.canonical_name, resources)
+            fallback_results = []
+
+            if evidence.confidence == "low" and evidence.needs_web_fallback:
+                fallback_results = await self.web_search.fallback_search(gap.canonical_name)
+
+            primary = evidence.primary_resource
+            if not primary and fallback_results:
+                web_resource = fallback_results[0]
+                primary = {
+                    "resource_id": web_resource.get("source_url") or f"web-{index}",
+                    "title": web_resource.get("title"),
+                    "provider": web_resource.get("provider"),
+                    "source_url": web_resource.get("source_url"),
+                    "score": web_resource.get("score") or 0.4,
+                    "why_selected": "Selected from web fallback because stored evidence was weak.",
+                }
+
+            if evidence.confidence == "low":
+                weak_steps += 1
+
+            primary_dict = primary.model_dump() if hasattr(primary, "model_dump") else primary
+            backup_dicts = [item.model_dump() for item in evidence.backup_resources]
+            if fallback_results:
+                backup_dicts.extend(fallback_results[1:7])
+
+            primary_dict = self._with_resource_presentation(gap.canonical_name, resources, primary_dict)
+            backup_dicts = [
+                self._with_resource_presentation(gap.canonical_name, resources, backup)
+                for backup in backup_dicts
+            ]
+
+            source_url = primary_dict.get("source_url") if primary_dict else None
+            if source_url:
+                source_urls.add(source_url)
+
+            steps.append(
+                RoadmapStep(
+                    skill_name=gap.skill_name,
+                    why_it_matters=self._why_skill_matters(gap.skill_name, target_role),
+                    difficulty=gap.difficulty,
+                    estimated_duration_hours=gap.estimated_duration_hours,
+                    prerequisites=gap.prerequisites,
+                    resource_id=primary_dict.get("resource_id") if primary_dict else None,
+                    resource_title=primary_dict.get("title") if primary_dict else None,
+                    resource_type=self._lookup_resource_meta(resources, primary_dict, "resource_type"),
+                    free_or_paid=self._lookup_resource_meta(resources, primary_dict, "free_or_paid"),
+                    language=self._lookup_resource_meta(resources, primary_dict, "language"),
+                    level=self._lookup_resource_meta(resources, primary_dict, "level"),
+                    provider=primary_dict.get("provider") if primary_dict else None,
+                    source_url=source_url,
+                    confidence_score=evidence.score,
+                    order_index=index,
+                    primary_resource=primary_dict,
+                    backup_resources=backup_dicts,
+                    evidence_reasons=evidence.reasons,
+                )
+            )
+
+        confidence = round(
+            sum(step.confidence_score for step in steps) / max(len(steps), 1),
+            4,
+        )
+        strong_steps = len(steps) - weak_steps
+
+        response = PlannedRoadmapResponse(
+            success=True,
+            mode="stored_kb_v1",
+            target_role=target_role,
+            career_id=None,
+            confidence=confidence,
+            weak_evidence=weak_steps > len(steps) / 2 if steps else True,
+            message="insufficient reliable sources for some steps" if weak_steps else None,
+            steps=steps,
+            diagnostics={
+                "totalCandidates": len(steps),
+                "poolSize": len(source_urls),
+                "coverageBySkill": {step.skill_name: step.confidence_score for step in steps},
+            },
+            metadata={
+                "required_skills": [gap.skill_name for gap in gaps],
+                "existing_skills": user_skills,
+                "missing_skills": [gap.skill_name for gap in shortlisted],
+                "evidence_summary": {
+                    "strong_steps": strong_steps,
+                    "weak_steps": weak_steps,
+                    "source_count": len(source_urls),
+                },
+            },
+        )
+        await self.cache_service.set(cache_key, response.model_dump(), 86400)
+        return response
+
+    async def search_resources(self, query: str, top_k: int = 5) -> Dict[str, Any]:
+        resources = await self.retrieval.search_resources(query, top_k=top_k)
+        confidence = resources[0].final_score if resources else 0
+        return {
+            "success": True,
+            "resources": resources,
+            "confidence": confidence,
+            "weak_evidence": confidence <= 0.4,
+        }
+
+    async def request_provider_refresh(
+        self,
+        user_id: Optional[str],
+        provider: str,
+        mode: str = "on_demand_refresh",
+        reason: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        result = await self.db.get_client().from_("ingestion_jobs").insert(
+            {
+                "provider": provider,
+                "job_type": mode,
+                "status": "pending",
+                "requested_by": user_id,
+                "trigger_reason": reason or "manual refresh request",
+                "filters": filters or {},
+            }
+        ).execute()
+        rows = result.data or []
+        return rows[0] if rows else {}
 
     async def get_or_generate_roadmap(
         self,
@@ -89,6 +246,60 @@ class RoadmapService:
         except Exception as e:
             logger.error('Failed to get/generate roadmap', e)
             raise
+
+    def _why_skill_matters(self, skill_name: str, target_role: str) -> str:
+        return f"{skill_name} supports practical readiness for {target_role} and helps close a role-specific skill gap."
+
+    def _lookup_resource_meta(
+        self,
+        resources: List[ResourceResult],
+        primary: Optional[dict],
+        key: str,
+    ) -> Any:
+        if not primary:
+            return None
+        resource_id = primary.get("resource_id")
+        for resource in resources:
+            if resource.resource_id == resource_id:
+                return getattr(resource, key, None)
+        return primary.get(key)
+
+    def _with_resource_presentation(
+        self,
+        skill: str,
+        resources: List[ResourceResult],
+        resource: Optional[dict],
+    ) -> Optional[dict]:
+        if not resource:
+            return None
+
+        enriched = dict(resource)
+        for key in ("resource_type", "free_or_paid", "language", "level"):
+            if enriched.get(key) is None:
+                enriched[key] = self._lookup_resource_meta(resources, enriched, key)
+
+        presentation = build_resource_presentation(skill, enriched)
+        enriched["display_badges"] = presentation.display_badges or None
+        enriched["recommendation_reason"] = presentation.recommendation_reason
+        return enriched
+
+
+async def build_roadmap(
+    user_skills: List[str],
+    target_role: str,
+    db: Optional[DatabaseService] = None,
+    ai_orchestrator: Optional[AIOrchestratorService] = None,
+    queue_service: Optional[QueueService] = None,
+    cache_service: Optional[CacheService] = None,
+) -> PlannedRoadmapResponse:
+    """
+    Convenience module-level export for smoke tests and scripts.
+    FastAPI routes should keep using RoadmapService via dependency injection.
+    """
+    db = db or await DatabaseService.create()
+    cache_service = cache_service or CacheService()
+    service = RoadmapService(db, ai_orchestrator, queue_service, cache_service)
+    return await service.build_roadmap(user_skills, target_role)
 
     async def generate_roadmap_async(
         self,

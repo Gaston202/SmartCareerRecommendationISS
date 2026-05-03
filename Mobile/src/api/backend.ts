@@ -12,10 +12,10 @@ export function getBackendApiBaseUrl(): string {
 
   // Expo/Android emulator cannot reach host localhost directly.
   if (Platform.OS === "android") {
-    return "http://10.0.2.2:3000/api/v1";
+    return "http://10.0.2.2:8000/api/v1";
   }
 
-  return "http://localhost:3000/api/v1";
+  return "http://localhost:8000/api/v1";
 }
 
 function buildBackendUrl(path: string): string {
@@ -61,7 +61,7 @@ function getBackendTimeoutMessage(url: string, timeoutMs: number): string {
   return (
     `Request timed out after ${timeoutMs / 1000}s while waiting for ${url}. ` +
     `The backend may be slow, unavailable, or configured on a different port. ` +
-    `If you are using the FastAPI backend in this repo, it runs on :3000 by default.`
+    `If you are using the FastAPI backend in this repo, it runs on :8000 by default.`
   );
 }
 

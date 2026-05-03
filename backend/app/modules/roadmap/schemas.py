@@ -91,6 +91,7 @@ class RoadmapSequenceConstraint(BaseModel):
 class PlanRoadmapRequest(BaseModel):
     career_id: Optional[str] = None
     target_role: Optional[str] = None
+    user_skills: Optional[List[str]] = None
     max_steps: Optional[int] = 8
     filters: Optional[RoadmapResourceFilters] = None
     sequence_constraints: Optional[List[RoadmapSequenceConstraint]] = None
@@ -129,3 +130,96 @@ class PlannedRoadmapResponse(BaseModel):
     steps: List[RoadmapStep]
     diagnostics: Optional[dict] = None
     metadata: Optional[dict] = None
+
+
+class SkillGap(BaseModel):
+    skill_name: str
+    canonical_name: str
+    difficulty: RoadmapLevel = "beginner"
+    estimated_duration_hours: int = 18
+    prerequisites: List[str] = []
+    priority: int = 0
+    description: Optional[str] = None
+
+
+class ResourceResult(BaseModel):
+    resource_id: str
+    title: str
+    provider: Optional[str] = None
+    source_url: Optional[str] = None
+    resource_type: Optional[str] = None
+    free_or_paid: Optional[str] = None
+    language: Optional[str] = "en"
+    level: Optional[RoadmapLevel] = None
+    keyword_score: float = 0.0
+    vector_score: float = 0.0
+    final_score: float = 0.0
+    matched_skill_tags: List[str] = []
+    chunk_text: Optional[str] = None
+
+
+class EvidenceResource(BaseModel):
+    resource_id: str
+    title: str
+    provider: Optional[str] = None
+    source_url: Optional[str] = None
+    score: float
+    why_selected: str
+    display_badges: Optional[List[str]] = None
+    recommendation_reason: Optional[str] = None
+
+
+class EvidenceResult(BaseModel):
+    skill: str
+    primary_resource: Optional[EvidenceResource] = None
+    backup_resources: List[EvidenceResource] = []
+    score: float = 0.0
+    confidence: Literal["high", "medium", "low"] = "low"
+    needs_web_fallback: bool = False
+    reasons: List[str] = []
+
+
+class SearchResourcesRequest(BaseModel):
+    query: str
+    top_k: int = 5
+    filters: Optional[RoadmapResourceFilters] = None
+
+
+class SearchResourcesResponse(BaseModel):
+    success: bool = True
+    resources: List[ResourceResult]
+    confidence: float
+    weak_evidence: bool
+
+
+class RefreshProviderRequest(BaseModel):
+    provider: str
+    url: Optional[str] = None
+    urls: Optional[List[str]] = None
+    mode: str = "on_demand_refresh"
+    reason: Optional[str] = None
+    filters: Optional[dict] = None
+
+
+class RefreshProviderResponse(BaseModel):
+    success: bool = True
+    data: dict
+    message: str = "Refresh request queued"
+
+
+class ResourceSchema(BaseModel):
+    provider: str
+    provider_resource_id: Optional[str] = None
+    title: str
+    description: Optional[str] = None
+    source_url: str
+    resource_type: str = "article"
+    language: str = "en"
+    level: Optional[RoadmapLevel] = None
+    free_or_paid: str = "free"
+    duration_hours: Optional[int] = None
+    certificate: bool = False
+    skill_tags: List[str] = []
+    target_roles: List[str] = []
+    content: str = ""
+    metadata: dict = {}

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     openrouter_url: str = "https://openrouter.ai/api/v1/chat/completions"
     openrouter_embeddings_url: str = "https://openrouter.ai/api/v1/embeddings"
     openrouter_timeout_seconds: float = 90.0
+    roadmap_embedding_model: str = "openai/text-embedding-3-small"
 
     cv_ai_timeout_seconds: int = 120
 
