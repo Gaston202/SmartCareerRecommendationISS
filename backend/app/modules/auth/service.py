@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 from typing import Dict, Any, Optional
 from app.core.database import DatabaseService
@@ -83,7 +84,7 @@ class AuthService:
             upsert_data = {
                 'user_id': user_id,
                 **profile_data,
-                'updated_at': 'now()',  # Supabase will handle the timestamp
+                'updated_at': datetime.utcnow().isoformat(),  # Supabase will handle the timestamp
             }
 
             response = await self.db.get_client().from_('user_profiles').upsert(upsert_data).select().single().execute()

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -120,6 +120,23 @@ const MentorGroupChatsStack = createNativeStackNavigator<MentorGroupChatsStackPa
 const MentorSessionsStack = createNativeStackNavigator<MentorSessionsStackParamList>();
 const Tab = createBottomTabNavigator();
 const RootStack = createNativeStackNavigator();
+
+function useTabBarStyle() {
+  const insets = useSafeAreaInsets();
+  return {
+    height: 62 + insets.bottom,
+    paddingBottom: Math.max(insets.bottom, 10),
+    paddingTop: 8,
+    backgroundColor: homeColors.tabBarBg,
+    borderTopWidth: 0,
+    ...(Platform.OS === 'ios' ? { borderTopLeftRadius: 22, borderTopRightRadius: 22 } : {}),
+    shadowColor: homeColors.cardShadowColor,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 16,
+  };
+}
 
 function HomeStackNavigator(): React.ReactElement {
   return (
@@ -307,6 +324,8 @@ function MentorSessionsStackNavigator(): React.ReactElement {
 }
 
 function MentorTabNavigator(): React.ReactElement {
+  const tabBarStyle = useTabBarStyle();
+
   return (
     <Tab.Navigator
       id="MentorTabNavigator"
@@ -316,6 +335,7 @@ function MentorTabNavigator(): React.ReactElement {
         tabBarHideOnKeyboard: true,
         tabBarActiveTintColor: homeColors.tabActive,
         tabBarInactiveTintColor: homeColors.tabInactive,
+        tabBarStyle,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap;
           if (route.name === 'MentorHome') {
@@ -327,14 +347,14 @@ function MentorTabNavigator(): React.ReactElement {
           } else if (route.name === 'MentorSessions') {
             iconName = focused ? 'calendar' : 'calendar-outline';
           }
-          return <Ionicons name={iconName} size={size} color={color} />;
+          return (
+            <View style={focused ? tabIconStyles.activePill : tabIconStyles.inactivePill}>
+              <Ionicons name={iconName} size={22} color={color} />
+            </View>
+          );
         },
         tabBarLabel: ({ focused, color }: any) => (
-          <TabLabel
-            focused={focused}
-            label={route.name}
-            color={color}
-          />
+          <TabLabel focused={focused} label={route.name} color={color} />
         ),
       })}
     >
@@ -347,6 +367,8 @@ function MentorTabNavigator(): React.ReactElement {
 }
 
 function UserTabNavigator(): React.ReactElement {
+  const tabBarStyle = useTabBarStyle();
+
   return (
     <Tab.Navigator
       id="UserTabNavigator"
@@ -356,6 +378,7 @@ function UserTabNavigator(): React.ReactElement {
         tabBarHideOnKeyboard: true,
         tabBarActiveTintColor: homeColors.tabActive,
         tabBarInactiveTintColor: homeColors.tabInactive,
+        tabBarStyle,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap;
           if (route.name === 'Home') {
@@ -369,14 +392,14 @@ function UserTabNavigator(): React.ReactElement {
           } else if (route.name === 'Mentors') {
             iconName = focused ? 'people' : 'people-outline';
           }
-          return <Ionicons name={iconName} size={size} color={color} />;
+          return (
+            <View style={focused ? tabIconStyles.activePill : tabIconStyles.inactivePill}>
+              <Ionicons name={iconName} size={22} color={color} />
+            </View>
+          );
         },
         tabBarLabel: ({ focused, color }: any) => (
-          <TabLabel
-            focused={focused}
-            label={route.name}
-            color={color}
-          />
+          <TabLabel focused={focused} label={route.name} color={color} />
         ),
       })}
     >
@@ -399,35 +422,38 @@ function TabLabel({
   color: string;
 }) {
   return (
-    <View style={tabLabelStyles.wrap}>
-      <Text style={[tabLabelStyles.text, { color }]}>{label}</Text>
-      {focused && <View style={[tabLabelStyles.dot, { backgroundColor: color }]} />}
-    </View>
+    <Text style={[tabLabelStyles.text, { color, fontWeight: focused ? '700' : '500' }]}>
+      {label}
+    </Text>
   );
 }
 
 const tabLabelStyles = StyleSheet.create({
-  wrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   text: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  dot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    marginTop: 4,
+    fontSize: 11,
+    marginTop: 2,
   },
 });
 
-const TAB_BAR_BASE_HEIGHT = 60;
+const tabIconStyles = StyleSheet.create({
+  activePill: {
+    backgroundColor: homeColors.primary + '18',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    minWidth: 48,
+    alignItems: 'center',
+  },
+  inactivePill: {
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    minWidth: 48,
+    alignItems: 'center',
+  },
+});
 
 export function RootNavigator(): React.ReactElement {
   const { state } = useAuth();
-  const insets = useSafeAreaInsets();
 
   if (state.isLoading) {
     return <View />;
@@ -435,29 +461,6 @@ export function RootNavigator(): React.ReactElement {
 
   const isSignedIn = !!state.user && !!state.session;
   const isMentor = state.user?.role === 'mentor';
-  const tabBarHeight = TAB_BAR_BASE_HEIGHT + insets.bottom;
-  const tabBarPaddingTop = 8;
-  const tabBarPaddingBottom = Math.max(insets.bottom, 8);
-
-  const sharedTabOptions = ({ route }: any) => ({
-    headerShown: false,
-    tabBarHideOnKeyboard: true,
-    tabBarActiveTintColor: homeColors.tabActive,
-    tabBarInactiveTintColor: homeColors.tabInactive,
-    tabBarStyle: {
-      height: tabBarHeight,
-      paddingBottom: tabBarPaddingBottom,
-      paddingTop: tabBarPaddingTop,
-      backgroundColor: homeColors.tabBarBg,
-    },
-    tabBarLabel: ({ focused, color }: any) => (
-      <TabLabel
-        focused={focused}
-        label={route.name}
-        color={color}
-      />
-    ),
-  });
 
   return (
     <NavigationContainer>

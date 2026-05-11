@@ -1,3 +1,4 @@
+from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,8 +7,17 @@ class Settings(BaseSettings):
 
     app_name: str = "SmartCareer FastAPI Backend"
     environment: str = "development"
-    debug: bool = True
+    debug: bool = False
     api_v1_prefix: str = "/api/v1"
+
+    # CORS — enumerate known origins; never use ["*"] with credentials=True
+    cors_allowed_origins: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:8081",
+        "http://10.0.2.2:3000",
+        "http://10.0.2.2:8081",
+        "exp://localhost:8081",
+    ]
 
     host: str = "0.0.0.0"
     port: int = 3000

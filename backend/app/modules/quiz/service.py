@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 import asyncio
 from typing import List, Dict, Any, Optional
@@ -160,13 +161,17 @@ class QuizService:
                 for a in (session.get('answers') or [])
             ]
 
-            await self.db.get_client().from_('user_quiz_responses').insert({
-                'session_id': session_id,
-                'question_number': q_num,
-                'question': submitted_question_text or '',
-                'selected_option': answer,
-                'all_options': submitted_options or [],
-            }).execute()
+            # Idempotency guard: skip insert if a response for this question already exists
+            existing = await self.db.get_client().from_('user_quiz_responses').select('id').eq(
+                'session_id', session_id).eq('question_number', q_num).limit(1).execute()
+            if not (existing.data):
+                await self.db.get_client().from_('user_quiz_responses').insert({
+                    'session_id': session_id,
+                    'question_number': q_num,
+                    'question': submitted_question_text or '',
+                    'selected_option': answer,
+                    'all_options': submitted_options or [],
+                }).execute()
 
             answers = (session.get('answers') or []) + [{
                 'question_number': q_num,
@@ -187,7 +192,7 @@ class QuizService:
                     'status': 'completed',
                     'current_question': next_q_num,
                     'answers': answers,
-                    'completed_at': 'now()',
+                    'completed_at': datetime.utcnow().isoformat(),
                 }).eq('id', session_id).execute()
 
                 # AI quiz results can take up to 90s, give generous timeout
@@ -370,7 +375,7 @@ class QuizService:
                         len(full_answers),
                     )
                     ai_results = await asyncio.wait_for(
-                        self.ai_orchestrator.generate_quiz_results(full_answers, disc),
+                        self.ai_orchestrator.generate_quiz_results(full_answers),
                         timeout=120,
                     )
                     if ai_results:

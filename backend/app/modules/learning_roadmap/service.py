@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 import os
 import uuid
@@ -121,7 +122,7 @@ class LearningRoadmapService:
             'total_duration_hours': 0,
             'estimated_weeks': 0,
             'skill_count': 0,
-            'created_at': 'now()',
+            'created_at': datetime.utcnow().isoformat(),
             'steps': [
                 {
                     "skill_name": f"Introduction to {career_title}",
@@ -240,9 +241,15 @@ class LearningRoadmapService:
 
     async def _enhance_steps_with_web_search(self, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Populate resource_title, provider, source_url via web search for ALL steps."""
+        import asyncio
+        loop = asyncio.get_running_loop()
         enhanced = []
         for step in steps:
-            courses = self.course_search.search_courses(
+            # search_courses is synchronous — run it in the default thread-pool
+            # so it doesn't block the event loop
+            courses = await loop.run_in_executor(
+                None,
+                self.course_search.search_courses,
                 step.get("skill_name", ""),
                 step.get("difficulty"),
             )

@@ -1,4 +1,4 @@
-﻿"""AI orchestrator - full service for LLM operations with Prompt Anatomy."""
+"""AI orchestrator - full service for LLM operations with Prompt Anatomy."""
 import json
 import logging
 import asyncio
@@ -1699,10 +1699,19 @@ Personalize this learning roadmap for the target role using the user profile.
             }
 
 
+_ai_orchestrator_singleton: AIOrchestrator | None = None
+
+
 def get_ai_service() -> AIOrchestrator:
-    return AIOrchestrator()
+    """Return a process-wide singleton so the httpx.AsyncClient is reused, not leaked."""
+    global _ai_orchestrator_singleton
+    if _ai_orchestrator_singleton is None:
+        _ai_orchestrator_singleton = AIOrchestrator()
+    return _ai_orchestrator_singleton
+
 
 AIOrchestratorService = AIOrchestrator
+
 
 def get_ai_orchestrator_service() -> AIOrchestrator:
     return get_ai_service()

@@ -1,11 +1,12 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from app.core.database import DatabaseService
 from app.core.dependencies import get_database_service, get_queue_service
 from app.core.queue import QueueService
 from app.ingestion.normalizer import normalize_url
+from app.api.deps import get_user_id_from_token
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
@@ -13,9 +14,11 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 @router.get("/status/{job_id}")
 async def get_ingestion_status(
     job_id: str,
+    authorization: Optional[str] = Header(None),
     db: DatabaseService = Depends(get_database_service),
     queue: QueueService = Depends(get_queue_service),
 ) -> Dict[str, Any]:
+    await get_user_id_from_token(authorization)
     """Return ingestion job status for frontend polling."""
     try:
         result = (
@@ -64,7 +67,7 @@ async def get_ingestion_status(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get ingestion job status: {str(exc)}",
+            detail="Failed to get ingestion job status",
         ) from exc
 
 

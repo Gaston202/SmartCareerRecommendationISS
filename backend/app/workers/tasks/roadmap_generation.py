@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 from typing import Dict, Any
 from app.core.database import DatabaseService
@@ -71,7 +72,7 @@ async def process_roadmap_generation(job_id: str, data: Dict[str, Any] = None) -
             'milestones': milestones,
             'total_duration_weeks': total_duration,
             'personalized': bool(user_profile),
-            'generated_at': 'now()',
+            'generated_at': datetime.utcnow().isoformat(),
         }
 
         # Save to user_roadmaps table (if it exists)
@@ -80,7 +81,7 @@ async def process_roadmap_generation(job_id: str, data: Dict[str, Any] = None) -
                 'user_id': user_id,
                 'career_id': career_id,
                 'roadmap_data': personalized_roadmap,
-                'generated_at': 'now()',
+                'generated_at': datetime.utcnow().isoformat(),
             }).execute()
         except Exception as e:
             logger.warning(f'Could not save roadmap to user_roadmaps: {e}')

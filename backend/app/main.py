@@ -1,8 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.config import settings
 from app.api.v1.router import api_router
 from app.core.logging import setup_logging
+from app.core.middleware import (
+    ExceptionHandler,
+    add_process_time_header,
+    logging_middleware,
+)
 import logging
 
 # Setup logging
@@ -16,14 +23,23 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS middleware
+# CORS — never combine allow_origins=["*"] with allow_credentials=True
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Request logging and timing middleware
+app.middleware("http")(add_process_time_header)
+app.middleware("http")(logging_middleware)
+
+# Centralised exception handlers
+app.add_exception_handler(StarletteHTTPException, ExceptionHandler.http_exception_handler)
+app.add_exception_handler(RequestValidationError, ExceptionHandler.validation_exception_handler)
+app.add_exception_handler(Exception, ExceptionHandler.general_exception_handler)
 
 # Include API routers (MVC structure via api/v1/router.py)
 app.include_router(api_router, prefix=settings.api_v1_prefix)
@@ -49,6 +65,9 @@ async def startup_event():
 async def shutdown_event():
     """Shutdown event."""
     logger.info("Shutting down application")
+    from app.core.ai_orchestrator import _ai_orchestrator_singleton
+    if _ai_orchestrator_singleton is not None and hasattr(_ai_orchestrator_singleton, "client"):
+        await _ai_orchestrator_singleton.client.close()
 
 if __name__ == "__main__":
     import uvicorn

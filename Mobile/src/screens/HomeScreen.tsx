@@ -161,7 +161,8 @@ export default function HomeScreen(): React.ReactElement {
 
   // Auth hook - get user name
   const { state: authState } = useAuth();
-  const userName = authState.user?.fullName || authState.user?.email?.split("@")[0] || "Student";
+  const rawName = authState.user?.fullName || authState.user?.email?.split("@")[0] || "Student";
+  const userName = (rawName.split(/[\s.]/)[0] ?? 'Student').replace(/^\w/, c => c.toUpperCase());
 
   // Careers hook - get top matched career
   const { data: matchedCareers = [] } = useMatchedCareers();
@@ -593,7 +594,12 @@ export default function HomeScreen(): React.ReactElement {
               <Text style={styles.progressPercent}>{careerProgress}%</Text>
             </View>
             <View style={styles.progressBarContainer}>
-              <View style={[styles.progressBarFill, { width: `${careerProgress}%` }]} />
+              <LinearGradient
+                colors={[homeColors.primary, homeColors.primaryLight]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.progressBarFill, { width: `${careerProgress}%` }]}
+              />
             </View>
           </View>
         </View>
@@ -932,7 +938,7 @@ export default function HomeScreen(): React.ReactElement {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: homeColors.pageBg,
   },
   scroll: {
     flex: 1,
@@ -1320,6 +1326,11 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
+    shadowColor: homeColors.cardShadowColor,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 3,
   },
   progressHeader: {
     flexDirection: "row",
@@ -1345,7 +1356,6 @@ const styles = StyleSheet.create({
   },
   progressBarFill: {
     height: "100%",
-    backgroundColor: homeColors.primary,
     borderRadius: 5,
   },
 
@@ -1367,6 +1377,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
     padding: 20,
+    shadowColor: homeColors.cardShadowColor,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 3,
   },
   actionCardPressed: {
     opacity: 0.9,
@@ -1374,7 +1389,7 @@ const styles = StyleSheet.create({
   actionCardGradient: {
     padding: 24,
     justifyContent: "space-between",
-    minHeight: 260,
+    minHeight: 180,
     position: "relative",
   },
   decorativeIconBg: {
@@ -1526,6 +1541,11 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
+    shadowColor: homeColors.cardShadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
   },
   stepNumber: {
     width: 40,
@@ -1602,6 +1622,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
     overflow: "hidden",
+    shadowColor: homeColors.cardShadowColor,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 3,
   },
   mentorCard: {
     paddingHorizontal: 16,

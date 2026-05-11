@@ -26,17 +26,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let role: 'user' | 'mentor' = 'user';
       let mentorSpecialty: string | undefined = undefined;
       let fullName: string | null = null;
+      let avatar: string | null = null;
 
       try {
         // Fetch user profile including full_name from users table
         const { data: userData } = await supabase
           .from('users')
-          .select('full_name, role')
+          .select('full_name, role, avatar')
           .eq('id', baseUser.id)
           .maybeSingle();
 
         if (userData) {
           fullName = userData.full_name || null;
+          avatar = userData.avatar || null;
           if (userData.role === 'mentor') {
             role = 'mentor';
           }
@@ -63,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         fullName,
         role,
         mentorSpecialty,
+        avatar,
       };
     };
 

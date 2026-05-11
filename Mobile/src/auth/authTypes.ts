@@ -17,6 +17,7 @@ export interface AuthUser {
   fullName?: string | null;
   role?: 'user' | 'mentor';
   mentorSpecialty?: string;
+  avatar?: string | null;
 }
 
 export interface AuthState {

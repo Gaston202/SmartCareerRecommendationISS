@@ -1,17 +1,23 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { homeColors } from '../../screens/homeTheme';
 
 interface ChatbotButtonProps {
   onPress: () => void;
 }
 
+const TAB_BAR_HEIGHT = 62;
+
 export function ChatbotButton({ onPress }: ChatbotButtonProps) {
+  const insets = useSafeAreaInsets();
+  const bottom = TAB_BAR_HEIGHT + insets.bottom + 16;
+
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+      style={({ pressed }) => [styles.button, { bottom }, pressed && styles.buttonPressed]}
       accessibilityRole="button"
       accessibilityLabel="Open chat with Career Assistant"
     >
@@ -26,7 +32,6 @@ const styles = StyleSheet.create({
   button: {
     position: 'absolute',
     right: 20,
-    bottom: 100,
     zIndex: 50,
     elevation: 6,
     shadowColor: homeColors.primary,

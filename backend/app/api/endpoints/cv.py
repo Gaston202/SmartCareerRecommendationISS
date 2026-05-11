@@ -1,7 +1,6 @@
 """CV endpoints - API controller for CV operations."""
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Header
 from typing import Optional
-import jwt
 import logging
 from app.api.schemas.cv import (
     CvUploadResponse,
@@ -9,39 +8,13 @@ from app.api.schemas.cv import (
     CvStatusResponse,
     CvHealthResponse,
 )
-from app.api.deps import get_cv_service
+from app.api.deps import get_cv_service, get_user_id_from_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/cv", tags=["cv"])
 
-
-def get_user_id_from_token(authorization: Optional[str] = None) -> str:
-    """Extract user ID from JWT token."""
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization token",
-        )
-
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization header format",
-        )
-
-    token = parts[1]
-    try:
-        payload = jwt.decode(token, options={"verify_signature": False})
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("No user ID in token")
-        return user_id
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid or expired token: {e}",
-        )
+_MAX_CV_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+_ALLOWED_MIME_TYPES = {"application/pdf"}
 
 
 @router.post("/upload")
@@ -50,8 +23,32 @@ async def upload_cv(
     authorization: Optional[str] = Header(None),
 ):
     """Upload CV PDF for analysis."""
+    # Validate content type before reading the file body
+    if file.content_type not in _ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PDF files are accepted",
+        )
+
+    # Validate file size (read fully into memory once; service can reuse)
+    content = await file.read()
+    if len(content) > _MAX_CV_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"CV file must be smaller than {_MAX_CV_SIZE_BYTES // (1024*1024)} MB",
+        )
+
+    # Sanitise filename — strip path separators to prevent storage-path traversal
+    import os
+    safe_filename = os.path.basename(file.filename or "upload.pdf").replace("..", "")
+    file.filename = safe_filename
+
+    # Reset stream so the service can read from the beginning
+    import io
+    file.file = io.BytesIO(content)
+
     try:
-        user_id = get_user_id_from_token(authorization)
+        user_id = await get_user_id_from_token(authorization)
         cv_service = await get_cv_service()
         result = await cv_service.upload_cv(user_id, file)
 
@@ -63,13 +60,15 @@ async def upload_cv(
                 "message": result.get("message"),
             },
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error(f"CV upload failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload CV: {str(e)}",
+            detail="Failed to upload CV",
         )
 
 
@@ -80,7 +79,7 @@ async def delete_cv(
 ):
     """Delete CV upload and all associated data."""
     try:
-        user_id = get_user_id_from_token(authorization)
+        user_id = await get_user_id_from_token(authorization)
         cv_service = await get_cv_service()
         result = await cv_service.delete_cv(user_id, upload_id)
 
@@ -93,7 +92,7 @@ async def delete_cv(
         logger.error(f"Delete CV failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete CV: {str(e)}",
+            detail="Failed to delete CV",
         )
 
 
@@ -103,7 +102,7 @@ async def get_latest_result(
 ):
     """Get latest CV analysis for user."""
     try:
-        user_id = get_user_id_from_token(authorization)
+        user_id = await get_user_id_from_token(authorization)
         cv_service = await get_cv_service()
         analysis = await cv_service.get_latest_analysis(user_id)
 
@@ -115,7 +114,7 @@ async def get_latest_result(
         logger.error(f"Get latest result failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch CV analysis: {str(e)}",
+            detail="Failed to fetch CV analysis",
         )
 
 
@@ -126,7 +125,7 @@ async def get_result(
 ):
     """Get CV analysis result by ID."""
     try:
-        user_id = get_user_id_from_token(authorization)
+        user_id = await get_user_id_from_token(authorization)
         cv_service = await get_cv_service()
         analysis = await cv_service.get_analysis(user_id, analysis_id)
 
@@ -142,7 +141,7 @@ async def get_result(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch CV analysis: {str(e)}",
+            detail="Failed to fetch CV analysis",
         )
 
 
@@ -153,7 +152,7 @@ async def get_status(
 ):
     """Get CV analysis processing status."""
     try:
-        user_id = get_user_id_from_token(authorization)
+        user_id = await get_user_id_from_token(authorization)
         cv_service = await get_cv_service()
         analysis = await cv_service.get_analysis(user_id, analysis_id)
 
@@ -181,7 +180,7 @@ async def get_status(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get CV status: {str(e)}",
+            detail="Failed to get CV status",
         )
 
 

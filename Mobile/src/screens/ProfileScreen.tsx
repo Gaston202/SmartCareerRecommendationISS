@@ -773,9 +773,10 @@ function ChangePasswordModal({
 
 // ------------------- Main Screen -------------------
 export default function ProfileScreen() {
-  const { signOut } = useAuth();
+  const { signOut, state: authState } = useAuth();
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [loading, setLoading] = useState(true);
   const [changePwdOpen, setChangePwdOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -1058,18 +1059,52 @@ export default function ProfileScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 0.8,
+        quality: 0.7,
         aspect: [1, 1],
       });
 
-      if (!result.canceled && result.assets?.[0]?.uri) {
-        const uri = result.assets[0].uri;
-        setValue("photoUrl", uri, { shouldDirty: true, shouldValidate: true });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+
+      const uri = result.assets[0].uri;
+      const userId = authState.user?.id;
+      if (!userId) return;
+
+      setUploadingPhoto(true);
+      try {
+        // Read file as blob and upload to Supabase Storage
+        const response = await fetch(uri);
+        const blob = await response.blob();
+        const ext = uri.split('.').pop()?.toLowerCase().split('?')[0] ?? 'jpg';
+        const contentType = ext === 'png' ? 'image/png' : 'image/jpeg';
+        const filePath = `${userId}/avatar.${ext}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, blob, { upsert: true, contentType });
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+        // Save to DB immediately — no need to press Save
+        await updateMyUserRow({ avatar: publicUrl });
+
+        // Update form + saved profile so the avatar circle refreshes
+        setValue("photoUrl", publicUrl, { shouldDirty: false, shouldValidate: true });
+        setSavedProfile(prev => ({ ...prev, photoUrl: publicUrl }));
+
+        Alert.alert("Photo updated ✅", "Your profile picture has been saved.");
+      } catch (e: any) {
+        Alert.alert("Upload failed", e?.message ?? "Could not upload photo.");
+      } finally {
+        setUploadingPhoto(false);
       }
     } catch {
       Alert.alert(
         "Gallery picker not installed",
-        "Install it with: npx expo install expo-image-picker\n(or just paste a Photo URL)."
+        "Install it with: npx expo install expo-image-picker"
       );
     }
   };
@@ -1504,22 +1539,17 @@ export default function ProfileScreen() {
               {/* Quick Actions */}
               <View style={styles.quickActionsRow}>
                 <Pressable
-                  style={[styles.quickActionBtn, !editMode && styles.quickActionBtnDisabled]}
-                  disabled={!editMode}
+                  style={[styles.quickActionBtn, uploadingPhoto && styles.quickActionBtnDisabled]}
+                  disabled={uploadingPhoto}
                   onPress={pickImageIfAvailable}
                 >
-                  <Ionicons
-                    name="image-outline"
-                    size={18}
-                    color={editMode ? COLORS.primary : COLORS.muted}
-                  />
-                  <Text
-                    style={[
-                      styles.quickActionText,
-                      !editMode && { color: COLORS.muted },
-                    ]}
-                  >
-                    Update Photo
+                  {uploadingPhoto ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <Ionicons name="camera-outline" size={18} color={COLORS.primary} />
+                  )}
+                  <Text style={styles.quickActionText}>
+                    {uploadingPhoto ? "Uploading…" : "Update Photo"}
                   </Text>
                 </Pressable>
               </View>

@@ -3,46 +3,17 @@ import logging
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-import jwt
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.agents.chatbot.service import ChatbotService, get_chatbot_service
 from app.agents.chatbot.schemas.pydantic import ChatResponse
 from app.core.ai_orchestrator import AIOrchestrator
 from app.core.dependencies import get_ai_orchestrator_service
+from app.api.deps import get_user_id_from_token
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
 logger = logging.getLogger(__name__)
-
-
-def get_user_id_from_token(authorization: Optional[str] = None) -> str:
-    """Extract user ID from JWT token in Authorization header."""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Authorization header required")
-
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid authorization format. Use: Bearer <token>",
-        )
-
-    token = parts[1]
-    try:
-        payload = jwt.decode(
-            token,
-            options={"verify_signature": False},
-            algorithms=["HS256", "RS256"],
-        )
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
-        return user_id
-    except jwt.DecodeError:
-        raise HTTPException(status_code=401, detail="Invalid token format")
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 @router.post("/message")
@@ -63,7 +34,7 @@ async def send_message(
     defense-in-depth, layered memory, and trace logging.
     """
     t0 = time.monotonic()
-    user_id = get_user_id_from_token(authorization)
+    user_id = await get_user_id_from_token(authorization)
 
     response = await service.process_message(user_id, message, thread_id)
 
@@ -89,7 +60,7 @@ async def reset_conversation(
     ),
 ) -> dict:
     """Reset the conversation state for the current user."""
-    user_id = get_user_id_from_token(authorization)
+    user_id = await get_user_id_from_token(authorization)
     success = await service.reset_conversation(user_id, thread_id)
     if success:
         return {"success": True, "message": "Conversation reset successfully"}
@@ -107,7 +78,7 @@ async def get_conversation_history(
     ),
 ) -> dict:
     """Get the conversation history for the current user."""
-    user_id = get_user_id_from_token(authorization)
+    user_id = await get_user_id_from_token(authorization)
     history = service.get_conversation_history(user_id, thread_id)
     return {"success": True, "history": history, "count": len(history)}
 
@@ -123,7 +94,7 @@ async def get_trace_info(
     ),
 ) -> dict:
     """Get trace-level debugging info for a conversation thread."""
-    user_id = get_user_id_from_token(authorization)
+    user_id = await get_user_id_from_token(authorization)
     history = service.get_conversation_history(user_id, thread_id)
 
     memory = service.orchestrator.memory

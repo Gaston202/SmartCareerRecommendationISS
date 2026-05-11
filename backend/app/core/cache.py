@@ -5,11 +5,15 @@ from typing import Any, Optional
 import logging
 
 try:
-    import redis
+    from redis import asyncio as aioredis
     REDIS_AVAILABLE = True
 except ImportError:
-    REDIS_AVAILABLE = False
-    redis = None
+    try:
+        import aioredis  # older standalone package
+        REDIS_AVAILABLE = True
+    except ImportError:
+        REDIS_AVAILABLE = False
+        aioredis = None
 
 from app.core.config import settings
 
@@ -33,12 +37,10 @@ class CacheService:
 
         if self.use_redis:
             try:
-                self.redis_client = redis.from_url(settings.redis_url, decode_responses=True)
-                # Test connection
-                self.redis_client.ping()
-                logger.info("Redis cache enabled")
+                self.redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+                logger.info("Redis cache enabled (async)")
             except Exception as e:
-                logger.warning(f"Failed to connect to Redis: {e}. Falling back to in-memory cache.")
+                logger.warning(f"Failed to initialise Redis client: {e}. Falling back to in-memory cache.")
                 self.use_redis = False
                 self.redis_client = None
         else:
@@ -52,15 +54,15 @@ class CacheService:
 
     def _clean_memory_cache(self):
         """Remove expired entries from in-memory cache."""
-        now = time.time()
-        expired_keys = [k for k, (_, exp) in self._memory_cache.items() if self._is_expired(exp)]
+        # Snapshot items() before iterating to avoid RuntimeError on concurrent mutation
+        expired_keys = [k for k, (_, exp) in list(self._memory_cache.items()) if self._is_expired(exp)]
         for k in expired_keys:
-            del self._memory_cache[k]
+            self._memory_cache.pop(k, None)
 
     async def get(self, key: str) -> Optional[Any]:
         if self.use_redis:
             try:
-                value = self.redis_client.get(key)
+                value = await self.redis_client.get(key)
                 if value is not None:
                     return json.loads(value)
                 return None
@@ -83,7 +85,7 @@ class CacheService:
         expiry = time.time() + ttl_seconds
         if self.use_redis:
             try:
-                self.redis_client.setex(key, ttl_seconds, json.dumps(value))
+                await self.redis_client.setex(key, ttl_seconds, json.dumps(value))
                 return True
             except Exception as e:
                 logger.warning(f"Redis set error for key {key}: {e}. Falling back to memory.")
@@ -101,7 +103,7 @@ class CacheService:
         result = False
         if self.use_redis:
             try:
-                self.redis_client.delete(key)
+                await self.redis_client.delete(key)
                 result = True
             except Exception as e:
                 logger.warning(f"Redis delete error for key {key}: {e}")
@@ -115,7 +117,7 @@ class CacheService:
         """Clear all cache."""
         if self.use_redis:
             try:
-                self.redis_client.flushdb()
+                await self.redis_client.flushdb()
             except Exception as e:
                 logger.warning(f"Redis clear error: {e}")
         self._memory_cache.clear()
@@ -124,7 +126,7 @@ class CacheService:
         """Check if a key exists in cache."""
         if self.use_redis:
             try:
-                return self.redis_client.exists(key) == 1
+                return await self.redis_client.exists(key) == 1
             except Exception as e:
                 logger.warning(f"Redis exists error for key {key}: {e}")
                 # Fall through to memory cache
@@ -141,9 +143,9 @@ class CacheService:
 
         if self.use_redis:
             try:
-                keys = list(self.redis_client.scan_iter(match=pattern))
+                keys = [k async for k in self.redis_client.scan_iter(match=pattern)]
                 if keys:
-                    removed += int(self.redis_client.delete(*keys))
+                    removed += int(await self.redis_client.delete(*keys))
             except Exception as e:
                 logger.warning(f"Redis invalidate_pattern error for pattern {pattern}: {e}")
 

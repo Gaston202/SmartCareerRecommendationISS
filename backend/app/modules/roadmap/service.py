@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 import json
 import uuid
@@ -236,7 +237,7 @@ class RoadmapService:
                 'description': base_roadmap['description'],
                 'milestones': milestones,
                 'total_duration_weeks': total_duration,
-                'created_at': 'now()',
+                'created_at': datetime.utcnow().isoformat(),
             }
 
             await self.cache_service.set(cache_key, roadmap, 43200)
@@ -283,23 +284,6 @@ class RoadmapService:
         enriched["recommendation_reason"] = presentation.recommendation_reason
         return enriched
 
-
-async def build_roadmap(
-    user_skills: List[str],
-    target_role: str,
-    db: Optional[DatabaseService] = None,
-    ai_orchestrator: Optional[AIOrchestratorService] = None,
-    queue_service: Optional[QueueService] = None,
-    cache_service: Optional[CacheService] = None,
-) -> PlannedRoadmapResponse:
-    """
-    Convenience module-level export for smoke tests and scripts.
-    FastAPI routes should keep using RoadmapService via dependency injection.
-    """
-    db = db or await DatabaseService.create()
-    cache_service = cache_service or CacheService()
-    service = RoadmapService(db, ai_orchestrator, queue_service, cache_service)
-    return await service.build_roadmap(user_skills, target_role)
 
     async def generate_roadmap_async(
         self,
@@ -411,7 +395,7 @@ Only return JSON with key "personalizedMilestones" containing the updated milest
                 'total_duration_hours': sum(s.get('duration_hours', 0) for s in skills),
                 'estimated_weeks': sum(s.get('duration_hours', 0) for s in skills) // 40,
                 'skill_count': len(skills),
-                'created_at': 'now()',
+                'created_at': datetime.utcnow().isoformat(),
             }
 
             await self.cache_service.set(cache_key, roadmap_data, 86400)
@@ -515,3 +499,21 @@ Only return JSON with key "personalizedMilestones" containing the updated milest
         except Exception as e:
             logger.error(f'Failed to fetch roadmaps for user {user_id}', e)
             return []
+
+async def build_roadmap(
+    user_skills: List[str],
+    target_role: str,
+    db: Optional[DatabaseService] = None,
+    ai_orchestrator: Optional[AIOrchestratorService] = None,
+    queue_service: Optional[QueueService] = None,
+    cache_service: Optional[CacheService] = None,
+) -> PlannedRoadmapResponse:
+    """
+    Convenience module-level export for smoke tests and scripts.
+    FastAPI routes should keep using RoadmapService via dependency injection.
+    """
+    db = db or await DatabaseService.create()
+    cache_service = cache_service or CacheService()
+    service = RoadmapService(db, ai_orchestrator, queue_service, cache_service)
+    return await service.build_roadmap(user_skills, target_role)
+

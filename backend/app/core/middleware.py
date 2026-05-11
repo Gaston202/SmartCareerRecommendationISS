@@ -74,8 +74,8 @@ class ExceptionHandler:
         logger.exception(f"Unhandled Exception: {str(exc)} path={request.url.path}")
         
         # Don't expose internal errors in production
-        import os
-        is_prod = os.getenv("NODE_ENV") == "production"
+        from app.core.config import settings
+        is_prod = settings.environment == "production"
         error_detail = "Internal server error" if is_prod else str(exc)
         
         return JSONResponse(

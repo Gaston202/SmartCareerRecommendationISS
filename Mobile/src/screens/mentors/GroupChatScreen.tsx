@@ -71,9 +71,7 @@ export function GroupChatScreen() {
 
     try {
       setSending(true);
-      // Generate avatar URL using user's email or id
-      const avatarSeed = user.email?.split('@')[0] || user.id;
-      const avatarUrl = `https://api.dicebear.com/7.x/avataaars/png?seed=${avatarSeed}`;
+      const avatarUrl = user.avatar ?? `https://api.dicebear.com/7.x/initials/png?seed=${encodeURIComponent(user.email ?? user.id)}`;
       await sendMessage(user.id, user.email || 'Anonymous', avatarUrl, messageText);
       setMessageText('');
     } catch (error) {
@@ -86,7 +84,7 @@ export function GroupChatScreen() {
   if (chatLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3b82f6" />
+        <ActivityIndicator size="large" color="#7C4DFF" />
       </View>
     );
   }
@@ -180,12 +178,12 @@ export function GroupChatScreen() {
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 8 }}
             style={({ pressed }) => [
               styles.backBtn, 
-              pressed && { backgroundColor: '#f2e2ff' }
+              pressed && { backgroundColor: '#E2E8F0' }
             ]}
             accessibilityRole="button"
             accessibilityLabel="Go back"
           >
-            <Ionicons name="chevron-back" size={24} color="#8158F8" />
+            <Ionicons name="chevron-back" size={24} color="#7C4DFF" />
           </Pressable>
 
           <View style={styles.headerCenter}>
@@ -200,7 +198,7 @@ export function GroupChatScreen() {
         {chat.mentor && (
           <View style={styles.mentorInfo}>
             <View style={styles.mentorIconBg}>
-              <Ionicons name="person" size={14} color="#8158F8" />
+              <Ionicons name="person" size={14} color="#7C4DFF" />
             </View>
             <View style={styles.mentorTextContainer}>
               <Text style={styles.mentorLabel}>Led by</Text>
@@ -213,7 +211,7 @@ export function GroupChatScreen() {
       {/* Messages */}
       {messagesLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#8158F8" />
+          <ActivityIndicator size="large" color="#7C4DFF" />
         </View>
       ) : (
         <FlatList
@@ -295,13 +293,13 @@ export function GroupChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#F1F5F9',
   },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#F1F5F9',
   },
   errorText: {
     color: '#64748B',
@@ -311,11 +309,16 @@ const styles = StyleSheet.create({
 
   // ========== HEADER ==========
   header: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#f2e2ff',
+    borderBottomColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   headerTop: {
     flexDirection: 'row',
@@ -326,7 +329,7 @@ const styles = StyleSheet.create({
   backBtn: {
     padding: 8,
     borderRadius: 12,
-    backgroundColor: '#f8edff',
+    backgroundColor: '#F1F5F9',
   },
   headerCenter: {
     flex: 1,
@@ -335,7 +338,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1F2937',
+    color: '#0F172A',
     textAlign: 'center',
   },
   headerRight: {
@@ -344,17 +347,19 @@ const styles = StyleSheet.create({
   mentorInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8edff',
+    backgroundColor: '#F8FAFC',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   mentorIconBg: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#f2e2ff',
+    backgroundColor: '#EDE9FE',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -371,7 +376,7 @@ const styles = StyleSheet.create({
   mentorName: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1F2937',
+    color: '#0F172A',
     marginTop: 2,
   },
 
@@ -390,14 +395,14 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
   },
   emptyTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1F2937',
+    color: '#0F172A',
     textAlign: 'center',
   },
   emptyText: {
@@ -410,7 +415,7 @@ const styles = StyleSheet.create({
   messageRow: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 5,
   },
   messageRowLeft: {
     justifyContent: 'flex-start',
@@ -419,86 +424,89 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   avatarContainer: {
-    width: 36,
-    height: 36,
+    width: 34,
+    height: 34,
     marginRight: 8,
     alignSelf: 'flex-end',
   },
   avatarPlaceholder: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#8158F8',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#7C4DFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     overflow: 'hidden',
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#CBD5E1',
   },
   avatarText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 16,
+    fontSize: 13,
   },
   messageContent: {
     flexDirection: 'row',
-    maxWidth: '80%',
+    maxWidth: '78%',
   },
   messageBubble: {
-    borderRadius: 16,
+    borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   messageBubbleOwn: {
-    backgroundColor: '#8158F8',
+    backgroundColor: '#7C4DFF',
     borderBottomRightRadius: 4,
   },
   messageBubbleOther: {
-    backgroundColor: '#f2e2ff',
+    backgroundColor: '#FFFFFF',
     borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   senderName: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 4,
+    color: '#475569',
+    marginBottom: 3,
   },
   messageTextOwn: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '500',
+    lineHeight: 21,
+    fontWeight: '400',
   },
   messageTextOther: {
-    color: '#1F2937',
+    color: '#0F172A',
     fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '500',
+    lineHeight: 21,
+    fontWeight: '400',
   },
   timestampOwn: {
     fontSize: 11,
     marginTop: 4,
-    color: 'rgba(255,255,255,0.7)',
-    fontWeight: '500',
+    color: 'rgba(255,255,255,0.65)',
+    fontWeight: '400',
+    textAlign: 'right',
   },
   timestampOther: {
     fontSize: 11,
     marginTop: 4,
     color: '#94A3B8',
-    fontWeight: '500',
+    fontWeight: '400',
   },
 
   // ========== INPUT ==========
   inputContainer: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#f2e2ff',
+    borderTopColor: '#E2E8F0',
   },
   inputWrapper: {
     gap: 8,
@@ -510,45 +518,45 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    backgroundColor: '#f8edff',
-    borderRadius: 20,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 22,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    color: '#1F2937',
+    paddingVertical: 11,
+    color: '#0F172A',
     maxHeight: 100,
     fontSize: 15,
-    fontWeight: '500',
+    fontWeight: '400',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   sendBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#8158F8',
+    backgroundColor: '#7C4DFF',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#8158F8',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+    shadowColor: '#7C4DFF',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 4,
   },
   sendBtnDisabled: {
     backgroundColor: '#CBD5E1',
-    shadowOpacity: 0.08,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   charBadge: {
     position: 'absolute',
     right: 60,
     bottom: 16,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F1F5F9',
     borderRadius: 8,
     paddingHorizontal: 6,
     paddingVertical: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   charText: {
     fontSize: 11,

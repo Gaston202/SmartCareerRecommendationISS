@@ -129,7 +129,13 @@ class CvService:
             
             task = asyncio.create_task(run_analysis(analysis_id, content))
             self._background_tasks[analysis_id] = task
-            task.add_done_callback(lambda t: self._background_tasks.pop(analysis_id, None))
+
+            def _on_done(t: asyncio.Task, aid: str = analysis_id) -> None:
+                self._background_tasks.pop(aid, None)
+                if not t.cancelled() and t.exception() is not None:
+                    logger.error("CV analysis task %s raised unhandled exception: %s", aid, t.exception())
+
+            task.add_done_callback(_on_done)
 
             return {
                 'id': analysis_id,

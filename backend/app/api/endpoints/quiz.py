@@ -1,7 +1,6 @@
 """Quiz endpoints - API controller for quiz operations."""
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
+from fastapi import APIRouter, HTTPException, status, Header, Request
 from typing import Optional
-import jwt
 import logging
 from app.api.schemas.quiz import (
     QuizStartResponse,
@@ -10,44 +9,10 @@ from app.api.schemas.quiz import (
     QuizHistoryResponse,
     QuizHealthResponse,
 )
-from app.modules.quiz.service import QuizService
-from app.core.database import DatabaseService
-from app.core.ai_orchestrator import AIOrchestratorService
-from app.core.cache import CacheService
-from app.modules.career.service import CareerService
-from app.api.deps import get_quiz_service
+from app.api.deps import get_quiz_service, get_user_id_from_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/quiz", tags=["quiz"])
-
-
-def get_user_id_from_token(authorization: Optional[str] = None) -> str:
-    """Extract user ID from JWT token."""
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization token",
-        )
-
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization header format",
-        )
-
-    token = parts[1]
-    try:
-        payload = jwt.decode(token, options={"verify_signature": False})
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("No user ID in token")
-        return user_id
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid or expired token: {e}",
-        )
 
 
 @router.post("/start")
@@ -56,14 +21,14 @@ async def start_quiz(
 ):
     """Start a new quiz session."""
     try:
-        user_id = get_user_id_from_token(authorization)
+        user_id = await get_user_id_from_token(authorization)
         quiz_service = await get_quiz_service()
         result = await quiz_service.start_quiz(user_id)
         return {"success": True, "data": result}
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start quiz: {str(e)}",
+            detail="Failed to start quiz",
         )
 
 
@@ -74,7 +39,7 @@ async def submit_answer(
 ):
     """Submit an answer and get next question or results."""
     try:
-        user_id = get_user_id_from_token(authorization)
+        user_id = await get_user_id_from_token(authorization)
         quiz_service = await get_quiz_service()
 
         session_id = request.headers.get("x-session-id") or ""
@@ -119,7 +84,7 @@ async def submit_answer(
         logger.error(f"submit_answer failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to submit answer: {str(e)}",
+            detail="Failed to submit answer",
         )
 
 
@@ -130,7 +95,7 @@ async def get_result(
 ):
     """Get quiz results for a completed session."""
     try:
-        user_id = get_user_id_from_token(authorization)
+        user_id = await get_user_id_from_token(authorization)
         quiz_service = await get_quiz_service()
         result = await quiz_service.get_quiz_result(user_id, session_id)
         return {"success": True, "data": result}
@@ -139,7 +104,7 @@ async def get_result(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get quiz results: {str(e)}",
+            detail="Failed to get quiz results",
         )
 
 
@@ -149,14 +114,14 @@ async def get_history(
 ):
     """Get quiz history for the user."""
     try:
-        user_id = get_user_id_from_token(authorization)
+        user_id = await get_user_id_from_token(authorization)
         quiz_service = await get_quiz_service()
         history = await quiz_service.get_quiz_history(user_id)
         return {"success": True, "data": history}
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get quiz history: {str(e)}",
+            detail="Failed to get quiz history",
         )
 
 

@@ -192,16 +192,18 @@ class CareerService:
         return {**career, **snapshot}
 
     async def enrich_matches_with_market_data(self, matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Enrich multiple career matches with market data."""
-        enriched = []
-        for match in matches:
+        """Enrich multiple career matches with market data in parallel."""
+        import asyncio
+
+        async def _enrich_one(match: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 enriched_career = await self.enrich_career_with_market_data(match['career'])
-                enriched.append({**match, 'career': enriched_career})
+                return {**match, 'career': enriched_career}
             except Exception as e:
-                logger.warning(f"Market enrichment failed: {e}")
-                enriched.append(match)
-        return enriched
+                logger.warning(f"Market enrichment failed for {match.get('career', {}).get('title')}: {e}")
+                return match
+
+        return list(await asyncio.gather(*(_enrich_one(m) for m in matches)))
 
     async def get_all_careers(self) -> List[Dict[str, Any]]:
         """Get all active careers from database."""

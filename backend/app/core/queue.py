@@ -63,12 +63,22 @@ class QueueService:
         """
         try:
             if self.redis_conn:
-                import time
                 from rq import Queue
+
+                # rq.Queue.enqueue requires a callable, not a string.
+                # Route job names to their handler functions.
+                _job_handlers = {
+                    'generate-roadmap': 'app.workers.tasks.roadmap_generation.process_roadmap_generation',
+                    'cv-analysis':      'app.workers.tasks.cv_analysis.process_cv_analysis',
+                    'ai-processing':    'app.workers.tasks.ai_processing.process_ai_task',
+                }
+                handler_path = _job_handlers.get(name)
+                if not handler_path:
+                    raise ValueError(f"Unknown job name: {name!r}. Register it in _job_handlers.")
 
                 queue = self.get_queue(queue_name)
                 job = queue.enqueue(
-                    name,
+                    handler_path,
                     data,
                     job_id=str(uuid.uuid4()),
                     **(opts or {}),
@@ -76,7 +86,7 @@ class QueueService:
 
                 return {
                     'id': job.id,
-                    'name': job.description,
+                    'name': name,
                     'status': 'queued',
                     'data': data,
                 }

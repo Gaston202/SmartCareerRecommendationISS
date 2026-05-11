@@ -10,6 +10,7 @@ Implements the 6-phase processing pipeline:
 """
 import asyncio
 import logging
+import re
 import time
 from typing import Optional
 
@@ -40,6 +41,11 @@ class CircuitBreakerError(OrchestratorError):
 
 class PoisonPillError(OrchestratorError):
     """Raised when systemic failure pattern detected."""
+
+
+def estimated_tokens(text: str) -> int:
+    """Rough token estimation: ~4 chars per token."""
+    return max(1, len(text) // 4)
 
 
 class ChatbotOrchestrator:
@@ -235,8 +241,14 @@ class ChatbotOrchestrator:
     ) -> dict:
         config = {"configurable": {"thread_id": thread_id}}
 
-        async with self.defense.timeout_guard(label="graph_invoke"):
-            result = await self.graph.ainvoke(state, config)
+        try:
+            result = await asyncio.wait_for(
+                self.graph.ainvoke(state, config),
+                timeout=self.defense.timeout_s,
+            )
+        except asyncio.TimeoutError:
+            logger.error("graph_invoke timed out after %.1fs for thread=%s", self.defense.timeout_s, thread_id)
+            raise
 
         warning = self.defense.check_response(
             self._last_ai_content(result)
@@ -367,10 +379,3 @@ def get_chatbot_orchestrator(
     return _orchestrator_instance
 
 
-# Required for profanity filter
-import re
-
-
-def estimated_tokens(text: str) -> int:
-    """Rough token estimation: ~4 chars per token."""
-    return max(1, len(text) // 4)

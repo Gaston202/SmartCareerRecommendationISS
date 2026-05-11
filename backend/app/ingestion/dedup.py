@@ -1,9 +1,12 @@
-import math
+import json
+import logging
 from typing import List
 
 from app.core.database import DatabaseService
 from app.ingestion.normalizer import normalize_url
 from app.modules.roadmap.schemas import ResourceSchema
+
+logger = logging.getLogger(__name__)
 
 
 async def is_duplicate_url(db: DatabaseService, resource: ResourceSchema) -> bool:
@@ -23,30 +26,23 @@ async def has_embedding_duplicate(
     embedding: List[float],
     threshold: float = 0.97,
 ) -> bool:
+    """Use pgvector ANN search instead of a Python-loop over arbitrary rows."""
     if not embedding:
         return False
 
-    result = (
-        await db.get_client()
-        .from_("resource_chunks")
-        .select("embedding")
-        .limit(50)
-        .execute()
-    )
+    try:
+        # cosine distance = 1 - cosine_similarity, so similarity >= threshold
+        # means distance <= (1 - threshold)
+        max_distance = 1.0 - threshold
+        vector_literal = json.dumps(embedding)
 
-    for row in result.data or []:
-        existing = row.get("embedding")
-        if isinstance(existing, list) and cosine_similarity(existing, embedding) >= threshold:
-            return True
-    return False
+        result = await db.get_client().rpc(
+            "embedding_duplicate_check",
+            {"query_embedding": vector_literal, "max_distance": max_distance},
+        ).execute()
 
-
-def cosine_similarity(left: List[float], right: List[float]) -> float:
-    if not left or not right or len(left) != len(right):
-        return 0
-    dot = sum(a * b for a, b in zip(left, right))
-    left_norm = math.sqrt(sum(a * a for a in left))
-    right_norm = math.sqrt(sum(b * b for b in right))
-    if left_norm == 0 or right_norm == 0:
-        return 0
-    return dot / (left_norm * right_norm)
+        return bool(result.data)
+    except Exception as e:
+        # Graceful fallback: if the RPC doesn't exist yet, skip dedup rather than crash ingestion
+        logger.warning("has_embedding_duplicate RPC failed (%s), skipping dedup", e)
+        return False
