@@ -7,8 +7,9 @@ import {
 import { getQuizSession } from '../quiz/storage';
 import type { SavedRoadmap, RoadmapStep } from './types';
 import { getLatestCvAnalysisFromBackend } from '../cv/api-backend';
+import { assertRoadmapPrerequisites } from './prerequisites';
 
-const ROADMAP_MODEL = 'arcee-ai/trinity-large-preview:free';
+const ROADMAP_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
 async function buildRoadmapUserProfile(): Promise<{
   skills?: string[];
@@ -117,6 +118,7 @@ export async function generateCareerRoadmap(
   matchPercent?: number,
   careerId?: string,
 ): Promise<SavedRoadmap> {
+  await assertRoadmapPrerequisites();
   const key = getOpenRouterApiKey();
   const userProfile = await buildRoadmapUserProfile();
 

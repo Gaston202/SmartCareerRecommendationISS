@@ -101,7 +101,9 @@ export async function uploadCvToBackend(file: UploadPayload): Promise<{ analysis
 
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.success) {
-    throw new Error(payload?.message || "Failed to upload CV.");
+    // Handle both FastAPI format (detail) and NestJS format (message)
+    const errorMsg = payload?.message || payload?.detail || "Failed to upload CV.";
+    throw new Error(errorMsg);
   }
 
   return payload.data;
@@ -122,7 +124,9 @@ export async function getLatestCvAnalysisFromBackend(): Promise<CvAnalysis | nul
 
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.success) {
-    throw new Error(payload?.message || "Failed to fetch CV analysis.");
+    // Handle both FastAPI format (detail) and NestJS format (message)
+    const errorMsg = payload?.message || payload?.detail || "Failed to fetch CV analysis.";
+    throw new Error(errorMsg);
   }
 
   if (!payload.data) {
@@ -149,8 +153,32 @@ export async function getCvAnalysisStatusFromBackend(
 
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.success) {
-    throw new Error(payload?.message || "Failed to fetch CV analysis status.");
+    // Handle both FastAPI format (detail) and NestJS format (message)
+    const errorMsg = payload?.message || payload?.detail || "Failed to fetch CV analysis status.";
+    throw new Error(errorMsg);
   }
 
   return payload.data || null;
+}
+
+export async function deleteCvFromBackend(uploadId: string): Promise<{ success: boolean }> {
+  const token = await getAuthToken();
+  if (!token) {
+    throw new Error("Not authenticated. Please log in.");
+  }
+
+  const response = await fetchBackend(`/cv/${uploadId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success) {
+    const errorMsg = payload?.message || payload?.detail || "Failed to delete CV.";
+    throw new Error(errorMsg);
+  }
+
+  return { success: true };
 }

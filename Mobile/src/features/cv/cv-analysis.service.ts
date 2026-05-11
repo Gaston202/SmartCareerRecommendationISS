@@ -40,7 +40,7 @@ interface OpenRouterAnalysis {
 const OPENROUTER_MAX_RETRIES_PER_MODEL = 2;
 const OPENROUTER_BASE_RETRY_DELAY_MS = 1500;
 const CV_OPENROUTER_MODELS = [
-  "arcee-ai/trinity-large-preview:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
   "stepfun/step-3.5-flash:free",
 ];
 const EXTRACTED_FIELDS_CACHE_KEY_PREFIX = "cv_analysis_extracted_fields:";

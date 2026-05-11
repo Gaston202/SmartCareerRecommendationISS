@@ -23,6 +23,12 @@ type WelcomeScreenProps = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Welcome'>;
 };
 
+const FEATURES = [
+  { icon: 'flash' as const,      color: '#FFC107', label: 'AI-Powered Matching' },
+  { icon: 'trending-up' as const, color: '#5EEAD4', label: 'Career Roadmaps'    },
+  { icon: 'people' as const,      color: '#86EFAC', label: 'Mentor Connect'      },
+];
+
 export function WelcomeScreen({ navigation }: WelcomeScreenProps): React.ReactElement {
   const float1 = useRef(new Animated.Value(0)).current;
   const float2 = useRef(new Animated.Value(0)).current;
@@ -46,15 +52,10 @@ export function WelcomeScreen({ navigation }: WelcomeScreenProps): React.ReactEl
     a2.start();
     a3.start();
     a4.start();
-    return () => {
-      a1.stop();
-      a2.stop();
-      a3.stop();
-      a4.stop();
-    };
+    return () => { a1.stop(); a2.stop(); a3.stop(); a4.stop(); };
   }, [float1, float2, float3, float4]);
 
-  const t1 = (v: Animated.Value, y: number, x: number) => ({
+  const t = (v: Animated.Value, y: number, x: number) => ({
     transform: [
       { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, y] }) },
       { translateX: v.interpolate({ inputRange: [0, 1], outputRange: [0, x] }) },
@@ -64,13 +65,17 @@ export function WelcomeScreen({ navigation }: WelcomeScreenProps): React.ReactEl
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={[authColors.gradientStart, authColors.gradientEnd]}
+        colors={[authColors.gradientDeep, authColors.gradientMid, authColors.gradientBright]}
+        start={{ x: 0.2, y: 0 }}
+        end={{ x: 0.8, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      <Animated.View style={[styles.shape, styles.shapePurple, t1(float1, 14, 6)]} />
-      <Animated.View style={[styles.shape, styles.shapeOrange, t1(float2, -10, -4)]} />
-      <Animated.View style={[styles.shape, styles.shapeTeal, t1(float3, 12, 5)]} />
-      <Animated.View style={[styles.shape, styles.shapeBlue, t1(float4, -8, 4)]} />
+
+      {/* Ambient floating blobs */}
+      <Animated.View style={[styles.blob, styles.blob1, t(float1, 14, 6)]} />
+      <Animated.View style={[styles.blob, styles.blob2, t(float2, -10, -4)]} />
+      <Animated.View style={[styles.blob, styles.blob3, t(float3, 12, 5)]} />
+      <Animated.View style={[styles.blob, styles.blob4, t(float4, -8, 4)]} />
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -78,58 +83,59 @@ export function WelcomeScreen({ navigation }: WelcomeScreenProps): React.ReactEl
         bounces={false}
       >
         <View style={styles.contentBlock}>
-        <View style={styles.logoCircle}>
-          <AppLogo size={42} />
-        </View>
-
-        <Text style={styles.title}>
-          Not sure about your future?{'\n'}
-          <Text style={styles.titleHighlight}>Let's figure it out together.</Text>
-        </Text>
-        <Text style={styles.subtitle}>
-          Answer a few questions and discover career paths made for you.
-        </Text>
-
-        <View style={styles.featureRow}>
-          <View style={styles.featurePill}>
-            <Ionicons name="flash" size={18} color={authColors.link} />
-            <Text style={styles.featureText}>AI-Powered Matching</Text>
+          {/* Logo */}
+          <View style={styles.logoCircle}>
+            <AppLogo size={42} />
           </View>
-          <View style={styles.featurePill}>
-            <Ionicons name="trending-up" size={18} color="#0D9488" />
-            <Text style={styles.featureText}>Career Roadmaps</Text>
-          </View>
-        </View>
-        <View style={[styles.featureRow, styles.featureRowSingle]}>
-          <View style={styles.featurePill}>
-            <Ionicons name="people" size={18} color="#059669" />
-            <Text style={styles.featureText}>Mentor Connect</Text>
-          </View>
-        </View>
 
-        <Pressable
-          onPress={() => navigation.navigate('Login')}
-          style={({ pressed }) => [styles.getStartedWrap, pressed && styles.getStartedPressed]}
-        >
-          <LinearGradient
-            colors={[authColors.buttonStart, authColors.buttonEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.getStartedGradient}
+          {/* Badge */}
+          <View style={styles.badge}>
+            <Ionicons name="sparkles" size={12} color="#FFC107" />
+            <Text style={styles.badgeText}>AI-POWERED CAREER PLATFORM</Text>
+          </View>
+
+          {/* Headline */}
+          <Text style={styles.title}>
+            Not sure about{'\n'}your future?
+          </Text>
+          <Text style={styles.titleHighlight}>Let's figure it out.</Text>
+
+          <Text style={styles.subtitle}>
+            Answer a few questions and discover career paths made exactly for you.
+          </Text>
+
+          {/* Feature pills */}
+          <View style={styles.featuresRow}>
+            {FEATURES.map(({ icon, color, label }) => (
+              <View key={label} style={styles.featurePill}>
+                <Ionicons name={icon} size={16} color={color} />
+                <Text style={styles.featureText}>{label}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Primary CTA */}
+          <Pressable
+            onPress={() => navigation.navigate('Login')}
+            style={({ pressed }) => [styles.ctaWrap, pressed && styles.ctaPressed]}
           >
-            <Text style={styles.getStartedText}>Get Started</Text>
-            <Ionicons name="arrow-forward" size={20} color="#fff" />
-          </LinearGradient>
-        </Pressable>
-        <View style={styles.timeRow}>
-          <Ionicons name="time-outline" size={14} color={authColors.textMuted} />
-          <Text style={styles.timeText}>Takes 3-5 minutes</Text>
-        </View>
+            <View style={styles.ctaBtn}>
+              <Text style={styles.ctaText}>Get Started</Text>
+              <View style={styles.ctaArrow}>
+                <Ionicons name="arrow-forward" size={18} color={authColors.gradientMid} />
+              </View>
+            </View>
+          </Pressable>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Powered by AI</Text>
-          <Ionicons name="sparkles" size={14} color={authColors.link} style={{ marginLeft: 4 }} />
-        </View>
+          <View style={styles.timeRow}>
+            <Ionicons name="time-outline" size={13} color="rgba(255,255,255,0.45)" />
+            <Text style={styles.timeText}>Takes 3–5 minutes</Text>
+          </View>
+
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Powered by AI</Text>
+            <Ionicons name="sparkles" size={12} color="rgba(255,255,255,0.35)" style={{ marginLeft: 4 }} />
+          </View>
         </View>
       </ScrollView>
     </View>
@@ -138,134 +144,177 @@ export function WelcomeScreen({ navigation }: WelcomeScreenProps): React.ReactEl
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 32,
+    paddingHorizontal: 28,
+    paddingVertical: 40,
     alignItems: 'center',
     minHeight: '100%',
   },
+
   contentBlock: {
     alignItems: 'center',
     width: '100%',
   },
-  shape: { position: 'absolute', borderRadius: 999 },
-  shapePurple: {
+
+  // Ambient blobs
+  blob: { position: 'absolute', borderRadius: 999 },
+  blob1: {
+    width: 200,
+    height: 200,
+    backgroundColor: authColors.shapePurple,
+    top: '5%',
+    right: -60,
+  },
+  blob2: {
     width: 120,
     height: 120,
-    borderRadius: 24,
-    backgroundColor: authColors.shapePurple,
-    top: '8%',
-    right: -30,
+    backgroundColor: authColors.shapeTeal,
+    top: '30%',
+    left: -40,
   },
-  shapeOrange: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: authColors.shapeOrange,
-    top: '28%',
-    left: -20,
+  blob3: {
+    width: 160,
+    height: 160,
+    backgroundColor: authColors.shapeBlue,
+    top: '50%',
+    left: -50,
   },
-  shapeTeal: {
+  blob4: {
     width: 100,
     height: 100,
-    borderRadius: 50,
-    backgroundColor: authColors.shapeTeal,
-    top: '42%',
-    left: -30,
+    backgroundColor: authColors.shapeOrange,
+    bottom: '20%',
+    right: -20,
   },
-  shapeBlue: {
-    width: 90,
-    height: 90,
-    borderRadius: 20,
-    backgroundColor: authColors.shapeBlue,
-    bottom: '24%',
-    left: -10,
-  },
+
+  // Logo
   logoCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: authColors.logoBg,
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
-  title: {
-    fontSize: 22,
+
+  // Badge
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    marginBottom: 20,
+  },
+  badgeText: {
+    fontSize: 10,
     fontWeight: '700',
-    color: authColors.textDark,
+    letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.85)',
+  },
+
+  // Headline
+  title: {
+    fontSize: 38,
+    fontWeight: '900',
+    color: '#FFFFFF',
     textAlign: 'center',
-    lineHeight: 30,
-    marginBottom: 12,
-    paddingHorizontal: 8,
+    lineHeight: 44,
+    letterSpacing: -1,
+    marginBottom: 4,
   },
   titleHighlight: {
-    color: authColors.link,
+    fontSize: 30,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.65)',
+    textAlign: 'center',
+    marginBottom: 16,
+    letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 15,
-    color: authColors.textMuted,
+    color: 'rgba(255,255,255,0.65)',
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: 28,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
   },
-  featureRow: {
+
+  // Feature pills
+  featuresRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 12,
-    marginBottom: 12,
-  },
-  featureRowSingle: {
-    marginBottom: 28,
+    gap: 8,
+    marginBottom: 32,
   },
   featurePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    gap: 8,
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
   },
   featureText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: authColors.textDark,
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.9)',
   },
-  getStartedWrap: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 10,
+
+  // CTA
+  ctaWrap: {
     alignSelf: 'stretch',
+    marginBottom: 14,
   },
-  getStartedPressed: { opacity: 0.9 },
-  getStartedGradient: {
+  ctaPressed: { opacity: 0.92, transform: [{ scale: 0.98 }] },
+  ctaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    minHeight: 52,
-    gap: 8,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 17,
+    borderRadius: 18,
+    gap: 10,
   },
-  getStartedText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
+  ctaText: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: authColors.gradientMid,
+    letterSpacing: -0.3,
   },
+  ctaArrow: {
+    width: 28,
+    height: 28,
+    borderRadius: 99,
+    backgroundColor: authColors.gradientBright + '18',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Hints
   timeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 40,
+    marginBottom: 36,
   },
   timeText: {
     fontSize: 13,
-    color: authColors.textMuted,
+    color: 'rgba(255,255,255,0.45)',
   },
   footer: {
     flexDirection: 'row',
@@ -273,6 +322,6 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 12,
-    color: authColors.textMuted,
+    color: 'rgba(255,255,255,0.35)',
   },
 });

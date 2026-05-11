@@ -10,6 +10,14 @@ node_modules/
 # expo
 .expo/
 
+# generated build output
+Mobile/backend/dist/
+*.tsbuildinfo
+
 CLAUDE.md
 DATABASE_SCHEMA.md
 
+venv
+__pycache__/
+*.pyc
+.mypy_cache

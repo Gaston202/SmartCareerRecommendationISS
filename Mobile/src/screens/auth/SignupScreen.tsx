@@ -102,7 +102,7 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
                 style={[styles.roleCard, !isMentor && styles.roleCardActive]}
               >
                 <View style={[styles.roleIcon, !isMentor && styles.roleIconActive]}>
-                  <Ionicons name="school-outline" size={24} color={!isMentor ? '#fff' : '#6B7280'} />
+                  <Ionicons name="school-outline" size={24} color={!isMentor ? '#fff' : authColors.textMuted} />
                 </View>
                 <Text style={[styles.roleTitle, !isMentor && styles.roleTitleActive]}>Student</Text>
                 <Text style={styles.roleCaption}>Seeking Growth</Text>
@@ -113,7 +113,7 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
                 style={[styles.roleCard, isMentor && styles.roleCardActive]}
               >
                 <View style={[styles.roleIcon, isMentor && styles.roleIconActive]}>
-                  <Ionicons name="people-outline" size={24} color={isMentor ? '#fff' : '#6B7280'} />
+                  <Ionicons name="people-outline" size={24} color={isMentor ? '#fff' : authColors.textMuted} />
                 </View>
                 <Text style={[styles.roleTitle, isMentor && styles.roleTitleActive]}>Mentor</Text>
                 <Text style={styles.roleCaption}>Guiding Others</Text>
@@ -362,7 +362,7 @@ export function SignupScreen({ navigation }: SignupScreenProps): React.ReactElem
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fcf4ff' },
+  container: { flex: 1, backgroundColor: authColors.pageBg },
   keyboardView: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
@@ -371,50 +371,49 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   panel: {
-    marginHorizontal: 0,
-    borderRadius: 26,
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 22,
-    shadowColor: '#37274d',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 4,
+    borderRadius: 28,
+    backgroundColor: authColors.cardBg,
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 24,
+    shadowColor: authColors.cardShadowColor,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.1,
+    shadowRadius: 28,
+    elevation: 6,
   },
   mobileBrandWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
     gap: 8,
   },
   mobileBrandText: {
     fontSize: 24,
     fontWeight: '900',
-    color: '#6437db',
+    color: authColors.buttonStart,
     letterSpacing: -0.7,
   },
   title: {
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: '900',
-    color: '#37274d',
+    color: authColors.textDark,
     letterSpacing: -0.8,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   subtitle: {
     fontSize: 15,
-    color: '#6B5B95',
+    color: authColors.textMuted,
     lineHeight: 22,
-    marginBottom: 18,
+    marginBottom: 20,
   },
   roleLabel: {
     fontSize: 11,
     fontWeight: '800',
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    color: '#6B5B95',
+    letterSpacing: 1.2,
+    color: authColors.textMuted,
     marginBottom: 12,
   },
   roleGrid: {
@@ -425,39 +424,47 @@ const styles = StyleSheet.create({
   roleCard: {
     flex: 1,
     borderRadius: 18,
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 10,
-    backgroundColor: '#f8edff',
+    backgroundColor: '#F5F3FF',
     alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: authColors.border,
   },
   roleCardActive: {
-    backgroundColor: '#f2e2ff',
+    backgroundColor: '#EDE9FE',
+    borderColor: authColors.buttonStart,
   },
   roleIcon: {
-    width: 46,
-    height: 46,
+    width: 48,
+    height: 48,
     borderRadius: 14,
-    backgroundColor: '#ffffff',
+    backgroundColor: authColors.cardBg,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
+    shadowColor: authColors.cardShadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   roleIconActive: {
-    backgroundColor: '#6437db',
+    backgroundColor: authColors.buttonStart,
   },
   roleTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
-    color: '#37274d',
+    color: authColors.textDark,
     marginBottom: 2,
   },
   roleTitleActive: {
-    color: '#6437db',
+    color: authColors.buttonStart,
   },
   roleCaption: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#6B5B95',
+    fontWeight: '700',
+    color: authColors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
@@ -467,18 +474,18 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#37274d',
+    color: authColors.textDark,
     marginBottom: 8,
   },
   inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e9d5ff',
-    borderRadius: 12,
+    backgroundColor: authColors.cardBg,
+    borderWidth: 1.5,
+    borderColor: authColors.border,
+    borderRadius: 14,
     paddingHorizontal: 14,
-    minHeight: 48,
+    minHeight: 50,
   },
   inputIcon: { marginRight: 10 },
   input: {
@@ -491,25 +498,25 @@ const styles = StyleSheet.create({
   inputRight: { paddingRight: 36 },
   eyeIcon: { position: 'absolute', right: 14 },
   fieldError: { fontSize: 12, color: '#DC2626', marginTop: 4 },
-  buttonWrap: { marginTop: 8, borderRadius: 12, overflow: 'hidden' },
+  buttonWrap: { marginTop: 8, borderRadius: 14, overflow: 'hidden' },
   buttonPressed: { opacity: 0.9 },
   buttonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 15,
     gap: 8,
   },
   buttonText: { fontSize: 16, fontWeight: '700', color: '#fff' },
   orRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  orLine: { flex: 1, height: 1, backgroundColor: '#e9d5ff' },
-  orText: { fontSize: 11, color: '#6B5B95', marginHorizontal: 12, fontWeight: '700', letterSpacing: 1 },
+  orLine: { flex: 1, height: 1, backgroundColor: authColors.border },
+  orText: { fontSize: 11, color: authColors.textMuted, marginHorizontal: 12, fontWeight: '700', letterSpacing: 1 },
   signupRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' },
-  signupPrompt: { fontSize: 14, color: '#37274d' },
-  signupLink: { fontSize: 14, color: '#6437db', fontWeight: '700' },
+  signupPrompt: { fontSize: 14, color: authColors.textDark },
+  signupLink: { fontSize: 14, color: authColors.link, fontWeight: '700' },
   terms: {
     fontSize: 12,
-    color: '#6B5B95',
+    color: authColors.textMuted,
     textAlign: 'center',
     marginTop: 16,
     lineHeight: 18,

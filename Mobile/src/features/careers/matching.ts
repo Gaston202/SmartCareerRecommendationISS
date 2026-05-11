@@ -18,6 +18,7 @@ export interface CareerMatch {
   career: CareerWithSkills;
   score: number; // 0-100
   matchReasons: string[];
+  aiInsight?: string;
 }
 
 export interface AiPoweredCareerMatch extends CareerMatch {

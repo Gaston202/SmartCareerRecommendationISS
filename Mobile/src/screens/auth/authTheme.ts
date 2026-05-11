@@ -1,20 +1,28 @@
-/**
- * Shared colors and layout for auth screens (Welcome, Login, Signup).
- * Same gradient + floating shapes background across all.
- */
 export const authColors = {
-  gradientStart: '#E8E4F0',
-  gradientEnd: '#C9C4D8',
-  cardBg: '#F8F8FA',
-  logoBg: '#8158F8',
-  link: '#8B5CF6',
-  buttonStart: '#7C3AED',
+  // Welcome screen: deep immersive purple gradient
+  gradientDeep: '#1F0A50',
+  gradientMid: '#5B21B6',
+  gradientBright: '#7C4DFF',
+
+  // Form backgrounds
+  pageBg: '#F7F5FF',
+  cardBg: '#FFFFFF',
+  logoBg: '#7C4DFF',
+  link: '#7C4DFF',
+  buttonStart: '#6437DB',
   buttonEnd: '#9C66FF',
-  textDark: '#1F2937',
-  textMuted: '#6B7280',
-  border: '#E5E7EB',
-  shapePurple: 'rgba(139, 92, 246, 0.25)',
-  shapeTeal: 'rgba(94, 234, 212, 0.3)',
-  shapeOrange: 'rgba(251, 191, 36, 0.25)',
-  shapeBlue: 'rgba(56, 189, 248, 0.25)',
+
+  // Text
+  textDark: '#1A1035',
+  textMuted: '#7C6FA0',
+
+  // Borders & shadows
+  border: '#EDE9FE',
+  cardShadowColor: '#4C2E9C',
+
+  // Floating shapes on the dark WelcomeScreen — white translucent blobs
+  shapePurple: 'rgba(255, 255, 255, 0.07)',
+  shapeTeal: 'rgba(255, 255, 255, 0.05)',
+  shapeOrange: 'rgba(255, 255, 255, 0.06)',
+  shapeBlue: 'rgba(255, 255, 255, 0.04)',
 };

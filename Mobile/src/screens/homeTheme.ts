@@ -1,41 +1,39 @@
-/**
- * Home screen theme – purple/grey palette to match the design.
- * Includes semantic tokens for accessibility and consistency.
- */
 export const homeColors = {
-  // Background
+  // Backgrounds
   backgroundStart: '#F5F3FF',
   backgroundEnd: '#EDE9FE',
   backgroundMuted: '#F5F3FF',
+  pageBg: '#F7F5FF',
 
-  // Cards & surfaces
-  cardBg: '#F9F9FB',
-  cardBorder: '#EFEFF1',
+  // Cards & surfaces — pure white on purple-tinted bg creates strong contrast
+  cardBg: '#FFFFFF',
+  cardBorder: '#EDE9FE',
+  cardShadowColor: '#4C2E9C',
 
-  // Primary purple (buttons, active states, accents)
+  // Primary purple
   primary: '#7C4DFF',
   primaryDark: '#5E35B1',
   primaryLight: '#9C66FF',
   logoBg: '#6D28D9',
 
-  // Text (WCAG AA compliant)
-  textDark: '#1F2937',
-  textMuted: '#4B5563',  // Darkened from #6B7280 for WCAG AA 4.5:1 contrast
-  textLight: '#6B7280',  // Use only for tertiary text
+  // Text — purple-tinted neutrals, not pure grey
+  textDark: '#1A1035',
+  textMuted: '#5B4F7A',
+  textLight: '#8B80AC',
 
-  // Semantic text on colored backgrounds
-  onPrimary: '#FFFFFF',      // Text/icons on primary background
-  onSurface: '#1F2937',      // Primary text on surfaces
-  onSurfaceVariant: '#4B5563', // Secondary text on surfaces
+  // Semantic text
+  onPrimary: '#FFFFFF',
+  onSurface: '#1A1035',
+  onSurfaceVariant: '#5B4F7A',
 
-  // Secondary accents (How It Works icons)
+  // Accents
   accentTeal: '#0D9488',
   accentGreen: '#059669',
   accentOrange: '#EA580C',
 
-  // Semantic colors
-  error: '#F44336',
-  errorContainer: '#F4433615',
+  // Semantic
+  error: '#EF4444',
+  errorContainer: '#FEF2F2',
   success: '#10B981',
 
   // Stars
@@ -43,6 +41,6 @@ export const homeColors = {
 
   // Tab bar
   tabActive: '#7C4DFF',
-  tabInactive: '#9CA3AF',
+  tabInactive: '#94A3B8',
   tabBarBg: '#FFFFFF',
 };

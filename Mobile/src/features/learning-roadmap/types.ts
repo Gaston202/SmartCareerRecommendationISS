@@ -5,6 +5,8 @@ export interface LearningSkill {
   name: string;
   description: string;
   level: SkillLevel;
+  sourceLevel?: SkillLevel | null;
+  confidence_score?: number;
   duration_hours: number;
   prerequisites: string[]; // skill IDs
   category: string; // e.g., "Backend", "Frontend", "DevOps", "Data Science"
@@ -25,6 +27,10 @@ export interface LearningCourse {
   description: string;
   provider: string; // e.g., "Khan Academy", "Udemy", "Coursera", "freeCodeCamp"
   url: string;
+  source_resource_id?: string | null;
+  confidence_score?: number;
+  display_badges?: string[] | null;
+  recommendation_reason?: string | null;
   duration_hours: number;
   level: SkillLevel;
   rating: number; // 0-5
@@ -34,10 +40,24 @@ export interface LearningCourse {
   created_at: string;
 }
 
+export interface LearningRoadmapResource {
+  resource_id: string | null;
+  title: string | null;
+  provider: string | null;
+  source_url: string | null;
+  score: number;
+  why_selected?: string | null;
+  display_badges?: string[] | null;
+  recommendation_reason?: string | null;
+}
+
 export interface LearningRoadmapNode {
   skill: LearningSkill;
   courses: LearningCourse[];
   dependencies: LearningSkill[];
+  primaryResource?: LearningRoadmapResource | null;
+  backupResources?: LearningRoadmapResource[] | null;
+  evidenceReasons?: string[] | null;
   estimatedCompletionDate?: string;
   userProgress?: {
     started: boolean;
@@ -53,6 +73,11 @@ export interface LearningRoadmap {
   career_title: string;
   title: string;
   description: string;
+  confidence?: number;
+  weak_evidence?: boolean;
+  message?: string | null;
+  diagnostics?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
   skills: LearningRoadmapNode[];
   total_duration_hours: number;
   estimated_weeks: number;

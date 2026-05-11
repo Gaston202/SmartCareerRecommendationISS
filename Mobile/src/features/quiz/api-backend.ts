@@ -28,6 +28,10 @@ export interface QuizAnswerResponse {
   results?: QuizNextResponse;
 }
 
+export async function regenerateQuizResults(sessionId?: string): Promise<QuizNextResponse> {
+  return getQuizResults(sessionId, true);
+}
+
 function normalizeQuizQuestion(raw: any): QuizQuestion {
   return {
     type: 'question',
@@ -156,7 +160,7 @@ export async function startQuiz(): Promise<QuizStartResponse> {
  */
 export async function submitAnswer(
   answer: string,
-  currentQuestion?: { question: string; options: string[] },
+  currentQuestion?: { question: string; options: string[]; questionNumber?: number },
 ): Promise<QuizAnswerResponse> {
   try {
     const token = await getAuthToken();
@@ -178,6 +182,7 @@ export async function submitAnswer(
       },
       body: JSON.stringify({
         answer,
+        questionNumber: currentQuestion?.questionNumber,
         question: currentQuestion?.question,
         options: currentQuestion?.options,
       }),
@@ -196,9 +201,8 @@ export async function submitAnswer(
       throw new Error('Invalid response from server');
     }
 
-    // If quiz completed, clear session ID
+    // Keep the session ID so the completed report can be regenerated without restarting the quiz
     if (data.data.results) {
-      await clearSessionId();
       return {
         results: normalizeQuizResults(data.data.results),
       };
@@ -216,7 +220,7 @@ export async function submitAnswer(
 /**
  * Get quiz results for a completed session
  */
-export async function getQuizResults(sessionId?: string): Promise<QuizNextResponse> {
+export async function getQuizResults(sessionId?: string, refresh = false): Promise<QuizNextResponse> {
   try {
     const token = await getAuthToken();
     const id = sessionId || (await getSessionId());
@@ -228,7 +232,7 @@ export async function getQuizResults(sessionId?: string): Promise<QuizNextRespon
       throw new Error('No quiz session ID provided');
     }
 
-    const response = await fetchBackend(`/quiz/result/${id}`, {
+    const response = await fetchBackend(`/quiz/result/${id}${refresh ? '?refresh=true' : ''}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,

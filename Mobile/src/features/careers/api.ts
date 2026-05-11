@@ -5,6 +5,7 @@
 
 import type { CareerMatch } from './matching';
 import type { Career } from './types';
+import { supabase } from '../../api/supabase';
 import { fetchBackend } from '../../api/backend';
 import { getQuizSession } from '../quiz/storage';
 
@@ -71,7 +72,10 @@ export async function recommendCareers(
       },
       score: match.match_score,
       matchReasons: match.match_reasons || [],
-      aiInsight: match.ai_insights?.explanation || `Strong ${match.match_score}% match based on your profile.`,
+      aiInsight:
+        match.ai_explanation ||
+        match.ai_insights?.explanation ||
+        `Strong ${match.match_score}% match based on your profile.`,
     }));
   } catch (error: any) {
     console.error('[Careers] Failed to recommend careers:', error);
@@ -130,8 +134,6 @@ export async function getAllCareers(): Promise<Career[]> {
     throw error;
   }
 }
-
-import { supabase } from '../../api/supabase';
 
 /**
  * Helper: Get a valid auth token from Supabase

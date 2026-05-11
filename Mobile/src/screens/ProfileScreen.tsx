@@ -773,9 +773,10 @@ function ChangePasswordModal({
 
 // ------------------- Main Screen -------------------
 export default function ProfileScreen() {
-  const { signOut } = useAuth();
+  const { signOut, state: authState } = useAuth();
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [loading, setLoading] = useState(true);
   const [changePwdOpen, setChangePwdOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -866,6 +867,7 @@ export default function ProfileScreen() {
 
   const skillsList = useMemo(() => parseSkills(watched.skills), [watched.skills]);
   const { data: cvAnalysis, isLoading: cvAnalysisLoading } = useCvAnalysis();
+  
   const cvExtractedSkills = useMemo(() => {
     const raw = [
       ...(cvAnalysis?.extracted_skills ?? []),
@@ -886,6 +888,28 @@ export default function ProfileScreen() {
       })
       .slice(0, 24);
   }, [cvAnalysis]);
+  
+  const cvExtractedInterests = useMemo(() => {
+    const raw = [
+      ...(cvAnalysis?.extracted_interests ?? []),
+      ...(cvAnalysis?.interests_extracted ?? []),
+      ...(cvAnalysis?.interests ?? []),
+    ];
+    const seen = new Set<string>();
+    return raw
+      .map((s) => String(s ?? "").trim())
+      .filter(Boolean)
+      .filter((s) => {
+        const key = s.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 10);
+  }, [cvAnalysis]);
+  
+  const [importedSkills, setImportedSkills] = useState(false);
+  const [importedInterests, setImportedInterests] = useState(false);
   const progress = useMemo(() => completeness(watched), [watched]);
 
   const inputRefs = useRef<Partial<Record<FieldName, TextInput | null>>>({});
@@ -901,6 +925,72 @@ export default function ProfileScreen() {
 
     if (target && inputRefs.current[target]?.focus) {
       inputRefs.current[target]?.focus();
+    }
+  };
+
+  const importCvSkillsToProfile = async () => {
+    if (cvExtractedSkills.length === 0) {
+      Alert.alert("No CV skills", "Upload and analyze a CV first to extract skills.");
+      return;
+    }
+    
+    // Build new skills string (comma-separated)
+    const newSkills = [
+      ...(watched.skills ? watched.skills.split(",").map(s => s.trim()).filter(Boolean) : []),
+      ...cvExtractedSkills.filter(s => !watched.skills?.toLowerCase().includes(s.toLowerCase())),
+    ].slice(0, 20).join(", ");
+    
+    // Update profile
+    try {
+      setSaving(true);
+      
+      // First enter edit mode
+      if (!editMode) {
+        setEditMode(true);
+      }
+      
+      // Set the skills field
+      setValue("skills", newSkills, { shouldDirty: true, shouldValidate: true });
+      setImportedSkills(true);
+      
+      Alert.alert("Skills imported", `${cvExtractedSkills.length} skills added to your profile. Press Save to confirm.`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Could not import skills";
+      Alert.alert("Error", msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const importCvInterestsToProfile = async () => {
+    if (cvExtractedInterests.length === 0) {
+      Alert.alert("No CV interests", "No interests found in your CV.");
+      return;
+    }
+    
+    // Add interests to bio or save separately
+    const currentBio = watched.bio || "";
+    const interestsText = cvExtractedInterests.join(", ");
+    const newBio = currentBio 
+      ? `${currentBio}\n\nInterests: ${interestsText}` 
+      : `Interests: ${interestsText}`;
+    
+    try {
+      setSaving(true);
+      
+      if (!editMode) {
+        setEditMode(true);
+      }
+      
+      setValue("bio", newBio.slice(0, 220), { shouldDirty: true });
+      setImportedInterests(true);
+      
+      Alert.alert("Interests imported", "Interests added to your bio. Press Save to confirm.");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Could not import interests";
+      Alert.alert("Error", msg);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -969,18 +1059,52 @@ export default function ProfileScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 0.8,
+        quality: 0.7,
         aspect: [1, 1],
       });
 
-      if (!result.canceled && result.assets?.[0]?.uri) {
-        const uri = result.assets[0].uri;
-        setValue("photoUrl", uri, { shouldDirty: true, shouldValidate: true });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+
+      const uri = result.assets[0].uri;
+      const userId = authState.user?.id;
+      if (!userId) return;
+
+      setUploadingPhoto(true);
+      try {
+        // Read file as blob and upload to Supabase Storage
+        const response = await fetch(uri);
+        const blob = await response.blob();
+        const ext = uri.split('.').pop()?.toLowerCase().split('?')[0] ?? 'jpg';
+        const contentType = ext === 'png' ? 'image/png' : 'image/jpeg';
+        const filePath = `${userId}/avatar.${ext}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, blob, { upsert: true, contentType });
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+        // Save to DB immediately — no need to press Save
+        await updateMyUserRow({ avatar: publicUrl });
+
+        // Update form + saved profile so the avatar circle refreshes
+        setValue("photoUrl", publicUrl, { shouldDirty: false, shouldValidate: true });
+        setSavedProfile(prev => ({ ...prev, photoUrl: publicUrl }));
+
+        Alert.alert("Photo updated ✅", "Your profile picture has been saved.");
+      } catch (e: any) {
+        Alert.alert("Upload failed", e?.message ?? "Could not upload photo.");
+      } finally {
+        setUploadingPhoto(false);
       }
     } catch {
       Alert.alert(
         "Gallery picker not installed",
-        "Install it with: npx expo install expo-image-picker\n(or just paste a Photo URL)."
+        "Install it with: npx expo install expo-image-picker"
       );
     }
   };
@@ -1415,22 +1539,17 @@ export default function ProfileScreen() {
               {/* Quick Actions */}
               <View style={styles.quickActionsRow}>
                 <Pressable
-                  style={[styles.quickActionBtn, !editMode && styles.quickActionBtnDisabled]}
-                  disabled={!editMode}
+                  style={[styles.quickActionBtn, uploadingPhoto && styles.quickActionBtnDisabled]}
+                  disabled={uploadingPhoto}
                   onPress={pickImageIfAvailable}
                 >
-                  <Ionicons
-                    name="image-outline"
-                    size={18}
-                    color={editMode ? COLORS.primary : COLORS.muted}
-                  />
-                  <Text
-                    style={[
-                      styles.quickActionText,
-                      !editMode && { color: COLORS.muted },
-                    ]}
-                  >
-                    Update Photo
+                  {uploadingPhoto ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <Ionicons name="camera-outline" size={18} color={COLORS.primary} />
+                  )}
+                  <Text style={styles.quickActionText}>
+                    {uploadingPhoto ? "Uploading…" : "Update Photo"}
                   </Text>
                 </Pressable>
               </View>
@@ -1453,13 +1572,49 @@ export default function ProfileScreen() {
                       No CV skills yet. Upload and analyze your CV to see extracted skills here.
                     </Text>
                   ) : (
-                    <View style={styles.skillsGrid}>
-                      {cvExtractedSkills.map((s) => (
-                        <View key={`cv-${s}`} style={styles.cvSkillTag}>
-                          <Text style={styles.cvSkillTagText}>{s}</Text>
-                        </View>
-                      ))}
-                    </View>
+                    <>
+                      <View style={styles.skillsGrid}>
+                        {cvExtractedSkills.map((s) => (
+                          <View key={`cv-${s}`} style={styles.cvSkillTag}>
+                            <Text style={styles.cvSkillTagText}>{s}</Text>
+                          </View>
+                        ))}
+                      </View>
+                      
+                      {/* Import Skills Button */}
+                      <Pressable 
+                        style={[styles.importBtn, importedSkills && styles.importBtnDisabled]}
+                        onPress={importCvSkillsToProfile}
+                        disabled={importedSkills || cvExtractedSkills.length === 0}
+                      >
+                        <Ionicons 
+                          name={importedSkills ? "checkmark-circle" : "download-outline"} 
+                          size={16} 
+                          color={importedSkills ? COLORS.success : COLORS.primary} 
+                        />
+                        <Text style={[styles.importBtnText, importedSkills && {color: COLORS.success}]}>
+                          {importedSkills ? "Skills imported" : "Import to profile"}
+                        </Text>
+                      </Pressable>
+                      
+                      {/* Import Interests Button */}
+                      {cvExtractedInterests.length > 0 && (
+                        <Pressable 
+                          style={[styles.importBtn, importedInterests && styles.importBtnDisabled]}
+                          onPress={importCvInterestsToProfile}
+                          disabled={importedInterests}
+                        >
+                          <Ionicons 
+                            name={importedInterests ? "checkmark-circle" : "heart-outline"} 
+                            size={16} 
+                            color={importedInterests ? COLORS.success : COLORS.primary} 
+                          />
+                          <Text style={[styles.importBtnText, importedInterests && {color: COLORS.success}]}>
+                            {importedInterests ? "Interests imported" : `Import interests (${cvExtractedInterests.length})`}
+                          </Text>
+                        </Pressable>
+                      )}
+                    </>
                   )}
                 </View>
 
@@ -1933,6 +2088,31 @@ const styles = StyleSheet.create({
     color: COLORS.primaryDark,
     fontWeight: "800",
     fontSize: 12,
+  },
+
+  // Import button styles
+  importBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    backgroundColor: "rgba(124,77,255,0.06)",
+  },
+  importBtnDisabled: {
+    opacity: 0.6,
+    borderColor: COLORS.success,
+    backgroundColor: "rgba(52,211,153,0.1)",
+  },
+  importBtnText: {
+    color: COLORS.primary,
+    fontWeight: "800",
+    fontSize: 13,
   },
 
   emptySection: {

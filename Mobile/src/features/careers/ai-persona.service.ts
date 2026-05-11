@@ -8,7 +8,7 @@ import { getQuizSession } from '../quiz/storage';
 import { getLatestCvAnalysisFromBackend } from '../cv/api-backend';
 import type { NovaBehaviorProfile } from '../quiz/types';
 
-const PERSONA_MODEL = 'arcee-ai/trinity-large-preview:free';
+const PERSONA_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
 /**
  * DISC profile to archetype mapping

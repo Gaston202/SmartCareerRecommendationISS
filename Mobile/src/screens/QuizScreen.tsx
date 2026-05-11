@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { startQuiz, submitAnswer, setSessionId } from "../features/quiz/api-backend";
+import { startQuiz, submitAnswer, setSessionId, getSessionId, getQuizResults, regenerateQuizResults, getQuizHistory } from "../features/quiz/api-backend";
 import { clearQuizSession, getQuizSession, saveQuizSession } from "../features/quiz/storage";
 import { AppLogo } from "../ui/AppLogo";
 import { supabase } from "../api/supabase";
@@ -62,19 +62,42 @@ const WELCOME_MESSAGE: ChatMessage = {
 };
 
 const ICON_MAP: Record<string, keyof typeof Ionicons.glyphMap> = {
-  brush: "brush",
-  palette: "color-palette",
+  analytics: "analytics",
   people: "people",
   globe: "globe",
-  business: "business",
-  ribbon: "ribbon",
+  locate: "locate",
+  target: "locate",
   flash: "flash",
   trophy: "trophy",
-  construct: "construct",
-  target: "locate",
-  handshake: "hand-left",
+  school: "school",
+  heart: "heart",
+  star: "star",
+  bulb: "bulb",
+  book: "book",
+  time: "time",
+  document: "document",
+  call: "call",
+  videocam: "videocam",
+  chatbubbleEllipses: "chatbubble-ellipses",
+  chatbubble: "chatbubble-ellipses",
+chatbubbleellipses: "chatbubble-ellipses",
+  shield_checkmark: "shield-checkmark",
+  fitness: "fitness",
+  car: "car",
+  home: "home",
+  wallet: "wallet",
+  ear: "ear",
   code: "code",
-  analytics: "analytics",
+  construct: "construct",
+  handshake: "hand-left",
+  briefcase: "briefcase",
+  business: "briefcase",
+  ribbon: "ribbon",
+  palette: "color-palette",
+  brush: "brush",
+  create: "color-palette",
+  pulse: "pulse",
+  bookmark: "bookmark",
 };
 
 const DISC_META = {
@@ -100,8 +123,71 @@ const DISC_META = {
   },
 } as const;
 
+function buildMessagesFromSavedAnswers(questionsWithAnswers: QuestionWithAnswer[]): ChatMessage[] {
+  const restored: ChatMessage[] = [WELCOME_MESSAGE];
+
+  for (const qa of questionsWithAnswers) {
+    restored.push({
+      id: `saved-q-${qa.questionNumber}-${Math.random()}`,
+      role: "ai",
+      content: qa.question,
+    });
+    restored.push({
+      id: `saved-a-${qa.questionNumber}-${Math.random()}`,
+      role: "user",
+      content: qa.selectedOption,
+    });
+  }
+
+  restored.push({
+    id: `saved-session-${Date.now()}`,
+    role: "ai",
+    content: "Welcome back. Your previous Nova report is saved. Tap Restart Quiz if you want a fresh assessment.",
+  });
+
+  return restored;
+}
+
+function normalizeHistoryAnswersToSession(answers: any[]): QuestionWithAnswer[] {
+  if (!Array.isArray(answers)) return [];
+
+  return answers
+    .map((item: any, idx: number) => ({
+      questionNumber: Number(item?.question_number ?? item?.questionNumber ?? idx + 1),
+      question: String(item?.question ?? ""),
+      selectedOption: String(item?.answer ?? item?.selected_option ?? item?.selectedOption ?? ""),
+      allOptions: Array.isArray(item?.options)
+        ? item.options.map((opt: any) => String(opt))
+        : Array.isArray(item?.all_options)
+          ? item.all_options.map((opt: any) => String(opt))
+          : Array.isArray(item?.allOptions)
+            ? item.allOptions.map((opt: any) => String(opt))
+            : [],
+    }))
+    .filter((item) => item.question.trim().length > 0 || item.selectedOption.trim().length > 0)
+    .sort((a, b) => a.questionNumber - b.questionNumber);
+}
+
 function getIcon(name: string): keyof typeof Ionicons.glyphMap {
-  return ICON_MAP[name] ?? "ellipse";
+  if (!name) return "ellipse";
+  const lower = name.toLowerCase();
+  
+  // Direct lookup first
+  if (ICON_MAP[lower]) return ICON_MAP[lower];
+  
+  // Try normalization
+  const normalized = lower.replace(/[-_]/g, "");
+  if (ICON_MAP[normalized]) return ICON_MAP[normalized];
+  
+  // Check if any key contains this name
+  for (const key of Object.keys(ICON_MAP)) {
+    if (key.includes(lower) || lower.includes(key)) {
+      return ICON_MAP[key];
+    }
+  }
+  
+  // Default fallback
+  return "ellipse";
 }
 
 function ThinkingDots({
@@ -676,18 +762,19 @@ export default function QuizScreen(): React.ReactElement {
     setError(null);
 
     try {
-      let response: any;
+      let response: { question?: QuizQuestion; results?: QuizResults };
 
       if (nextAnswers.length === 0) {
         // Starting new quiz - call backend start endpoint
         const result = await startQuiz();
-        response = result.question;
+        response = { question: result.question };
         // Store backend session ID for future requests (do not save incomplete quiz session)
         await setSessionId(result.session.id);
         console.log('[QuizScreen] Started new backend session:', result.session.id);
       } else {
         // Submitting an answer
         response = await submitAnswer(nextAnswers[nextAnswers.length - 1], {
+          questionNumber: currentQuestion?.questionNumber,
           question: currentQuestion?.question || '',
           options: (currentQuestion?.options || []).map((o) => o.label),
         });
@@ -695,45 +782,7 @@ export default function QuizScreen(): React.ReactElement {
 
       console.log('[QuizScreen] API response:', JSON.stringify(response, null, 2));
 
-      // The API returns either:
-      // - { question: {...} }  (after submitAnswer)
-      // - { results: {...} }  (after all answers)
-      // - direct question object from fallback? Actually startQuiz returns { session, question }
-      // But looking at logs: first response is direct question, second is { question: {...} }
-
-      let questionObj: QuizQuestion | null = null;
-
-      if ('question' in response && response.question) {
-        // Either direct question or nested
-        if (typeof response.question === 'object' && response.question !== null && 'options' in response.question) {
-          // Nested: { question: { type, question, options } }
-          questionObj = response.question as QuizQuestion;
-        } else {
-          // Direct: response IS the question (but this shouldn't happen if type is 'question')
-          // Actually looking at first log, response is { type, question, options } - so it's the question
-          questionObj = response as QuizQuestion;
-        }
-      }
-
-      if (questionObj) {
-        console.log('[QuizScreen] Got question:', questionObj.question, 'questionNumber:', questionObj.questionNumber);
-        // Ensure questionNumber is set
-        const safeQuestionNumber = questionObj.questionNumber ?? answers.length + 1;
-        const questionWithNumber = { ...questionObj, questionNumber: safeQuestionNumber };
-        setCurrentQuestion(questionWithNumber);
-        setQuestionsAsked((prev) => [
-          ...prev,
-          {
-            questionNumber: safeQuestionNumber,
-            question: questionObj.question,
-            options: questionObj.options?.map((o) => o.label) || [],
-          },
-        ]);
-        setMessages((prev) => [
-          ...prev,
-          { id: `q-${safeQuestionNumber}-${Date.now()}`, role: "ai", content: questionObj.question },
-        ]);
-      } else if ('results' in response && response.results) {
+      if (response.results) {
         // Quiz completed - got results
         const results = response.results as QuizResults;
         console.log('[QuizScreen] Got results with careers:', results.careers?.length);
@@ -769,10 +818,38 @@ export default function QuizScreen(): React.ReactElement {
               "Your Nova report is ready. Review your profile insights below.",
           },
         ]);
+        return;
       }
+
+      if (response.question) {
+        const questionObj = response.question;
+        console.log('[QuizScreen] Got question:', questionObj.question, 'questionNumber:', questionObj.questionNumber);
+        // Ensure questionNumber is set
+        const safeQuestionNumber = questionObj.questionNumber ?? answers.length + 1;
+        const questionWithNumber = { ...questionObj, questionNumber: safeQuestionNumber };
+        setCurrentQuestion(questionWithNumber);
+        setQuestionsAsked((prev) => [
+          ...prev,
+          {
+            questionNumber: safeQuestionNumber,
+            question: questionObj.question,
+            options: questionObj.options?.map((o) => o.label) || [],
+          },
+        ]);
+        setMessages((prev) => [
+          ...prev,
+          { id: `q-${safeQuestionNumber}-${Date.now()}`, role: "ai", content: questionObj.question },
+        ]);
+        return;
+      }
+
+      throw new Error(`Unexpected quiz response shape: ${JSON.stringify(response).slice(0, 300)}`);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Something went wrong";
+      const msg = e instanceof Error ? e.message : 'Something went wrong';
       console.error('[Quiz] loadNext error:', e);
+
+      // Check for network errors
+      const isNetworkError = msg.includes('Network request failed') || msg.includes('timeout') || msg.includes('Unable to connect');
 
       // Check if it's an authentication error
       if (msg.includes('not authenticated') || msg.includes('Invalid or expired token') || msg.includes('401')) {
@@ -787,11 +864,63 @@ export default function QuizScreen(): React.ReactElement {
             }},
           ]
         );
+      } else if (isNetworkError) {
+        setError('Network error. Please check your connection and try again.');
+        Alert.alert('Connection Error', 'Please check your internet connection and try again.');
       } else {
         setError(msg);
-        Alert.alert("Quiz error", msg);
-        console.warn('[Quiz] Backend failed. Keeping AI-only flow, no static fallback:', msg);
+        Alert.alert('Quiz Error', msg);
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const regenerateReport = async () => {
+    if (!results) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const sessionId = await getSessionId();
+      if (!sessionId) {
+        throw new Error("No saved quiz session found. Please take the quiz again.");
+      }
+
+      const response = await regenerateQuizResults(sessionId);
+      if (!response || !('type' in response) || response.type !== 'results') {
+        throw new Error("Failed to regenerate the Nova report.");
+      }
+
+      const newResults = response as QuizResults;
+      setResults(newResults);
+
+      const questionsWithAnswers: QuestionWithAnswer[] = questionsAsked.map((q, idx) => ({
+        questionNumber: q.questionNumber,
+        question: q.question,
+        selectedOption: answers[idx] || "",
+        allOptions: q.options,
+      }));
+
+      await saveQuizSession({
+        questionsWithAnswers,
+        results: newResults,
+        completedAt: new Date().toISOString(),
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `regen-${Date.now()}`,
+          role: "ai",
+          content: "Your Nova report has been regenerated from the full quiz session.",
+        },
+      ]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unable to regenerate the report right now.";
+      setError(msg);
+      Alert.alert("Regenerate report", msg);
     } finally {
       setLoading(false);
     }
@@ -838,32 +967,24 @@ export default function QuizScreen(): React.ReactElement {
           if (!hasNonZeroCareerMatch && !hasNonZeroDisc) {
             await clearQuizSession();
           } else {
-          // We have saved results, display them
+          // We have saved results, display them and rebuild full Q/A chat history
           setResults(savedSession.results);
           setCurrentQuestion(null);
-          setAnswers(savedSession.questionsWithAnswers.map((item) => item.selectedOption));
+          const restoredQuestions = savedSession.questionsWithAnswers ?? [];
+          setAnswers(restoredQuestions.map((item) => item.selectedOption));
           setQuestionsAsked(
-            savedSession.questionsWithAnswers.map((item) => ({
+            restoredQuestions.map((item) => ({
               questionNumber: item.questionNumber,
               question: item.question,
               options: item.allOptions,
             }))
           );
-          setMessages([
-            WELCOME_MESSAGE,
-            {
-              id: `saved-session-${Date.now()}`,
-              role: "ai",
-              content:
-                "Welcome back. Your previous Nova report is saved. Tap Restart Quiz if you want a fresh assessment.",
-            },
-          ]);
+          setMessages(buildMessagesFromSavedAnswers(restoredQuestions));
           return;
           }
         }
 
         // Check if we have a backend session ID - try to get results
-        const { getSessionId, getQuizResults } = await import('../features/quiz/api-backend');
         const sessionId = await getSessionId();
 
         if (sessionId) {
@@ -872,15 +993,41 @@ export default function QuizScreen(): React.ReactElement {
             // Session completed on backend, show results
             setResults(results);
             setCurrentQuestion(null);
-            // Rebuild answers array from messages if needed
-            setMessages([
-              WELCOME_MESSAGE,
-              {
-                id: `saved-session-${Date.now()}`,
-                role: "ai",
-                content: "Welcome back. Your Nova report is saved. Tap Restart Quiz if you want a fresh assessment.",
-              },
-            ]);
+
+            // Rehydrate full question/answer history from backend quiz history.
+            const history = await getQuizHistory();
+            const matchingSession = Array.isArray(history)
+              ? history.find((entry: any) => String(entry?.id ?? entry?.session_id ?? "") === String(sessionId))
+              : null;
+
+            const restoredQuestions = normalizeHistoryAnswersToSession(matchingSession?.answers ?? []);
+
+            if (restoredQuestions.length > 0) {
+              setAnswers(restoredQuestions.map((item) => item.selectedOption));
+              setQuestionsAsked(
+                restoredQuestions.map((item) => ({
+                  questionNumber: item.questionNumber,
+                  question: item.question,
+                  options: item.allOptions,
+                }))
+              );
+              setMessages(buildMessagesFromSavedAnswers(restoredQuestions));
+
+              await saveQuizSession({
+                questionsWithAnswers: restoredQuestions,
+                results,
+                completedAt: new Date().toISOString(),
+              });
+            } else {
+              setMessages([
+                WELCOME_MESSAGE,
+                {
+                  id: `saved-session-${Date.now()}`,
+                  role: "ai",
+                  content: "Welcome back. Your Nova report is saved. Tap Restart Quiz if you want a fresh assessment.",
+                },
+              ]);
+            }
             return;
           } catch (error) {
             // Session not found or not completed - start fresh
@@ -1046,6 +1193,18 @@ export default function QuizScreen(): React.ReactElement {
                   <Pressable
                     style={({ pressed }) => [styles.restartButton, pressed && styles.pressed]}
                     accessibilityRole="button"
+                    accessibilityLabel="Regenerate report"
+                    accessibilityHint="Rebuilds your Nova report from the completed quiz session without restarting the quiz"
+                    disabled={loading}
+                    onPress={regenerateReport}
+                  >
+                    <Ionicons name="reload" size={16} color={QUIZ_COLORS.textDark} />
+                    <Text style={styles.restartButtonText}>{loading ? "Regenerating..." : "Regenerate Report"}</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={({ pressed }) => [styles.restartButton, pressed && styles.pressed]}
+                    accessibilityRole="button"
                     accessibilityLabel="Restart quiz"
                     accessibilityHint="Clears current saved quiz and starts a new Nova assessment"
                     onPress={() => {
@@ -1158,6 +1317,33 @@ function NovaProfileCard({
   profile: NovaProfileSummary;
   styles: any;
 }) {
+  const styleComparison = profile.styleComparison ?? {
+    naturalStyleSummary: "Your natural style reflects how you prefer to work day-to-day.",
+    adaptedStyleSummary: "Your adapted style shows how you adjust to different situations.",
+    adaptationDrivers: [],
+    stressSignals: [],
+  };
+
+  const motivations = profile.motivations ?? {
+    topMotivators: [],
+    demotivators: [],
+    valuesSummary: "Your motivations reflect what energizes you and keeps you engaged at work.",
+  };
+
+  const cognition = profile.cognition ?? {
+    decisionStyle: "Balanced",
+    thinkingStyle: "Balanced",
+    learningStyle: "Balanced",
+    communicationStyle: "Balanced",
+  };
+
+  const careerProjection = profile.careerProjection ?? {
+    bestFitEnvironments: [],
+    leadershipStyle: "Balanced",
+    watchouts: [],
+    futureFocus: "Your future trajectory will be strongest in environments that align with your strengths.",
+  };
+
   const disc = profile.behavior.discPercentages ?? {
     red: 25,
     yellow: 25,
@@ -1220,16 +1406,16 @@ function NovaProfileCard({
       <View style={styles.novaSection}>
         <Text style={styles.novaSectionTitle}>Natural vs Adapted Style</Text>
         <Text style={styles.novaSectionText}>
-          Natural: {profile.styleComparison.naturalStyleSummary}
+          Natural: {styleComparison.naturalStyleSummary}
         </Text>
         <Text style={styles.novaSectionText}>
-          Adapted: {profile.styleComparison.adaptedStyleSummary}
+          Adapted: {styleComparison.adaptedStyleSummary}
         </Text>
         <Text style={styles.novaSectionText}>
-          Adaptation drivers: {(profile.styleComparison?.adaptationDrivers || []).join(", ")}
+          Adaptation drivers: {(styleComparison.adaptationDrivers || []).join(", ")}
         </Text>
         <Text style={styles.novaSectionText}>
-          Stress signals: {(profile.styleComparison?.stressSignals || []).join(", ")}
+          Stress signals: {(styleComparison.stressSignals || []).join(", ")}
         </Text>
         <View style={styles.tagsRow}>
           {(profile.behavior?.traits || []).slice(0, 4).map((trait, i) => (
@@ -1242,44 +1428,44 @@ function NovaProfileCard({
 
       <View style={styles.novaSection}>
         <Text style={styles.novaSectionTitle}>Deep Motivations (Your Why)</Text>
-        <Text style={styles.novaSectionText}>{profile.motivations.valuesSummary}</Text>
+        <Text style={styles.novaSectionText}>{motivations.valuesSummary}</Text>
         <View style={styles.tagsRow}>
-          {(profile.motivations?.topMotivators || []).slice(0, 3).map((item, i) => (
+          {(motivations.topMotivators || []).slice(0, 3).map((item, i) => (
             <View key={`mot-${i}`} style={styles.tag}>
               <Text style={styles.tagText}>{item}</Text>
             </View>
           ))}
         </View>
         <Text style={styles.novaSectionText}>
-          Demotivators: {(profile.motivations?.demotivators || []).join(", ")}
+          Demotivators: {(motivations.demotivators || []).join(", ")}
         </Text>
       </View>
 
       <View style={styles.novaSection}>
         <Text style={styles.novaSectionTitle}>Cognition, Communication, and Projection</Text>
         <Text style={styles.novaSectionText}>
-          Decision style: {profile.cognition.decisionStyle}
+          Decision style: {cognition.decisionStyle}
         </Text>
         <Text style={styles.novaSectionText}>
-          Thinking preference: {profile.cognition.thinkingStyle}
+          Thinking preference: {cognition.thinkingStyle}
         </Text>
         <Text style={styles.novaSectionText}>
-          Learning style: {profile.cognition.learningStyle}
+          Learning style: {cognition.learningStyle}
         </Text>
         <Text style={styles.novaSectionText}>
-          Communication style: {profile.cognition.communicationStyle}
+          Communication style: {cognition.communicationStyle}
         </Text>
         <Text style={styles.novaSectionText}>
-          Best-fit environments: {(profile.careerProjection?.bestFitEnvironments || []).join(", ")}
+          Best-fit environments: {(careerProjection.bestFitEnvironments || []).join(", ")}
         </Text>
         <Text style={styles.novaSectionText}>
-          Leadership style: {profile.careerProjection.leadershipStyle}
+          Leadership style: {careerProjection.leadershipStyle}
         </Text>
         <Text style={styles.novaSectionText}>
-          Watchouts: {(profile.careerProjection?.watchouts || []).join(", ")}
+          Watchouts: {(careerProjection.watchouts || []).join(", ")}
         </Text>
         <Text style={styles.novaSectionText}>
-          Future projection: {profile.careerProjection.futureFocus}
+          Future projection: {careerProjection.futureFocus}
         </Text>
         <Text style={styles.novaSectionText}>
           Development axes: {(profile.recommendedDevelopmentAxes || []).join(", ")}

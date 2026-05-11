@@ -8,7 +8,7 @@ import { homeColors } from '../homeTheme';
 import { AppLogo } from '../../ui/AppLogo';
 
 export function MentorHomeScreen() {
-    const { state } = useAuth();
+    const { state, signOut } = useAuth();
     const navigation = useNavigation<any>();
 
     const userName = state.user?.email ? state.user.email.split('@')[0] : 'Mentor';
@@ -20,6 +20,14 @@ export function MentorHomeScreen() {
 
     const goToJobSuggestions = () => {
         navigation.navigate('JobSuggestions');
+    };
+
+    const handleLogout = async () => {
+        try {
+            await signOut();
+        } catch (e) {
+            console.warn('Logout failed:', e);
+        }
     };
 
     return (
@@ -34,6 +42,14 @@ export function MentorHomeScreen() {
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.hero}>
+                    <Pressable
+                        style={styles.logoutButton}
+                        onPress={handleLogout}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                        <Ionicons name="log-out-outline" size={22} color={homeColors.textMuted} />
+                    </Pressable>
+
                     <View style={styles.logoBox}>
                         <AppLogo size={46} />
                     </View>
@@ -102,6 +118,15 @@ const styles = StyleSheet.create({
     scroll: { flex: 1 },
     scrollContent: { paddingHorizontal: 20, paddingTop: 48, paddingBottom: 32 },
     pressed: { opacity: 0.9 },
+    logoutButton: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        padding: 8,
+        borderRadius: 8,
+        backgroundColor: 'rgba(255,255,255,0.8)',
+        zIndex: 10,
+    },
 
     hero: {
         alignItems: "center",
