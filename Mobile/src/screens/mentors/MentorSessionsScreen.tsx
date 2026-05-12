@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthProvider';
 import { useMentorSessionManagement } from '../../features/mentors/hooks';
 import { useUserProfile } from '../../features/mentors/hooks';
@@ -23,7 +23,6 @@ type TabType = 'requests' | 'scheduled' | 'history';
 
 export function MentorSessionsScreen() {
   const navigation = useNavigation<any>();
-  const insets = useSafeAreaInsets();
   const { state } = useAuth();
   const [mentorId, setMentorId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('requests');
@@ -79,7 +78,7 @@ export function MentorSessionsScreen() {
 
   if (!mentorId) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
             <Ionicons name="chevron-back" size={24} color={homeColors.primary} />
@@ -93,15 +92,15 @@ export function MentorSessionsScreen() {
           </TouchableOpacity>
         </View>
         <View style={styles.emptyState}>
-          <Ionicons name="alert-circle-outline" size={48} color="#D1D5DB" />
+          <Ionicons name="alert-circle-outline" size={48} color={homeColors.cardBorder} />
           <Text style={styles.emptyText}>Mentor profile not found</Text>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-back" size={24} color={homeColors.primary} />
@@ -161,7 +160,7 @@ export function MentorSessionsScreen() {
           )}
         </ScrollView>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -256,36 +255,74 @@ function MentorSessionCard({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: homeColors.pageBg },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: homeColors.cardBg,
+    borderBottomWidth: 1,
+    borderBottomColor: homeColors.cardBorder,
+  },
   backButton: { padding: 4 },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#1F2937' },
+  headerTitle: { fontSize: 20, fontWeight: '700', color: homeColors.onSurface },
   settingsButton: { padding: 4 },
-  tabBar: { flexDirection: 'row', backgroundColor: '#fff', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: homeColors.cardBg,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: homeColors.cardBorder,
+  },
   tab: { marginRight: 16, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20 },
   tabActive: { backgroundColor: homeColors.primary + '15' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#6B7280' },
+  tabText: { fontSize: 13, fontWeight: '600', color: homeColors.onSurfaceVariant },
   tabTextActive: { color: homeColors.primary },
   loader: { marginTop: 40 },
   listContent: { padding: 16, paddingBottom: 40 },
   emptyState: { alignItems: 'center', paddingVertical: 60 },
-  emptyText: { fontSize: 15, color: '#9CA3AF', marginTop: 12 },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB' },
+  emptyText: { fontSize: 15, color: homeColors.onSurfaceVariant, marginTop: 12 },
+  card: {
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+    shadowColor: homeColors.cardShadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   studentInfo: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  studentName: { fontSize: 14, fontWeight: '600', color: '#374151' },
+  studentName: { fontSize: 14, fontWeight: '600', color: homeColors.onSurface },
   statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
   statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 4 },
   statusText: { fontSize: 11, fontWeight: '600' },
-  sessionTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 8 },
+  sessionTitle: { fontSize: 16, fontWeight: '700', color: homeColors.onSurface, marginBottom: 8 },
   cardDetails: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  detailText: { fontSize: 13, color: '#6B7280' },
-  description: { fontSize: 13, color: '#4B5563', marginTop: 6, lineHeight: 18 },
+  detailText: { fontSize: 13, color: homeColors.onSurfaceVariant },
+  description: { fontSize: 13, color: homeColors.onSurfaceVariant, marginTop: 6, lineHeight: 18 },
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  confirmButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#10B981', borderRadius: 10, paddingVertical: 12, gap: 6 },
-  confirmButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  rejectButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FEF2F2', borderRadius: 10, paddingVertical: 12, gap: 6, borderWidth: 1, borderColor: '#FECACA' },
-  rejectButtonText: { color: '#EF4444', fontWeight: '700', fontSize: 14 },
-  completeButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#3B82F6', borderRadius: 10, paddingVertical: 12, gap: 6 },
-  completeButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  confirmButton: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: homeColors.accentGreen, borderRadius: 12, paddingVertical: 12, gap: 6,
+  },
+  confirmButtonText: { color: homeColors.onPrimary, fontWeight: '700', fontSize: 14 },
+  rejectButton: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: homeColors.errorContainer, borderRadius: 12, paddingVertical: 12, gap: 6,
+    borderWidth: 1, borderColor: homeColors.error + '30',
+  },
+  rejectButtonText: { color: homeColors.error, fontWeight: '700', fontSize: 14 },
+  completeButton: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: homeColors.primary, borderRadius: 12, paddingVertical: 12, gap: 6,
+  },
+  completeButtonText: { color: homeColors.onPrimary, fontWeight: '700', fontSize: 14 },
 });

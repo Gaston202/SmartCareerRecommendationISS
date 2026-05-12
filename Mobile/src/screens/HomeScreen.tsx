@@ -28,10 +28,11 @@ import { AppLogo } from "../ui/AppLogo";
 import { useAuth } from "../auth/AuthProvider";
 import { useMatchedCareers } from "../features/careers/useMatchedCareers";
 import {
-  getSavedLearningRoadmaps,
   getLearningRoadmapByCareerTitle,
+  saveLearningRoadmap,
 } from "../features/learning-roadmap/storage";
 import type { SavedLearningRoadmap } from "../features/learning-roadmap/types";
+import { fetchLearningRoadmapsFromBackend } from "../features/roadmaps/api-backend";
 import { MainTopBar } from "../ui/MainTopBar";
 import { ChatbotButton, ChatbotPanel } from "../features/chatbot";
 
@@ -175,26 +176,51 @@ export default function HomeScreen(): React.ReactElement {
   // Chatbot state
   const [chatbotOpen, setChatbotOpen] = useState(false);
 
-  // Fetch roadmap for top matched career
+  // Fetch roadmap for top matched career — backend is source of truth, AsyncStorage is fallback
   React.useEffect(() => {
     const fetchRoadmap = async () => {
-      if (!authState.user?.id || !topCareer) return;
+      if (!authState.user?.id) return;
 
       try {
-        const roadmap = await getLearningRoadmapByCareerTitle(
-          authState.user.id,
-          topCareer
-        );
+        // 1. Try backend first (has latest progress synced across devices)
+        let roadmap: SavedLearningRoadmap | null = null;
+        try {
+          const backendRoadmaps = await fetchLearningRoadmapsFromBackend();
+          if (backendRoadmaps.length > 0) {
+            // Prefer the one matching the top career; fall back to most recent
+            const titleMatch =
+              topCareer && topCareer !== "your career goals"
+                ? backendRoadmaps.find(
+                    (r) => r.careerTitle.toLowerCase() === topCareer.toLowerCase()
+                  )
+                : undefined;
+            roadmap = titleMatch ?? backendRoadmaps[0];
+
+            // Sync backend data into local cache so other screens stay current
+            if (roadmap) {
+              await saveLearningRoadmap(authState.user.id, roadmap.roadmap);
+            }
+          }
+        } catch {
+          // Backend unreachable — fall through to local cache
+        }
+
+        // 2. Fall back to AsyncStorage if backend returned nothing
+        if (!roadmap && topCareer && topCareer !== "your career goals") {
+          roadmap = await getLearningRoadmapByCareerTitle(authState.user.id, topCareer);
+        }
 
         if (roadmap) {
           setRoadmapData(roadmap);
 
-          // Calculate overall progress
+          // Calculate overall career progress as average skill completion
           const skills = roadmap.roadmap.skills;
           if (skills && skills.length > 0) {
             const avgProgress =
-              skills.reduce((sum, skill) => sum + (skill.userProgress?.completedPercentage || 0), 0) /
-              skills.length;
+              skills.reduce(
+                (sum, skill) => sum + (skill.userProgress?.completedPercentage || 0),
+                0
+              ) / skills.length;
             setCareerProgress(Math.round(avgProgress));
           }
         }

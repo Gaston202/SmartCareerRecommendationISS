@@ -4,23 +4,19 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   ActivityIndicator,
-  FlatList,
   RefreshControl,
   Image,
   StyleSheet,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMentors } from '../../features/mentors/hooks';
 import { MentorWithSpecialties, MentorFilters } from '../../types/mentor';
 import { homeColors } from '../homeTheme';
-import { AppLogo } from '../../ui/AppLogo';
-import { AppBrand } from '../../ui/AppBrand';
+import { MainTopBar } from '../../ui/MainTopBar';
 
 type MentorsStackParamList = {
   MentorsList: undefined;
@@ -44,7 +40,6 @@ const specialties = [
 
 export function MentorsListScreen() {
   const navigation = useNavigation<MentorsListScreenNavigationProp>();
-  const insets = useSafeAreaInsets();
   const [selectedSpecialty, setSelectedSpecialty] = useState<string | undefined>();
   const [minRating, setMinRating] = useState<number | undefined>();
   const [filters, setFilters] = useState<MentorFilters>({});
@@ -133,31 +128,24 @@ export function MentorsListScreen() {
 
   if (loading && !mentors.length) {
     return (
-      <View style={styles.loadingContainer}>
+      <SafeAreaView style={styles.loadingContainer} edges={['top']}>
         <ActivityIndicator size="large" color={homeColors.primary} />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
-        style={StyleSheet.absoluteFill}
-      />
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <MainTopBar onProfilePress={() => (navigation as any).navigate('Profile')} />
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} />}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} tintColor={homeColors.primary} />}
       >
-        {/* Header */}
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}> 
-          <View style={styles.brandRow}>
-            <AppBrand width={120} height={26} />
-          </View>
-          <Ionicons name="people" size={28} color={homeColors.primary} />
-          <Text style={styles.headerTitle}>Find a Mentor</Text>
-          <Text style={styles.headerSubtitle}>Learn from experts in your field</Text>
+        {/* Page title */}
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageTitle}>Find a Mentor</Text>
+          <Text style={styles.pageSubtitle}>Learn from experts in your field</Text>
         </View>
 
         {/* Specialty Filter */}
@@ -241,44 +229,46 @@ export function MentorsListScreen() {
           )}
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: homeColors.pageBg,
   },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: homeColors.pageBg,
   },
-  header: {
+  scrollContent: {
+    paddingBottom: 40,
+  },
+  pageHeader: {
     paddingHorizontal: 20,
+    paddingTop: 20,
     paddingBottom: 16,
-    alignItems: 'center',
   },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  headerTitle: {
+  pageTitle: {
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '800',
     color: homeColors.textDark,
-    marginTop: 8,
     marginBottom: 4,
   },
-  headerSubtitle: {
-    color: homeColors.textMuted,
+  pageSubtitle: {
     fontSize: 15,
+    color: homeColors.onSurfaceVariant,
   },
   filterSection: {
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    backgroundColor: homeColors.cardBg,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: homeColors.cardBorder,
   },
   filterLabel: {
     fontSize: 14,
@@ -293,7 +283,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    backgroundColor: homeColors.cardBg,
     marginRight: 8,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,
@@ -313,7 +303,9 @@ const styles = StyleSheet.create({
   ratingFilterSection: {
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    backgroundColor: homeColors.cardBg,
+    borderBottomWidth: 1,
+    borderColor: homeColors.cardBorder,
     marginTop: 1,
   },
   ratingFilterRow: {
@@ -348,15 +340,15 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   errorContainer: {
-    backgroundColor: '#fee2e2',
+    backgroundColor: homeColors.errorContainer,
     borderWidth: 1,
-    borderColor: '#fca5a5',
-    borderRadius: 12,
+    borderColor: homeColors.error + '30',
+    borderRadius: 16,
     padding: 12,
     marginBottom: 16,
   },
   errorText: {
-    color: '#991b1b',
+    color: homeColors.error,
   },
   emptyContainer: {
     alignItems: 'center',
@@ -376,13 +368,13 @@ const styles = StyleSheet.create({
   },
   mentorCard: {
     backgroundColor: homeColors.cardBg,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
+    shadowColor: homeColors.cardShadowColor,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
     elevation: 3,
     borderWidth: 1,
     borderColor: homeColors.cardBorder,

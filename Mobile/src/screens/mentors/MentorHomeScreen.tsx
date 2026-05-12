@@ -3,102 +3,139 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthProvider';
 import { homeColors } from '../homeTheme';
-import { AppLogo } from '../../ui/AppLogo';
+import { MainTopBar } from '../../ui/MainTopBar';
 
 export function MentorHomeScreen() {
-    const { state, signOut } = useAuth();
+    const { state } = useAuth();
     const navigation = useNavigation<any>();
 
-    const userName = state.user?.email ? state.user.email.split('@')[0] : 'Mentor';
+    const rawName = state.user?.fullName || state.user?.email?.split('@')[0] || 'Mentor';
+    const userName = (rawName.split(/[\s.]/)[0] ?? 'Mentor').replace(/^\w/, (c: string) => c.toUpperCase());
     const specialty = state.user?.mentorSpecialty || 'General';
 
-    const goToGroupChats = () => {
-        navigation.navigate('MentorGroupChats');
-    };
-
-    const goToJobSuggestions = () => {
-        navigation.navigate('JobSuggestions');
-    };
-
-    const handleLogout = async () => {
-        try {
-            await signOut();
-        } catch (e) {
-            console.warn('Logout failed:', e);
-        }
-    };
+    const goToGroupChats = () => navigation.navigate('MentorGroupChats');
+    const goToSessions = () => navigation.navigate('MentorSessions');
+    const goToJobSuggestions = () => navigation.navigate('JobSuggestions');
 
     return (
-        <View style={styles.container}>
-            <LinearGradient
-                colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
-                style={StyleSheet.absoluteFill}
-            />
+        <SafeAreaView style={styles.container} edges={['top']}>
+            <MainTopBar onProfilePress={() => (navigation as any).navigate('Profile')} />
+
             <ScrollView
                 style={styles.scroll}
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
             >
-                <View style={styles.hero}>
-                    <Pressable
-                        style={styles.logoutButton}
-                        onPress={handleLogout}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                        <Ionicons name="log-out-outline" size={22} color={homeColors.textMuted} />
-                    </Pressable>
-
-                    <View style={styles.logoBox}>
-                        <AppLogo size={46} />
-                    </View>
-                    <Text style={styles.heroTitle}>
-                        Welcome back,{"\n"}
-                        <Text style={styles.heroTitleHighlight}>{userName}</Text>
-                    </Text>
-                    <Text style={styles.heroSubtitle}>
-                        Your specialty: <Text style={{ fontWeight: 'bold', color: homeColors.primary }}>{specialty}</Text>
+                {/* Dashboard greeting — matches HomeScreen style */}
+                <View style={styles.dashboardHero}>
+                    <Text style={styles.dashboardGreeting}>Hello, {userName}!</Text>
+                    <Text style={styles.dashboardSubtext}>
+                        You're mentoring in{' '}
+                        <Text style={{ color: homeColors.primary, fontWeight: '700' }}>
+                            {specialty}
+                        </Text>
+                        .
                     </Text>
                 </View>
 
-                <View style={styles.dashboardGrid}>
+                {/* Action cards — same layout as HomeScreen */}
+                <View style={styles.actionGrid}>
+                    {/* Sessions card — primary gradient */}
                     <Pressable
-                        style={({ pressed }) => [styles.cardWrap, pressed && styles.pressed]}
+                        style={({ pressed }) => [
+                            styles.actionCardLarge,
+                            pressed && { transform: [{ scale: 1.01 }] },
+                        ]}
+                        onPress={goToSessions}
+                    >
+                        <LinearGradient
+                            colors={[homeColors.primary, homeColors.primaryDark]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.actionCardGradient}
+                        >
+                            <View style={styles.decorativeIconBg}>
+                                <Ionicons
+                                    name="calendar"
+                                    size={160}
+                                    color={homeColors.onPrimary}
+                                    style={{ opacity: 0.1, transform: [{ rotate: '12deg' }] }}
+                                />
+                            </View>
+                            <View style={styles.actionCardContent}>
+                                <View>
+                                    <Text style={styles.actionCardTitle}>My Sessions</Text>
+                                    <Text style={styles.actionCardDescription}>
+                                        Review pending requests, confirm bookings, and manage your upcoming sessions.
+                                    </Text>
+                                </View>
+                                <View style={styles.actionCardButton}>
+                                    <Text style={styles.actionCardButtonText}>View Sessions</Text>
+                                </View>
+                            </View>
+                        </LinearGradient>
+                    </Pressable>
+
+                    {/* Group Chats card */}
+                    <Pressable
+                        style={({ pressed }) => [
+                            styles.actionCardSmall,
+                            pressed && { opacity: 0.9 },
+                        ]}
                         onPress={goToGroupChats}
                     >
-                        <View style={styles.cardContent}>
-                            <View style={[styles.iconBox, { backgroundColor: homeColors.primary + '20' }]}>
-                                <Ionicons name="chatbubbles" size={28} color={homeColors.primary} />
+                        <View style={styles.actionCardSmallContent}>
+                            <View style={[styles.actionCardIcon, { backgroundColor: homeColors.primary + '15' }]}>
+                                <Ionicons name="chatbubbles" size={24} color={homeColors.primary} />
                             </View>
-                            <Text style={styles.cardTitle}>My Group Chats</Text>
-                            <Text style={styles.cardDesc}>Join and engage in your specialty discussions.</Text>
+                            <Text style={styles.actionCardSmallTitle}>Group Chats</Text>
+                            <Text style={styles.actionCardSmallDescription}>
+                                Join and moderate specialty discussions with your students.
+                            </Text>
+                        </View>
+                        <View style={[styles.actionCardSmallButton, { backgroundColor: homeColors.primary + '15' }]}>
+                            <Text style={styles.actionCardSmallButtonText}>Open Chats</Text>
                         </View>
                     </Pressable>
 
+                    {/* Job Suggestions card */}
                     <Pressable
-                        style={({ pressed }) => [styles.cardWrap, pressed && styles.pressed]}
+                        style={({ pressed }) => [
+                            styles.actionCardSmall,
+                            pressed && { opacity: 0.9 },
+                        ]}
                         onPress={goToJobSuggestions}
                     >
-                        <View style={styles.cardContent}>
-                            <View style={[styles.iconBox, { backgroundColor: homeColors.accentTeal + '20' }]}>
-                                <Ionicons name="briefcase" size={28} color={homeColors.accentTeal} />
+                        <View style={styles.actionCardSmallContent}>
+                            <View style={[styles.actionCardIcon, { backgroundColor: homeColors.accentTeal + '15' }]}>
+                                <Ionicons name="briefcase" size={24} color={homeColors.accentTeal} />
                             </View>
-                            <Text style={styles.cardTitle}>Job Suggestions</Text>
-                            <Text style={styles.cardDesc}>View recommended roles matching your expertise.</Text>
+                            <Text style={styles.actionCardSmallTitle}>Job Suggestions</Text>
+                            <Text style={styles.actionCardSmallDescription}>
+                                Explore roles that match your expertise and share them with mentees.
+                            </Text>
+                        </View>
+                        <View style={[styles.actionCardSmallButton, { backgroundColor: homeColors.accentTeal + '15' }]}>
+                            <Text style={[styles.actionCardSmallButtonText, { color: homeColors.accentTeal }]}>
+                                Browse Jobs
+                            </Text>
                         </View>
                     </Pressable>
                 </View>
 
-                <View style={styles.statsContainer}>
-                    <Text style={styles.sectionTitle}>Dashboard Stats</Text>
+                {/* Stats section */}
+                <View style={styles.dashboardSection}>
+                    <Text style={styles.sectionTitle}>Your Impact</Text>
                     <View style={styles.statsRow}>
                         <View style={styles.statBox}>
                             <Text style={styles.statValue}>12</Text>
                             <Text style={styles.statLabel}>Active Chats</Text>
                         </View>
                         <View style={styles.statBox}>
-                            <Text style={styles.statValue}>4.9/5</Text>
+                            <Text style={styles.statValue}>4.9</Text>
                             <Text style={styles.statLabel}>Avg Rating</Text>
                         </View>
                         <View style={styles.statBox}>
@@ -108,116 +145,148 @@ export function MentorHomeScreen() {
                     </View>
                 </View>
 
+                <View style={styles.bottomSpacer} />
             </ScrollView>
-        </View>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1 },
+    container: {
+        flex: 1,
+        backgroundColor: homeColors.pageBg,
+    },
     scroll: { flex: 1 },
-    scrollContent: { paddingHorizontal: 20, paddingTop: 48, paddingBottom: 32 },
-    pressed: { opacity: 0.9 },
-    logoutButton: {
-        position: 'absolute',
-        top: 0,
-        right: 0,
-        padding: 8,
-        borderRadius: 8,
-        backgroundColor: 'rgba(255,255,255,0.8)',
-        zIndex: 10,
+    scrollContent: {
+        paddingHorizontal: 20,
+        paddingTop: 20,
     },
 
-    hero: {
-        alignItems: "center",
-        marginBottom: 36,
+    // Dashboard greeting — matches HomeScreen
+    dashboardHero: {
+        marginBottom: 28,
     },
-    logoBox: {
-        width: 72,
-        height: 72,
-        borderRadius: 20,
-        backgroundColor: homeColors.primary,
-        alignItems: "center",
-        justifyContent: "center",
-        marginBottom: 16,
-        shadowColor: homeColors.primary,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 5,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.35)',
-    },
-    heroTitle: {
-        fontSize: 26,
-        fontWeight: "700",
+    dashboardGreeting: {
+        fontSize: 32,
+        fontWeight: '800',
         color: homeColors.textDark,
-        textAlign: "center",
-        lineHeight: 34,
         marginBottom: 8,
     },
-    heroTitleHighlight: {
-        color: homeColors.primary,
-    },
-    heroSubtitle: {
+    dashboardSubtext: {
         fontSize: 16,
-        color: homeColors.textMuted,
-        textAlign: "center",
+        color: homeColors.onSurfaceVariant,
+        lineHeight: 22,
     },
 
-    dashboardGrid: {
+    // Action cards — matches HomeScreen
+    actionGrid: {
         gap: 16,
-        marginBottom: 32,
+        marginBottom: 28,
     },
-    cardWrap: {
+    actionCardLarge: {
+        borderRadius: 24,
+        overflow: 'hidden',
+    },
+    actionCardGradient: {
+        padding: 24,
+        justifyContent: 'space-between',
+        minHeight: 180,
+        position: 'relative',
+    },
+    decorativeIconBg: {
+        position: 'absolute',
+        bottom: -20,
+        right: -20,
+        zIndex: 0,
+    },
+    actionCardContent: {
+        zIndex: 10,
+        justifyContent: 'space-between',
+        flex: 1,
+    },
+    actionCardTitle: {
+        fontSize: 24,
+        fontWeight: '800',
+        color: homeColors.onPrimary,
+        marginBottom: 8,
+    },
+    actionCardDescription: {
+        fontSize: 15,
+        color: 'rgba(255,255,255,0.85)',
+        lineHeight: 21,
+    },
+    actionCardButton: {
+        backgroundColor: homeColors.onPrimary,
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        borderRadius: 12,
+        alignSelf: 'flex-start',
+        marginTop: 16,
+    },
+    actionCardButtonText: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: homeColors.primary,
+    },
+
+    actionCardSmall: {
         backgroundColor: homeColors.cardBg,
-        borderRadius: 16,
+        borderRadius: 24,
         borderWidth: 1,
         borderColor: homeColors.cardBorder,
-        overflow: "hidden",
-        elevation: 2,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-    },
-    cardContent: {
         padding: 20,
-        flexDirection: 'column',
-        alignItems: 'flex-start',
+        shadowColor: homeColors.cardShadowColor,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.07,
+        shadowRadius: 16,
+        elevation: 3,
     },
-    iconBox: {
+    actionCardSmallContent: {
+        gap: 12,
+    },
+    actionCardIcon: {
         width: 48,
         height: 48,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    actionCardSmallTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: homeColors.onSurface,
+    },
+    actionCardSmallDescription: {
+        fontSize: 14,
+        color: homeColors.onSurfaceVariant,
+        lineHeight: 20,
+    },
+    actionCardSmallButton: {
+        paddingVertical: 14,
+        paddingHorizontal: 20,
         borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 12,
+        marginTop: 8,
     },
-    cardTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: homeColors.textDark,
-        marginBottom: 4,
-    },
-    cardDesc: {
+    actionCardSmallButtonText: {
         fontSize: 14,
-        color: homeColors.textMuted,
-        lineHeight: 20,
+        fontWeight: '700',
+        color: homeColors.primary,
     },
 
-    statsContainer: {
-        marginTop: 10,
+    // Stats section
+    dashboardSection: {
+        marginBottom: 32,
     },
     sectionTitle: {
         fontSize: 18,
         fontWeight: '700',
-        color: homeColors.textDark,
+        color: homeColors.onSurface,
         marginBottom: 16,
     },
     statsRow: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         gap: 8,
     },
     statBox: {
@@ -225,21 +294,28 @@ const styles = StyleSheet.create({
         backgroundColor: homeColors.cardBg,
         paddingVertical: 16,
         paddingHorizontal: 8,
-        borderRadius: 12,
+        borderRadius: 20,
         alignItems: 'center',
         borderWidth: 1,
         borderColor: homeColors.cardBorder,
+        shadowColor: homeColors.cardShadowColor,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 10,
+        elevation: 2,
     },
     statValue: {
-        fontSize: 20,
+        fontSize: 22,
         fontWeight: '800',
         color: homeColors.primary,
         marginBottom: 4,
     },
     statLabel: {
         fontSize: 12,
-        color: homeColors.textMuted,
+        color: homeColors.onSurfaceVariant,
         textAlign: 'center',
         fontWeight: '500',
     },
+
+    bottomSpacer: { height: 120 },
 });

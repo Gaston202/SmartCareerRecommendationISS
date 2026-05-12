@@ -1,5 +1,6 @@
 import { supabase } from "../../api/supabase";
 import { fetchBackend } from "../../api/backend";
+import type { SavedLearningRoadmap, LearningRoadmap } from "../learning-roadmap/types";
 
 export interface BackendRoadmapMilestone {
   id: string;
@@ -249,6 +250,41 @@ export async function updateRoadmapSkillProgressOnBackend(input: {
   }
 
   return payload.data as Record<string, unknown>;
+}
+
+export async function fetchLearningRoadmapsFromBackend(): Promise<SavedLearningRoadmap[]> {
+  const token = await getAuthToken();
+  if (!token) return [];
+
+  const response = await fetchBackend("/learning-roadmap/list", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success || !Array.isArray(payload?.data)) return [];
+
+  return payload.data.map((row: Record<string, unknown>): SavedLearningRoadmap => ({
+    id: row.id as string,
+    user_id: row.user_id as string,
+    career_id: row.career_id as string,
+    careerTitle: row.career_title as string,
+    createdAt: row.created_at as string,
+    roadmap: {
+      id: row.id as string,
+      user_id: row.user_id as string,
+      career_id: row.career_id as string,
+      career_title: row.career_title as string,
+      title: row.title as string,
+      description: row.description as string,
+      skills: (row.skills as LearningRoadmap["skills"]) || [],
+      total_duration_hours: (row.total_duration_hours as number) || 0,
+      estimated_weeks: (row.estimated_weeks as number) || 0,
+      skill_count: (row.skill_count as number) || 0,
+      created_at: row.created_at as string,
+      updated_at: (row.updated_at as string) || (row.created_at as string),
+    },
+  }));
 }
 
 async function getAuthToken(): Promise<string | null> {
