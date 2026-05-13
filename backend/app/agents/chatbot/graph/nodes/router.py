@@ -6,30 +6,51 @@ from typing import Dict, Any, Optional
 from langchain_core.messages import HumanMessage
 
 from app.agents.chatbot.schemas.pydantic import Intent, BookingContext, RouteDecision
+from app.agents.chatbot.tools import get_tool_descriptions_block, get_tool_manifest
 from app.core.ai_orchestrator import AIOrchestrator
 
 logger = logging.getLogger(__name__)
 
 
-ROUTER_SYSTEM_PROMPT = """You are an intent classifier and entity extractor for a career assistant chatbot.
+# ── Markdown/JSON cleaning helpers ─────────────────────────────
 
-Analyze the user's latest message and classify it into one of these intents:
+def _strip_markdown_fences(text: str) -> str:
+    """Strip markdown ```json ... ``` wrappers from LLM output."""
+    if not text:
+        return text
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
+
+ROUTER_SYSTEM_PROMPT_TEMPLATE = """You are an intent classifier and entity extractor for a career assistant chatbot.
+
+You have access to the following tools to help users:
+
+{tool_block}
+
+Analyze the user's latest message and classify it into EXACTLY one of these intents:
 - **greeting**: Pure greetings, hellos, hi, hey, good morning/afternoon/evening with no action request
 - **general**: Casual chat, small talk, asking what the bot can do, help request, or general questions
-- **booking**: User wants to schedule, book, or manage a mentor session. Also includes browsing or listing available mentors. Extract date, time, mentor name, and specialty if mentioned.
-- **search**: User asks about careers, jobs, salaries, trends, skills, market data. Extract the search query/topic.
-- **user_sessions**: User asks about their own upcoming or past mentor sessions
-- **explain_feature**: User asks about app features (quiz, mentors, roadmap, careers, CV analysis)
-- **career_info**: User asks about a specific career path (e.g., "Tell me about data science")
-- **help**: "Help me", "What can you do?", "How does this work?", "Show me features"
+- **booking**: User wants to schedule, book, or manage a mentor session. Also includes browsing or listing available mentors. Examples: "list available mentors", "show mentors", "find a mentor", "book a session".
+- **search**: User asks about careers, jobs, salaries, trends, skills, market data. Examples: "what jobs are in demand?", "salary for data scientist".
+- **user_sessions**: User asks about their own upcoming or past mentor sessions. Examples: "show my sessions", "when is my next meeting?".
+- **explain_feature**: User asks about app features (quiz, mentors, roadmap, careers, CV analysis). Examples: "how does the quiz work?", "explain the roadmap feature".
+- **career_info**: User asks about a specific career path (e.g., "Tell me about data science").
+- **help**: Help requests. Examples: "What can you do?", "Show me features".
 - **fallback**: Unclear or off-topic request
 
 Respond ONLY with a valid JSON object in this exact schema:
-{
+{{
   "intent": "greeting|general|booking|search|user_sessions|explain_feature|career_info|help|fallback",
   "confidence": 0.0-1.0,
   "reasoning": "brief explanation of your classification",
-  "entities": {
+  "entities": {{
     "date": "YYYY-MM-DD or null",
     "time": "HH:MM or null",
     "mentor_name": "string or null",
@@ -37,10 +58,12 @@ Respond ONLY with a valid JSON object in this exact schema:
     "feature": "quiz|mentors|roadmap|careers|cv or null",
     "career_name": "string or null",
     "search_query": "string or null"
-  }
-}
+  }}
+}}
 
 Guidelines:
+- When the user asks to list, show, browse, or find mentors → intent MUST be "booking". The booking flow will handle using the get_available_mentors tool.
+- When the user mentions "mentor", "session", "book", or "schedule" → intent is likely "booking".
 - Dates: "tomorrow", "today", "next week" should be resolved to actual dates.
 - If the user mentions a mentor by name, extract it.
 - If the user asks about a career path, set intent to "career_info" and extract the career name.
@@ -49,6 +72,8 @@ Guidelines:
 - Compound messages like "Hello, are there mentors available?" → "booking" (the action takes priority).
 - Be precise. Return ONLY the JSON object, no markdown, no extra text.
 """
+
+ROUTER_SYSTEM_PROMPT = ROUTER_SYSTEM_PROMPT_TEMPLATE.format(tool_block=get_tool_descriptions_block())
 
 COMPOUND_GREETING_PATTERNS = [
     r'\b(hello|hi|hey|greetings|good morning|good afternoon|good evening)\b',
@@ -193,9 +218,48 @@ async def llm_router_node(state: Dict[str, Any], orchestrator: Optional[AIOrches
             max_tokens=400,
             retries=2,
             response_format={"type": "json_object"},
+            tools=get_tool_manifest(),
         )
 
-        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        message = response.get("choices", [{}])[0].get("message", {})
+        content = message.get("content", "")
+
+        # Check for native tool calls from the LLM
+        tool_calls = message.get("tool_calls", [])
+        if tool_calls:
+            # Extract intent from the first tool call name if present
+            first_tool = tool_calls[0]
+            tool_name = first_tool.get("function", {}).get("name", "")
+            logger.info("llm_router_node: detected tool_call=%s", tool_name)
+
+            # Map tool names to intents
+            tool_to_intent = {
+                "get_available_mentors": Intent.BOOKING,
+                "check_mentor_availability": Intent.BOOKING,
+                "book_mentor_session": Intent.BOOKING,
+                "find_mentor_by_name": Intent.BOOKING,
+                "get_user_sessions": Intent.USER_SESSIONS,
+                "get_mentor_details": Intent.BOOKING,
+                "web_search": Intent.SEARCH,
+                "search_career_info": Intent.SEARCH,
+                "get_job_trends": Intent.SEARCH,
+                "explain_career": Intent.CAREER_INFO,
+                "get_career_recommendations": Intent.GENERAL,
+                "get_career_recommendations_info": Intent.GENERAL,
+                "explain_app_feature": Intent.EXPLAIN_FEATURE,
+                "get_user_profile": Intent.GENERAL,
+                "get_app_features": Intent.HELP,
+            }
+            inferred_intent = tool_to_intent.get(tool_name, Intent.GENERAL)
+            return {
+                "current_intent": inferred_intent,
+                "booking_data": None,
+                "compound_greeting": _is_compound_greeting(user_message),
+                "last_tool_used": tool_name,
+            }
+
+        content = _strip_markdown_fences(content)
+
         if not content:
             return _keyword_route(user_message, state)
 
@@ -241,7 +305,7 @@ async def llm_router_node(state: Dict[str, Any], orchestrator: Optional[AIOrches
         }
 
     except json.JSONDecodeError as e:
-        logger.error(f"llm_router_node JSON parse error: {e}, content={content[:200]}")
+        logger.error(f"llm_router_node JSON parse error: {e}, content={content[:200] if content else 'empty'}")
         return _keyword_route(user_message, state)
     except Exception as e:
         logger.error(f"llm_router_node error: {e}")

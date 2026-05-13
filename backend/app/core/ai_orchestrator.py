@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 from app.core.ai.config import AIConfig
 from app.core.ai.client import OpenRouterClient
+from app.core.ai.ollama_client import OllamaClient
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -258,11 +259,12 @@ ROADMAP_SCHEMA = {
 
 class AIOrchestrator:
     """Central AI orchestration service.
-    Uses OpenRouter for LLM calls with retry logic.
+    Uses OpenRouter for most LLM calls; Ollama Cloud exclusively for chatbot.
     """
 
     def __init__(self):
         self.client = OpenRouterClient()
+        self.ollama_client = OllamaClient()
         self.config = AIConfig()
         self.models = self.config.MODELS
 
@@ -275,13 +277,14 @@ class AIOrchestrator:
         retries: int = 3,
         response_format: Optional[Dict[str, Any]] = None,
         request_timeout_seconds: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Chat with automatic model fallback."""
         models = self.config.get_models(task)
         last_error = None
 
         logger.info(
-            'chat_with_retry: task=%s retries=%s models=%s message_count=%s temperature=%s max_tokens=%s response_format=%s request_timeout_seconds=%s',
+            'chat_with_retry: task=%s retries=%s models=%s message_count=%s temperature=%s max_tokens=%s response_format=%s request_timeout_seconds=%s tools_present=%s',
             task,
             retries,
             models,
@@ -290,6 +293,7 @@ class AIOrchestrator:
             max_tokens,
             response_format,
             request_timeout_seconds,
+            bool(tools),
         )
 
         for attempt in range(retries):
@@ -311,6 +315,7 @@ class AIOrchestrator:
                         max_tokens,
                         response_format,
                         request_timeout_seconds,
+                        tools=tools,
                     )
                     duration = asyncio.get_running_loop().time() - start_time
                     logger.info(
@@ -375,17 +380,34 @@ class AIOrchestrator:
         max_tokens: int,
         response_format: Optional[Dict[str, Any]] = None,
         request_timeout_seconds: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Make a single API call."""
+        """Make a single API call.
+
+        Routes chatbot models to Ollama Cloud; everything else stays on OpenRouter.
+        """
         logger.info(
-            '_call: model=%s temperature=%s max_tokens=%s response_format=%s message_count=%s request_timeout_seconds=%s',
+            '_call: model=%s temperature=%s max_tokens=%s response_format=%s message_count=%s tools_present=%s',
             model,
             temperature,
             max_tokens,
             response_format,
             len(messages),
-            request_timeout_seconds,
+            bool(tools),
         )
+
+        # Route chatbot exclusively through Ollama Cloud
+        if model == settings.ollama_chatbot_model or model == self.models.get("chatbot"):
+            return await self.ollama_client.chat(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format=response_format,
+                request_timeout_seconds=request_timeout_seconds,
+                tools=tools,
+            )
+
         return await self.client.chat(
             model,
             messages,
@@ -396,19 +418,30 @@ class AIOrchestrator:
         )
 
     def _validate_response(self, response: Dict[str, Any]) -> bool:
-        """Validate response structure."""
+        """Validate response structure.
+
+        Accepts either:
+        - Non-empty text content (traditional LLM response)
+        - Tool calls present (function-calling response with empty content)
+        """
         if not response or "choices" not in response or not response["choices"]:
             return False
-        
+
         choice = response["choices"][0]
         if not isinstance(choice, dict):
             return False
-        
+
         message = choice.get("message", {})
         if not isinstance(message, dict):
             return False
-        
+
         content = message.get("content")
+        tool_calls = message.get("tool_calls", [])
+
+        # Accept tool-calling responses even if content is empty
+        if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
+            return True
+
         if content is None:
             return False
 
@@ -419,14 +452,179 @@ class AIOrchestrator:
             text_content = self._coerce_content_to_text(content)
             if not text_content:
                 return False
-        
+
         return True
+
+    @staticmethod
+    def _strip_reasoning_text(content: str) -> str:
+        """Strip known reasoning / chain-of-thought markers from model output.
+
+        Many reasoning models (DeepSeek-R1, QwQ, etc.) wrap thinking in
+        <think>...</think> tags or emit it as plain text before JSON.
+        """
+        if not isinstance(content, str):
+            return content or ""
+
+        # Strip <think>...</think> blocks
+        content = re.sub(r"\u003cthink\u003e.*?\u003c/think\u003e", "", content, flags=re.DOTALL)
+
+        # Strip common reasoning prefixes
+        reasoning_prefixes = [
+            "Let's think",
+            "Let me think",
+            "I need to",
+            "We need to",
+            "First, I will",
+            "Step 1:",
+            "Step 2:",
+            "Analysis:",
+            "Reasoning:",
+            "Thinking:",
+            "Plan:",
+            "Okay,",
+            "Now,",
+            "So,",
+            "Hmm,",
+            "Wait,",
+        ]
+
+        lines = content.splitlines()
+        json_start = None
+        json_end = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                if json_start is None:
+                    json_start = i
+            if stripped.endswith("}") or stripped.endswith("]"):
+                json_end = i
+
+        if json_start is not None and json_end is not None and json_end >= json_start:
+            # Keep only lines that appear to be inside a JSON block
+            return "\n".join(lines[json_start : json_end + 1]).strip()
+
+        # Fallback: strip lines that start with reasoning prefixes
+        cleaned_lines = []
+        inside_json = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                inside_json = True
+            if inside_json:
+                cleaned_lines.append(line)
+                if stripped.endswith("}") or stripped.endswith("]"):
+                    inside_json = False
+                    break
+            else:
+                # Keep non-reasoning lines (e.g., model might output JSON immediately)
+                if not any(stripped.startswith(p) for p in reasoning_prefixes):
+                    cleaned_lines.append(line)
+        return "\n".join(cleaned_lines).strip()
 
     @staticmethod
     def extract_json(content: str) -> str:
         """Extract valid JSON from content using multiple strategies."""
         if not content:
             return "{}"
+
+        # Remove BOM if present
+        if content.startswith('\ufeff'):
+            content = content[1:]
+
+        content = content.strip()
+
+        # Remove markdown code blocks
+        if content.startswith("```json"):
+            content = content[7:]
+        elif content.startswith("```"):
+            content = content[3:]
+
+        if content.endswith("```"):
+            content = content[:-3]
+
+        content = content.strip()
+
+        # Strip reasoning text (chain-of-thought from reasoning models)
+        content = AIOrchestrator._strip_reasoning_text(content)
+
+        # Strategy 1: Find JSON object/array with balanced brace/bracket matching,
+        #               respecting string boundaries so braces inside quoted text
+        #               do not throw off depth.
+        def _find_balanced(text: str) -> str | None:
+            candidates: list[tuple[int, int]] = []
+
+            for start_char, end_char in (("{", "}"), ("[", "]")):
+                idx = 0
+                while True:
+                    start = text.find(start_char, idx)
+                    if start == -1:
+                        break
+                    depth = 0
+                    in_string = False
+                    escape_next = False
+                    for i in range(start, len(text)):
+                        ch = text[i]
+                        if escape_next:
+                            escape_next = False
+                            continue
+                        if ch == "\\":
+                            escape_next = True
+                            continue
+                        if ch == '"':
+                            in_string = not in_string
+                            continue
+                        if not in_string:
+                            if ch == start_char:
+                                depth += 1
+                            elif ch == end_char:
+                                depth -= 1
+                                if depth == 0:
+                                    candidates.append((start, i + 1))
+                                    idx = i + 1
+                                    break
+                    else:
+                        # Unbalanced; skip to next char to avoid infinite loop
+                        idx = start + 1
+
+            if not candidates:
+                return None
+
+            # Prefer the longest candidate (most likely the real payload)
+            candidates.sort(key=lambda span: span[1] - span[0], reverse=True)
+            for start, end in candidates:
+                candidate = text[start:end]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except Exception:
+                    continue
+            return None
+
+        result = _find_balanced(content)
+        if result:
+            return result
+
+        # Strategy 2: Regex-based extraction for JSON objects (shallow fallback)
+        json_objects = re.findall(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content)
+        for obj in json_objects:
+            try:
+                json.loads(obj)
+                return obj
+            except Exception:
+                continue
+
+        # Strategy 3: Find first { and last } as fallback
+        start = content.find("{")
+        end = content.rfind("}")
+        if start >= 0 and end > start:
+            candidate = content[start:end + 1]
+            try:
+                json.loads(candidate)
+                return candidate
+            except Exception:
+                pass
+
+        return "{}"
 
         # Remove BOM if present
         if content.startswith('﻿'):
@@ -976,7 +1174,7 @@ Write the complete profile using the computed DISC percentages.
 ### Quiz Session (10 Q&As — use ALL of them)
 {session_json}
 
-### Output Schema — Return ONLY valid JSON, no markdown, no code fences:
+### Output Schema — Return ONLY valid JSON. No markdown, no code fences, no reasoning text, no chain-of-thought, no explanations, no thinking process. Output nothing except the raw JSON object.
 
 {{
     "discAnalysis": {{
@@ -1038,6 +1236,9 @@ Write the complete profile using the computed DISC percentages.
 - GREEN traits (high S): Patient, Loyal, Supportive, Calm, Consistent
 - BLUE traits (high C): Analytical, Systematic, Perfectionist, Precise, Thorough
 - Do NOT return markdown or code fences
+- Do NOT output any reasoning, thinking, chain-of-thought, or explanation text outside the JSON
+- Do NOT include any text before or after the JSON object
+- Output must be ONLY the raw JSON object, starting with {{ and ending with }}
 """
 
             logger.info(

@@ -30,7 +30,16 @@ class Settings(BaseSettings):
     openrouter_url: str = "https://openrouter.ai/api/v1/chat/completions"
     openrouter_embeddings_url: str = "https://openrouter.ai/api/v1/embeddings"
     openrouter_timeout_seconds: float = 90.0
-    roadmap_embedding_model: str = "openai/text-embedding-3-small"
+
+    # Optional separate OpenAI key for direct OpenAI embedding calls.
+    # If empty, the system falls back to OpenRouter's embeddings endpoint.
+    openai_api_key: str = ""
+    openai_embeddings_url: str = "https://api.openai.com/v1/embeddings"
+
+    # Ollama Cloud (used strictly for chatbot)
+    ollama_api_key: str = ""
+    ollama_host: str = "https://ollama.com"
+    ollama_chatbot_model: str = "deepseek-v4-flash:cloud"
 
     cv_ai_timeout_seconds: int = 120
 
@@ -41,6 +50,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
 
     log_level: str = "INFO"
+
+    # Embedding model used for roadmap vector search (OpenRouter compatible)
+    roadmap_embedding_model: str = "openai/text-embedding-3-small"
 
 
 settings = Settings()

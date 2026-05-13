@@ -22,7 +22,11 @@ def web_search(query: str, max_results: int = 5) -> dict:
         # Ensure UTF-8 encoding for the subprocess on Windows
         os.environ['PYTHONIOENCODING'] = 'utf-8'
 
-        from duckduckgo_search import DDGS
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            # Fallback to old package name for backward compatibility
+            from duckduckgo_search import DDGS
 
         results = []
         with DDGS() as ddgs:
@@ -55,7 +59,7 @@ def web_search(query: str, max_results: int = 5) -> dict:
             "success": False,
             "query": query,
             "results": [],
-            "error": "duckduckgo-search not installed. Run: pip install duckduckgo-search"
+            "error": "ddgs not installed. Run: pip install ddgs"
         }
     except Exception as e:
         logger.error(f"Web search error: {e}")
@@ -151,7 +155,7 @@ def explain_career(career_name: str) -> dict:
     query = f"{career_name} career guide responsibilities required skills salary 2026 progression"
 
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
 
         results = []
         with DDGS() as ddgs:

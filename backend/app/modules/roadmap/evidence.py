@@ -23,31 +23,58 @@ class RoadmapEvidenceService:
 
         scored = []
         for resource in resources:
+            # 🆕 STRICT: Reject resources with no skill relevance
+            title_relevance = self._title_relevance_score(skill, resource)
+            if title_relevance < 0.3:
+                logger.debug(
+                    "Rejecting resource '%s' for skill '%s' — title relevance too low (%.2f)",
+                    resource.title, skill, title_relevance,
+                )
+                continue
+
             overlap_score = await self._chunk_overlap_score(skill, resource)
-            score = self._clamp_score((resource.final_score * 0.75) + (overlap_score * 0.25))
-            scored.append((resource, score, overlap_score))
+            tag_score = self._tag_relevance_score(skill, resource)
+
+            # Combined score: title (40%) + tag (30%) + vector/chunk (20%) + final_score (10%)
+            score = self._clamp_score(
+                (title_relevance * 0.40)
+                + (tag_score * 0.30)
+                + (overlap_score * 0.20)
+                + (resource.final_score * 0.10)
+            )
+            scored.append((resource, score, overlap_score, title_relevance))
+
+        if not scored:
+            return EvidenceResult(
+                skill=skill,
+                confidence="low",
+                needs_web_fallback=True,
+                reasons=["No relevant resources found for this skill"],
+            )
 
         scored.sort(key=lambda item: item[1], reverse=True)
-        top_resource, top_score, top_overlap = scored[0]
+        top_resource, top_score, top_overlap, top_title = scored[0]
 
         confidence = "low"
-        if top_score > 0.7:
+        if top_score > 0.7 and top_title >= 0.6:
             confidence = "high"
-        elif top_score > 0.4:
+        elif top_score > 0.4 and top_title >= 0.4:
             confidence = "medium"
 
         primary = self._to_evidence_resource(
             top_resource,
             top_score,
-            f"Selected for {skill}; retrieval={top_resource.final_score:.2f}, chunk_overlap={top_overlap:.2f}.",
+            f"Best match for {skill}: '{top_resource.title}' by {top_resource.provider or 'Unknown'} — "
+            f"title relevance={top_title:.0%}, skill-tag match confirmed.",
         )
         backups = [
             self._to_evidence_resource(
                 resource,
                 score,
-                f"Backup for {skill}; retrieval={resource.final_score:.2f}, chunk_overlap={overlap:.2f}.",
+                f"Alternative for {skill}: '{resource.title}' by {resource.provider or 'Unknown'} "
+                f"(relevance={title_rel:.0%}).",
             )
-            for resource, score, overlap in scored[1:7]
+            for resource, score, overlap, title_rel in scored[1:7]
         ]
 
         return EvidenceResult(
@@ -59,6 +86,42 @@ class RoadmapEvidenceService:
             needs_web_fallback=confidence == "low",
             reasons=[primary.why_selected],
         )
+
+    def _title_relevance_score(self, skill: str, resource: ResourceResult) -> float:
+        """
+        Check how strongly the resource title relates to the skill.
+        Returns 0.0–1.0. High score requires direct skill words in title.
+        """
+        skill_terms = set(self._tokenize(skill))
+        title_terms = set(self._tokenize(resource.title))
+        tag_terms = set(self._tokenize(" ".join(resource.matched_skill_tags or [])))
+
+        if not skill_terms:
+            return 0.0
+
+        # Direct title matches are strongest
+        title_matches = len(skill_terms & title_terms)
+        title_score = title_matches / len(skill_terms)
+
+        # Tag matches are secondary
+        tag_matches = len(skill_terms & tag_terms)
+        tag_score = tag_matches / len(skill_terms)
+
+        # Boost if ALL skill words appear in title (exact match)
+        if title_matches == len(skill_terms) and len(skill_terms) >= 1:
+            return min(1.0, 0.8 + 0.2 * tag_score)
+
+        # Partial match: weight title higher than tags
+        return min(1.0, title_score * 0.7 + tag_score * 0.3)
+
+    def _tag_relevance_score(self, skill: str, resource: ResourceResult) -> float:
+        """Score based on skill tags attached to the resource."""
+        skill_terms = set(self._tokenize(skill))
+        tag_terms = set(self._tokenize(" ".join(resource.matched_skill_tags or [])))
+        if not skill_terms:
+            return 0.0
+        matches = len(skill_terms & tag_terms)
+        return round(matches / len(skill_terms), 4)
 
     async def _chunk_overlap_score(self, skill: str, resource: ResourceResult) -> float:
         chunk_text = resource.chunk_text

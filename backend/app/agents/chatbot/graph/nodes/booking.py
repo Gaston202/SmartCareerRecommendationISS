@@ -1,16 +1,23 @@
 """Multi-step booking subgraph for mentor session scheduling."""
 import logging
 import json
+import re
 from typing import Dict, Any, Optional
 from langchain_core.messages import AIMessage
 
 from app.agents.chatbot.schemas.pydantic import Intent, BookingContext, AvailabilitySlot
+from app.agents.chatbot.tools import get_booking_tool_descriptions_block, find_tool_schema, get_booking_tool_manifest
+from app.agents.chatbot.graph.nodes.router import _strip_markdown_fences
 from app.core.ai_orchestrator import AIOrchestrator
 
 logger = logging.getLogger(__name__)
 
+_TOOL_BLOCK = get_booking_tool_descriptions_block()
 
-BOOKING_CLARIFY_PROMPT = """You are a booking assistant for a career mentoring platform. Extract booking details from the user's message.
+BOOKING_CLARIFY_PROMPT = f"""You are a booking assistant for a career mentoring platform. Extract booking details and route to the correct tool based on the user's message.
+
+Available tools for this flow:
+{_TOOL_BLOCK}
 
 Booking requirements:
 - mentor_id or mentor_name: required
@@ -19,21 +26,21 @@ Booking requirements:
 - duration_minutes: default 30
 
 Respond with ONLY a valid JSON object:
-{
-  "action": "ask_clarification|show_mentors|ready_to_book",
+{{"action": "ask_clarification|show_mentors|ready_to_book",
   "missing": ["mentor", "date", "time"] or [],
-  "extracted": {
+  "extracted": {{
     "date": "YYYY-MM-DD or null",
     "time": "HH:MM or null",
     "mentor_name": "string or null"
-  },
+  }},
   "response": "brief friendly message asking for missing info or confirming what you found"
-}
+}}
 
 KEY RULES:
-- If user asks to see available mentors or says "any mentor" → "show_mentors"
-- If ANY of {date, time, mentor_name} is missing and user didn't ask to browse → "ask_clarification"
-- If all fields are present → "ready_to_book"
+- If user asks to see available mentors, says "any mentor", "list mentors", "show mentors", or "find mentors" → action MUST be "show_mentors". This triggers the get_available_mentors tool to return a list of mentors.
+- If user asks to check a specific mentor's availability (e.g. "is John available tomorrow?") → action MUST be "show_mentors" (the system will then check availability).
+- If ANY of {{date, time, mentor_name}} is missing and user didn't ask to browse → "ask_clarification".
+- If all fields are present → "ready_to_book".
 - Keep "response" to 1-2 sentences, be warm and friendly.
 Do not include ANY text outside the JSON. Do not use markdown code blocks."""
 
@@ -47,6 +54,137 @@ def _get_last_user_message(state: Dict[str, Any]) -> str:
         if hasattr(msg, "content") and not hasattr(msg, "response_metadata"):
             return str(msg.content)
     return ""
+
+
+# Keywords for detecting date/time mentions without a mentor name
+_BOOKING_DATE_KEYWORDS = [
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "today", "tomorrow", "next week", "this week",
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+    "am", "pm", "morning", "afternoon", "evening", "noon", "midnight",
+]
+
+# Regex patterns for time detection
+_BOOKING_TIME_PATTERNS = [
+    r"\d{1,2}:\d{2}",      # HH:MM time pattern
+    r"\d{1,2}\s*(am|pm)",  # e.g. "2pm", "3 am"
+]
+
+_BOOKING_MENTOR_KEYWORDS = [
+    "with", "mentor", "sarah", "james", "emily", "dr.", "prof.", "mr.", "ms.", "mrs.",
+]
+
+
+def _has_date_time_no_mentor(content: str) -> bool:
+    """Detect if user provided date/time for booking but no mentor name.
+
+    This lets us skip the second LLM call and ask for the mentor directly.
+    """
+    content_lower = content.lower()
+
+    # Check for booking action keywords
+    has_booking_intent = any(
+        kw in content_lower for kw in ["book", "schedule", "session", "appointment"]
+    )
+    if not has_booking_intent:
+        return False
+
+    # Check for date/time mentions
+    has_date_time = any(kw in content_lower for kw in _BOOKING_DATE_KEYWORDS)
+    if not has_date_time:
+        # Also check regex patterns for time
+        has_date_time = any(re.search(pat, content_lower) for pat in _BOOKING_TIME_PATTERNS)
+
+    if not has_date_time:
+        return False
+
+    # Check if a mentor name seems present (heuristic: 'with [Name]' or known names)
+    has_mentor = any(kw in content_lower for kw in _BOOKING_MENTOR_KEYWORDS)
+
+    return not has_mentor
+
+
+def _has_all_booking_details(content: str) -> dict:
+    """Check if user provided mentor name, date, AND time in one message.
+
+    Returns a dict with extracted details if all present, empty dict otherwise.
+    This lets us skip the second LLM call and book immediately.
+    """
+    content_lower = content.lower()
+
+    # Check for booking action keywords
+    has_booking_intent = any(
+        kw in content_lower for kw in ["book", "schedule", "session", "appointment"]
+    )
+    if not has_booking_intent:
+        return {}
+
+    # Check for mentor name (after "with")
+    mentor_name = None
+    if "with" in content_lower:
+        # Extract name after "with" - e.g. "with Sarah Chen on Friday"
+        mentor_match = re.search(r'with\s+([A-Z][a-zA-Z\s\.]+?)(?:\s+on\s+|\s+at\s+|\s+for\s+|\s+this\s+|\s+next\s+|$)', content, re.IGNORECASE)
+        if mentor_match:
+            mentor_name = mentor_match.group(1).strip()
+
+    # Check for date
+    date = None
+    day_map = {
+        "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+        "friday": 4, "saturday": 5, "sunday": 6,
+        "today": -1, "tomorrow": -2,
+    }
+    for day, offset in day_map.items():
+        if day in content_lower:
+            if offset == -1:
+                from datetime import datetime
+                date = datetime.now().strftime("%Y-%m-%d")
+            elif offset == -2:
+                from datetime import datetime, timedelta
+                date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+            else:
+                from datetime import datetime, timedelta
+                today = datetime.now()
+                days_ahead = (offset - today.weekday()) % 7
+                if days_ahead == 0:
+                    days_ahead = 7  # Next week if today
+                date = (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+            break
+
+    # Check for time (HH:MM or H:MM or H am/pm)
+    time = None
+    # Try HH:MM format first
+    time_match = re.search(r'(\d{1,2}):(\d{2})\s*(am|pm)?', content, re.IGNORECASE)
+    if time_match:
+        hour = int(time_match.group(1))
+        minute = time_match.group(2)
+        ampm = time_match.group(3)
+        if ampm:
+            if ampm.lower() == 'pm' and hour != 12:
+                hour += 12
+            elif ampm.lower() == 'am' and hour == 12:
+                hour = 0
+        time = f"{hour:02d}:{minute}"
+    else:
+        # Try H am/pm format (no colon) - e.g. "2pm", "3 am"
+        time_match = re.search(r'(\d{1,2})\s*(am|pm)', content, re.IGNORECASE)
+        if time_match:
+            hour = int(time_match.group(1))
+            ampm = time_match.group(2)
+            if ampm.lower() == 'pm' and hour != 12:
+                hour += 12
+            elif ampm.lower() == 'am' and hour == 12:
+                hour = 0
+            time = f"{hour:02d}:00"
+
+    if mentor_name and date and time:
+        return {
+            "mentor_name": mentor_name,
+            "date": date,
+            "time": time,
+        }
+    return {}
 
 
 def _classify_error(error: Exception) -> str:
@@ -84,17 +222,77 @@ def _validate_booking_output(parsed: dict) -> tuple[bool, str]:
 
 
 async def booking_clarify_node(state: Dict[str, Any], orchestrator: Optional[AIOrchestrator] = None) -> Dict[str, Any]:
-    """Phase 1: Extract booking entities and decide next step using LLM.
+    """Phase 1: Extract booking entities and decide next step.
 
     Routes based on action:
     - ask_clarification → return question to user (END)
     - show_mentors → proceed to booking_availability_node
     - ready_to_book → proceed to booking_execute_node
+
+    Optimization: If the router already detected a tool call (e.g., get_available_mentors),
+    skip the LLM call and route directly to save time and avoid timeouts.
     """
     user_message = _get_last_user_message(state)
     booking_data = state.get("booking_data") or BookingContext()
     booking_data.attempts = (booking_data.attempts or 0) + 1
     is_compound = state.get("compound_greeting", False)
+
+    # ── Fast path #1: user provided ALL booking details (mentor + date + time) ──
+    # This takes priority over router tool detection so we can book immediately.
+    complete_details = _has_all_booking_details(user_message)
+    if complete_details:
+        logger.info(
+            "booking_clarify: fast path → ready_to_book (mentor=%s date=%s time=%s)",
+            complete_details["mentor_name"],
+            complete_details["date"],
+            complete_details["time"],
+        )
+        booking_data.mentor_name = complete_details["mentor_name"]
+        booking_data.preferred_date = complete_details["date"]
+        booking_data.preferred_time = complete_details["time"]
+        return {
+            "messages": [AIMessage(content=f"I'll book your session with {complete_details['mentor_name']} on {complete_details['date']} at {complete_details['time']}.")],
+            "booking_data": booking_data,
+            "current_intent": Intent.BOOKING,
+            "booking_stage": "ready_to_book",
+            "last_tool_used": "ready_to_book",
+            "compound_greeting": False,
+        }
+
+    # ── Fast path #2: router already told us which tool to use ──────────
+    last_tool = state.get("last_tool_used")
+    if last_tool in ("get_available_mentors", "check_mentor_availability", "find_mentor_by_name"):
+        logger.info("booking_clarify: fast path → show_mentors (last_tool=%s)", last_tool)
+        return {
+            "messages": [AIMessage(content="Let me get the mentors list for you.")],
+            "booking_data": booking_data,
+            "current_intent": Intent.BOOKING,
+            "booking_stage": "show_mentors",
+            "last_tool_used": "show_mentors",
+            "compound_greeting": False,
+        }
+    if last_tool == "book_mentor_session":
+        logger.info("booking_clarify: fast path → ready_to_book")
+        return {
+            "messages": [AIMessage(content="I'll help you book that session.")],
+            "booking_data": booking_data,
+            "current_intent": Intent.BOOKING,
+            "booking_stage": "ready_to_book",
+            "last_tool_used": "ready_to_book",
+            "compound_greeting": False,
+        }
+
+    # ── Fast path #3: user mentioned booking with date/time but no mentor ──────────
+    if _has_date_time_no_mentor(user_message):
+        logger.info("booking_clarify: fast path → ask_clarification (date/time but no mentor)")
+        return {
+            "messages": [AIMessage(content="Great! I have the date and time. Which mentor would you like to book with?")],
+            "booking_data": booking_data,
+            "current_intent": Intent.BOOKING,
+            "booking_stage": "clarification",
+            "last_tool_used": "ask_clarification",
+            "compound_greeting": False,
+        }
 
     if orchestrator is None:
         return {
@@ -130,11 +328,51 @@ async def booking_clarify_node(state: Dict[str, Any], orchestrator: Optional[AIO
             max_tokens=500,
             retries=2,
             response_format={"type": "json_object"},
+            tools=get_booking_tool_manifest(),
         )
 
-        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        message = response.get("choices", [{}])[0].get("message", {})
+        content = message.get("content", "")
+
+        # Check for native tool calls from the LLM
+        tool_calls = message.get("tool_calls", [])
+        if tool_calls:
+            first_tool = tool_calls[0]
+            tool_name = first_tool.get("function", {}).get("name", "")
+            logger.info("booking_clarify: detected tool_call=%s", tool_name)
+
+            if tool_name == "get_available_mentors":
+                return {
+                    "messages": [AIMessage(content="Here are our available mentors:")],
+                    "booking_data": booking_data,
+                    "current_intent": Intent.BOOKING,
+                    "booking_stage": "show_mentors",
+                    "last_tool_used": "show_mentors",
+                    "compound_greeting": False,
+                }
+            elif tool_name == "check_mentor_availability":
+                return {
+                    "messages": [AIMessage(content="Let me check that mentor's availability.")],
+                    "booking_data": booking_data,
+                    "current_intent": Intent.BOOKING,
+                    "booking_stage": "show_mentors",
+                    "last_tool_used": "show_mentors",
+                    "compound_greeting": False,
+                }
+            elif tool_name == "book_mentor_session":
+                return {
+                    "messages": [AIMessage(content="I'll help you book that session.")],
+                    "booking_data": booking_data,
+                    "current_intent": Intent.BOOKING,
+                    "booking_stage": "ready_to_book",
+                    "last_tool_used": "ready_to_book",
+                    "compound_greeting": False,
+                }
+
         if not content:
             return _booking_clarify_fallback(booking_data, is_compound)
+
+        content = _strip_markdown_fences(content)
 
         parsed = json.loads(content)
         valid, error_msg = _validate_booking_output(parsed)
@@ -234,9 +472,11 @@ If all details present → "ready_to_book"
             max_tokens=400,
             retries=1,
             response_format={"type": "json_object"},
+            tools=get_booking_tool_manifest(),
         )
         content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
         if content:
+            content = _strip_markdown_fences(content)
             return json.loads(content)
     except Exception:
         pass

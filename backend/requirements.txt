@@ -29,7 +29,7 @@ python-jobspy>=1.1.82
 beautifulsoup4>=4.12.0
 lxml>=5.3.0
 scrapling>=0.4.7
-duckduckgo-search>=6.3.0
+ddgs>=2025.0.0
 # NOTE (Windows + Python 3.14): pin to versions with wheels to avoid source builds.
 pandas==2.3.3
 numpy==2.4.3
@@ -60,3 +60,6 @@ python-dotenv>=1.0.0
 # Optional production dependencies
 gunicorn>=21.2.0; platform_system != "Windows"
 uvloop>=0.19.0; platform_system != "Windows"
+
+# Ollama AI client (official Python library)
+ollama>=0.4.0

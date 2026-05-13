@@ -1,3 +1,5 @@
+import re
+import urllib.parse
 from datetime import datetime
 import logging
 import json
@@ -77,7 +79,7 @@ class RoadmapService:
                     "provider": web_resource.get("provider"),
                     "source_url": web_resource.get("source_url"),
                     "score": web_resource.get("score") or 0.4,
-                    "why_selected": "Selected from web fallback because stored evidence was weak.",
+                    "why_selected": f"Selected from web fallback because stored evidence was weak for {gap.skill_name}.",
                 }
 
             if evidence.confidence == "low":
@@ -95,18 +97,26 @@ class RoadmapService:
             ]
 
             source_url = primary_dict.get("source_url") if primary_dict else None
-            if source_url:
+            # 🆕 Validate URLs — reject broken/placeholder links
+            if source_url and self._is_valid_url(source_url):
                 source_urls.add(source_url)
+            elif source_url:
+                logger.warning("Invalid source_url for skill '%s': %s", gap.skill_name, source_url)
+                source_url = None
+                if primary_dict:
+                    primary_dict["source_url"] = None
+
+            resource_title = primary_dict.get("title") if primary_dict else None
 
             steps.append(
                 RoadmapStep(
                     skill_name=gap.skill_name,
-                    why_it_matters=self._why_skill_matters(gap.skill_name, target_role),
+                    why_it_matters=self._why_skill_matters(gap.skill_name, target_role, resource_title),
                     difficulty=gap.difficulty,
                     estimated_duration_hours=gap.estimated_duration_hours,
                     prerequisites=gap.prerequisites,
                     resource_id=primary_dict.get("resource_id") if primary_dict else None,
-                    resource_title=primary_dict.get("title") if primary_dict else None,
+                    resource_title=resource_title,
                     resource_type=self._lookup_resource_meta(resources, primary_dict, "resource_type"),
                     free_or_paid=self._lookup_resource_meta(resources, primary_dict, "free_or_paid"),
                     language=self._lookup_resource_meta(resources, primary_dict, "language"),
@@ -248,8 +258,19 @@ class RoadmapService:
             logger.error('Failed to get/generate roadmap', e)
             raise
 
-    def _why_skill_matters(self, skill_name: str, target_role: str) -> str:
-        return f"{skill_name} supports practical readiness for {target_role} and helps close a role-specific skill gap."
+    def _why_skill_matters(self, skill_name: str, target_role: str, resource_title: Optional[str] = None) -> str:
+        skill_label = skill_name.replace("_", " ")
+        role_label = target_role.replace("_", " ")
+        if resource_title:
+            return (
+                f"{skill_label.title()} is a core competency for {role_label}. "
+                f"The recommended course '{resource_title}' covers the exact "
+                f"{skill_label} concepts and techniques you need for real-world {role_label} work."
+            )
+        return (
+            f"{skill_label.title()} is essential for {role_label}. "
+            f"Building practical proficiency here will help you solve real problems in {role_label} roles."
+        )
 
     def _lookup_resource_meta(
         self,
@@ -284,6 +305,24 @@ class RoadmapService:
         enriched["recommendation_reason"] = presentation.recommendation_reason
         return enriched
 
+    def _is_valid_url(self, url: str) -> bool:
+        """Validate that a URL is well-formed and has a real domain."""
+        if not url or not isinstance(url, str):
+            return False
+        try:
+            parsed = urllib.parse.urlparse(url)
+            if not parsed.scheme or parsed.scheme not in {"http", "https"}:
+                return False
+            if not parsed.netloc or "." not in parsed.netloc:
+                return False
+            # Reject placeholder / example domains
+            blocked = {"example.com", "localhost", "127.0.0.1", "test.com", "demo.com"}
+            hostname = parsed.netloc.lower().replace("www.", "")
+            if hostname in blocked or hostname.startswith("localhost"):
+                return False
+            return True
+        except Exception:
+            return False
 
     async def generate_roadmap_async(
         self,

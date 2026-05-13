@@ -8,6 +8,10 @@ from app.core.ai_orchestrator import AIOrchestratorService
 from app.core.cache import CacheService
 from app.core.course_search_service import CourseSearchService, get_course_search_service
 from app.modules.learning_roadmap.repository import LearningRoadmapRepository
+from app.modules.roadmap.retrieval import RoadmapRetrievalService
+from app.modules.roadmap.evidence import RoadmapEvidenceService
+from app.modules.roadmap.web_search import RoadmapWebSearchService
+
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +33,20 @@ class LearningRoadmapService:
         self.ai_orchestrator = ai_orchestrator
         self.cache_service = cache_service
         self.repository = LearningRoadmapRepository(db)
+
+        # RAG-first resource discovery (can be disabled via env)
+        self._enable_rag = os.getenv(
+            "ENABLE_LEARNING_ROADMAP_RAG", "false"
+        ).lower() == "true"
+        self.retrieval = RoadmapRetrievalService(db)
+        self.evidence = RoadmapEvidenceService(db)
+        self.web_search = RoadmapWebSearchService()
+
+        # Legacy DuckDuckGo fallback (lowest priority)
         self.course_search = course_search_service or get_course_search_service()
-        self._enable_web_search = os.getenv("ENABLE_WEB_COURSE_SEARCH", "true").lower() == "true"
+        self._enable_legacy_web_search = os.getenv(
+            "ENABLE_LEGACY_DDG_FALLBACK", "true"
+        ).lower() == "true"
 
     async def generate_learning_roadmap(
         self,
@@ -79,16 +95,24 @@ class LearningRoadmapService:
                     if isinstance(personalized_steps, list) and personalized_steps:
                         steps = personalized_steps
 
-            # Always search web for courses (never use DB courses for resource_title/provider/url)
-            if self._enable_web_search:
-                steps = await self._enhance_steps_with_web_search(steps)
+            # RAG-first enhancement: curated resources → Tavily → DuckDuckGo
+            steps = await self._enhance_steps_with_rag(steps)
+
+            # Aggregate confidence
+            total_confidence = sum(
+                step.get("confidence_score", 0.0) for step in steps
+            )
+            avg_confidence = round(total_confidence / max(len(steps), 1), 2)
+            weak_steps = sum(
+                1 for step in steps if step.get("confidence_score", 0.0) < 0.5
+            )
 
             payload = {
                 "mode": "learning_roadmap_v1",
                 "target_role": career_title,
                 "career_id": career_id,
-                "confidence": 0.78,
-                "weak_evidence": len(skills) == 0,
+                "confidence": avg_confidence,
+                "weak_evidence": weak_steps > len(steps) / 2 if steps else True,
                 "steps": steps,
                 "roadmap": roadmap_data,
             }
@@ -163,7 +187,7 @@ class LearningRoadmapService:
         }
 
     def _build_steps_from_skills(self, skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Build steps from skills - resource_title/provider/url filled by web search."""
+        """Build steps from skills — resource_title/provider/url filled by _enhance_steps_with_rag."""
         steps: List[Dict[str, Any]] = []
         for idx, skill in enumerate(skills):
             steps.append(
@@ -239,25 +263,99 @@ class LearningRoadmapService:
             logger.error(f'Failed to fetch courses for skill {skill_id}', e)
             return []
 
-    async def _enhance_steps_with_web_search(self, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Populate resource_title, provider, source_url via web search for ALL steps."""
+    async def _enhance_steps_with_rag(self, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Populate resource_title, provider, source_url for each step.
+        Priority (when RAG enabled): 1) RAG curated resources  2) Tavily web search  3) DuckDuckGo legacy fallback
+        Priority (when RAG disabled): 1) Tavily web search  2) DuckDuckGo legacy fallback
+        """
         import asyncio
-        loop = asyncio.get_running_loop()
+
         enhanced = []
         for step in steps:
-            # search_courses is synchronous — run it in the default thread-pool
-            # so it doesn't block the event loop
-            courses = await loop.run_in_executor(
-                None,
-                self.course_search.search_courses,
-                step.get("skill_name", ""),
-                step.get("difficulty"),
-            )
-            if courses:
-                top = courses[0]
-                step["resource_title"] = top.get("title")
-                step["source_url"] = top.get("url")
-                step["provider"] = top.get("provider")
+            skill = step.get("skill_name", "")
+            if not skill:
+                enhanced.append(step)
+                continue
+
+            # ---- Tier 1: RAG (curated resources) — skipped when disabled ----
+            rag_confidence = 0.0
+            if self._enable_rag:
+                try:
+                    resources = await self.retrieval.search_resources(skill, top_k=8)
+                    if resources:
+                        evidence = await self.evidence.score_evidence(skill, resources)
+                        if evidence.confidence in ("high", "medium") and evidence.primary_resource:
+                            primary = evidence.primary_resource
+                            step["resource_title"] = primary.title
+                            step["source_url"] = primary.source_url
+                            step["provider"] = primary.provider
+                            step["confidence_score"] = round(
+                                max(step.get("confidence_score", 0.0), primary.score), 2
+                            )
+                            rag_confidence = primary.score
+                            logger.info(
+                                "RAG hit for skill '%s': title='%s' provider='%s' score=%.2f",
+                                skill, primary.title, primary.provider, primary.score,
+                            )
+                        else:
+                            # Medium/low confidence RAG — still keep best candidate if available
+                            if evidence.primary_resource:
+                                primary = evidence.primary_resource
+                                step["resource_title"] = primary.title
+                                step["source_url"] = primary.source_url
+                                step["provider"] = primary.provider
+                                step["confidence_score"] = round(
+                                    max(step.get("confidence_score", 0.0), primary.score), 2
+                                )
+                                rag_confidence = primary.score
+                except Exception as exc:
+                    logger.warning("RAG retrieval failed for skill '%s': %s", skill, exc)
+
+            # ---- Tier 2: Tavily web fallback (if RAG weak/missing or disabled) ----
+            if not step.get("source_url") or rag_confidence < 0.5:
+                try:
+                    tavily_results = await self.web_search.fallback_search(skill)
+                    if tavily_results:
+                        top = tavily_results[0]
+                        step["resource_title"] = top.get("title")
+                        step["source_url"] = top.get("source_url")
+                        step["provider"] = top.get("provider")
+                        step["confidence_score"] = round(
+                            max(step.get("confidence_score", 0.0), top.get("score", 0.4)), 2
+                        )
+                        logger.info(
+                            "Tavily fallback for skill '%s': title='%s' provider='%s'",
+                            skill, top.get("title"), top.get("provider"),
+                        )
+                except Exception as exc:
+                    logger.warning("Tavily fallback failed for skill '%s': %s", skill, exc)
+
+            # ---- Tier 3: Legacy DuckDuckGo (last resort) ----
+            if self._enable_legacy_web_search and not step.get("source_url"):
+                try:
+                    loop = asyncio.get_running_loop()
+                    ddg_results = await loop.run_in_executor(
+                        None,
+                        self.course_search.search_courses,
+                        skill,
+                        step.get("difficulty"),
+                    )
+                    if ddg_results:
+                        top = ddg_results[0]
+                        step["resource_title"] = top.get("title")
+                        step["source_url"] = top.get("url")
+                        step["provider"] = top.get("provider")
+                        step["confidence_score"] = round(
+                            max(step.get("confidence_score", 0.0), 0.35), 2
+                        )
+                        logger.info(
+                            "DDG fallback for skill '%s': title='%s' provider='%s'",
+                            skill, top.get("title"), top.get("provider"),
+                        )
+                except Exception as exc:
+                    logger.warning("DDG fallback failed for skill '%s': %s", skill, exc)
+
             enhanced.append(step)
         return enhanced
 

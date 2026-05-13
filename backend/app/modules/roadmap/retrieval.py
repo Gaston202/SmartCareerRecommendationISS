@@ -13,9 +13,20 @@ logger = logging.getLogger(__name__)
 class RoadmapRetrievalService:
     def __init__(self, db: DatabaseService):
         self.db = db
-        self.api_key = settings.openrouter_api_key
-        self.embeddings_url = settings.openrouter_embeddings_url
+        # Prefer explicit OpenAI key; fall back to OpenRouter key.
+        # Both endpoints (openai.com and openrouter.ai/api/v1/embeddings) are valid.
+        self.api_key = settings.openai_api_key or settings.openrouter_api_key
+        self.embeddings_url = (
+            settings.openai_embeddings_url
+            or settings.openrouter_embeddings_url
+            or "https://openrouter.ai/api/v1/embeddings"
+        )
         self.embedding_model = settings.roadmap_embedding_model
+
+        # Gate: after the first 401/403 we permanently skip vector search for
+        # this instance so we don't spam the API with known-bad credentials.
+        self._embedding_available: bool = bool(self.api_key and self.api_key.startswith("sk-"))
+        self._warned_once: bool = False
 
     async def search_resources(self, skill: str, top_k: int = 5) -> List[ResourceResult]:
         top_k = max(1, min(top_k, 20))
@@ -36,15 +47,47 @@ class RoadmapRetrievalService:
 
         results = []
         for result in by_id.values():
+            # Require title or tags to contain skill terms
+            if not self._is_resource_relevant_to_skill(skill, result):
+                logger.debug(
+                    "Filtering out resource '%s' (id=%s) — not relevant to skill '%s'",
+                    result.title, result.resource_id, skill,
+                )
+                continue
+
             tag_score = self._tag_score(skill, result)
             result.final_score = self._clamp_score(
-                0.35 * result.keyword_score + 0.45 * result.vector_score + 0.20 * tag_score
+                0.30 * result.keyword_score + 0.50 * result.vector_score + 0.20 * tag_score
             )
             if tag_score:
                 result.final_score = max(result.final_score, 0.72)
             results.append(result)
 
         return sorted(results, key=lambda item: item.final_score, reverse=True)[:top_k]
+
+    def _is_resource_relevant_to_skill(self, skill: str, resource: ResourceResult) -> bool:
+        """
+        Strict relevance check: the resource title or skill_tags must contain
+        meaningful tokens from the skill query.
+        """
+        skill_terms = set(self._tokenize(skill))
+        if not skill_terms:
+            return False
+
+        title_terms = set(self._tokenize(resource.title))
+        tag_terms = set(self._tokenize(" ".join(resource.matched_skill_tags or [])))
+
+        # At least one skill term must appear in title OR tags
+        if skill_terms & (title_terms | tag_terms):
+            return True
+
+        # Special case: if resource is tagged with the exact skill
+        normalized_skill = self._normalize_token(skill)
+        normalized_tags = {self._normalize_token(t) for t in resource.matched_skill_tags or []}
+        if normalized_skill in normalized_tags:
+            return True
+
+        return False
 
     async def _keyword_search(self, skill: str, limit: int) -> List[ResourceResult]:
         try:
@@ -63,12 +106,17 @@ class RoadmapRetrievalService:
             return await self._keyword_fallback(skill, limit)
 
     async def _keyword_fallback(self, skill: str, limit: int) -> List[ResourceResult]:
+        # BROADER query: title OR description OR skill_tags
         result = (
             await self.db.get_client()
             .from_("resources")
             .select("id,title,provider,source_url,resource_type,language,level,free_or_paid,skill_tags")
             .eq("is_active", True)
-            .or_(f"title.ilike.%{skill}%,description.ilike.%{skill}%")
+            .or_(
+                f"title.ilike.%{skill}%,"
+                f"description.ilike.%{skill}%,"
+                f"skill_tags.cs.{{\"{skill}\"}}"
+            )
             .limit(limit)
             .execute()
         )
@@ -112,8 +160,19 @@ class RoadmapRetrievalService:
             return []
 
     async def _embed_query(self, text: str) -> Optional[List[float]]:
-        if not self.api_key:
-            logger.warning("OPENROUTER_API_KEY is not configured; semantic retrieval skipped")
+        """Compute an embedding for query text.
+
+        Skips the call entirely when the API key is missing or has already been
+        rejected (401/403) so we don't spam the endpoint on every skill gap.
+        """
+        if not self._embedding_available:
+            if not self._warned_once:
+                self._warned_once = True
+                logger.warning(
+                    "Semantic search disabled: no valid API key for embeddings. "
+                    "Set OPENROUTER_API_KEY or OPENAI_API_KEY with a valid key "
+                    "to enable vector search."
+                )
             return None
 
         try:
@@ -123,13 +182,10 @@ class RoadmapRetrievalService:
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json",
-                        "HTTP-Referer": "https://smartcareer.app",
-                        "X-OpenRouter-Title": "SmartCareer",
                     },
                     json={
                         "model": self.embedding_model,
                         "input": text,
-                        "dimensions": 1536,
                     },
                 )
                 response.raise_for_status()
@@ -138,8 +194,20 @@ class RoadmapRetrievalService:
             if not isinstance(embedding, list):
                 return None
             return embedding
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (401, 403):
+                self._embedding_available = False
+                logger.error(
+                    "Embedding API authentication failed (%s). "
+                    "Semantic search disabled for this instance. "
+                    "Set OPENROUTER_API_KEY or OPENAI_API_KEY to enable vector search.",
+                    exc.response.status_code,
+                )
+            else:
+                logger.warning("Embedding API failed for '%s': %s", text, exc)
+            return None
         except Exception as exc:
-            logger.warning("OpenRouter embedding failed for %s: %s", text, exc)
+            logger.warning("Embedding request failed for '%s': %s", text, exc)
             return None
 
     def _resource_from_keyword_row(self, row: dict) -> ResourceResult:
@@ -183,6 +251,14 @@ class RoadmapRetrievalService:
 
     def _normalize_token(self, value: str) -> str:
         return "".join(char for char in (value or "").lower() if char.isalnum())
+
+    def _tokenize(self, value: str) -> List[str]:
+        import re
+        return [
+            token
+            for token in re.split(r"[^a-z0-9]+", (value or "").lower())
+            if len(token) > 1
+        ]
 
 
 async def search_resources(

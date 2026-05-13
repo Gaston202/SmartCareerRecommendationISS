@@ -191,19 +191,26 @@ async def find_mentor_by_name(name: str) -> dict:
 
 
 @tool
-async def book_mentor_session(booking: dict) -> dict:
+async def book_mentor_session(
+    mentor_id: str,
+    user_id: str,
+    date: str,
+    time: str,
+    title: str = "Mentor Session",
+    description: str = None,
+    duration_minutes: int = 30,
+) -> dict:
     """
     Book a mentor session in the database.
 
     Args:
-        booking: Dictionary containing:
-            - mentor_id: UUID of the mentor
-            - user_id: UUID of the user
-            - date: Date in YYYY-MM-DD format
-            - time: Time in HH:MM format (24-hour)
-            - title: Session title (optional)
-            - description: Session description (optional)
-            - duration_minutes: Session duration (optional, default 30)
+        mentor_id: UUID of the mentor
+        user_id: UUID of the user
+        date: Date in YYYY-MM-DD format
+        time: Time in HH:MM format (24-hour)
+        title: Session title (optional)
+        description: Session description (optional)
+        duration_minutes: Session duration (optional, default 30)
 
     Returns:
         Dictionary with booking confirmation or error
@@ -211,15 +218,15 @@ async def book_mentor_session(booking: dict) -> dict:
     client = await get_supabase_client()
 
     try:
-        scheduled_datetime = f"{booking['date']}T{booking['time']}:00"
+        scheduled_datetime = f"{date}T{time}:00"
 
         data = {
-            "mentor_id": booking["mentor_id"],
-            "user_id": booking["user_id"],
-            "title": booking.get("title", "Mentor Session"),
-            "description": booking.get("description"),
+            "mentor_id": mentor_id,
+            "user_id": user_id,
+            "title": title,
+            "description": description,
             "scheduled_at": scheduled_datetime,
-            "duration_minutes": booking.get("duration_minutes", 30),
+            "duration_minutes": duration_minutes,
             "status": "scheduled"
         }
 
@@ -230,10 +237,10 @@ async def book_mentor_session(booking: dict) -> dict:
             return {
                 "success": True,
                 "session_id": session["id"],
-                "message": f"Session booked successfully with {booking.get('mentor_name', 'mentor')}",
+                "message": f"Session booked successfully",
                 "scheduled_at": scheduled_datetime,
-                "mentor_id": booking["mentor_id"],
-                "user_id": booking["user_id"]
+                "mentor_id": mentor_id,
+                "user_id": user_id
             }
         else:
             return {"success": False, "message": "Failed to create session record"}

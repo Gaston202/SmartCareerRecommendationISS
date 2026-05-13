@@ -21,6 +21,7 @@ import {
 } from '../features/learning-roadmap/storage';
 import { useAuth } from '../auth/AuthProvider';
 import { homeColors } from './homeTheme';
+import { supabase } from '../api/supabase';
 import type {
   LearningCourse,
   LearningRoadmap,
@@ -124,7 +125,7 @@ const resourceToCourse = (
   id: `${skillId}-resource-${index}`,
   skill_id: skillId,
   title: resource.title || `${skillName} resource`,
-  description: resource.why_selected || `Recommended learning resource for ${skillName}`,
+  description: resource.why_selected || `This resource focuses directly on ${skillName.replace(/_/g, ' ')}, giving you practical skills for this step.`,
   provider: resource.provider || 'Curated Resource',
   url: resource.source_url || '',
   source_resource_id: resource.resource_id,
@@ -152,7 +153,7 @@ export default function LearningRoadmapScreen(): React.ReactElement {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<LearningRoadmapNode | null>(null);
-  const [skillsInput, setSkillsInput] = useState('python, git');
+  const [skillsInput, setSkillsInput] = useState('');
   const [targetRoleInput, setTargetRoleInput] = useState(params.careerTitle || 'backend_developer');
   const [refreshingSkillId, setRefreshingSkillId] = useState<string | null>(null);
   const [ingestionStatusBySkill, setIngestionStatusBySkill] = useState<Record<string, BackendIngestionStatusData>>({});
@@ -358,13 +359,101 @@ export default function LearningRoadmapScreen(): React.ReactElement {
   const loadInitialRoadmap = async () => {
     if (!state.user?.id) return;
     try {
+      // Load existing roadmap
       const existing = await getLearningRoadmapByCareerTitle(state.user.id, params.careerTitle);
       if (isRagRoadmap(existing?.roadmap)) {
         setRoadmap(existing.roadmap);
       }
+
+      // Load user's real skills from multiple sources
+      const userSkills = await fetchUserSkillsCombined(state.user.id);
+      if (userSkills.length > 0) {
+        setSkillsInput(userSkills.join(', '));
+      }
     } catch (error) {
-      console.warn('[LearningRoadmap] Failed to load roadmap', error);
+      console.warn('[LearningRoadmap] Failed to load roadmap/skills', error);
     }
+  };
+
+  /**
+   * Fetch user skills from:
+   * 1. user_skills table (confirmed/edited)
+   * 2. users profile 'skills' column
+   * 3. Latest CV analysis extracted_skills
+   */
+  const fetchUserSkillsCombined = async (userId: string): Promise<string[]> => {
+    const sources: string[] = [];
+
+    try {
+      // 1. user_skills table
+      const { data: dbSkills, error: dbError } = await supabase
+        .from('user_skills')
+        .select('name')
+        .eq('user_id', userId)
+        .neq('status', 'removed')
+        .order('name', { ascending: true });
+
+      if (!dbError && dbSkills) {
+        dbSkills.forEach((s) => {
+          if (s.name) sources.push(s.name.trim().toLowerCase().replace(/\s+/g, '_'));
+        });
+      }
+    } catch (e) {
+      console.warn('[LearningRoadmap] Failed to fetch user_skills', e);
+    }
+
+    try {
+      // 2. users profile skills column
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('skills')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (!profileError && profile?.skills) {
+        const profileSkills = profile.skills
+          .split(/[,\n]/)
+          .map((s: string) => s.trim().toLowerCase().replace(/\s+/g, '_'))
+          .filter(Boolean);
+        sources.push(...profileSkills);
+      }
+    } catch (e) {
+      console.warn('[LearningRoadmap] Failed to fetch profile skills', e);
+    }
+
+    try {
+      // 3. Latest CV analysis
+      const { data: cvAnalyses, error: cvError } = await supabase
+        .from('cv_analysis')
+        .select('extracted_skills, skills_extracted, skills')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!cvError && cvAnalyses) {
+        const rawSkills =
+          cvAnalyses.extracted_skills ||
+          cvAnalyses.skills_extracted ||
+          cvAnalyses.skills ||
+          [];
+
+        if (Array.isArray(rawSkills)) {
+          rawSkills.forEach((s) => {
+            if (typeof s === 'string' && s.trim()) {
+              sources.push(s.trim().toLowerCase().replace(/\s+/g, '_'));
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[LearningRoadmap] Failed to fetch CV skills', e);
+    }
+
+    // Deduplicate
+    const unique = Array.from(new Set(sources)).filter(Boolean);
+    console.log('[LearningRoadmap] Combined user skills:', unique);
+    return unique;
   };
 
   const handleStartSkill = (skillIndex: number) => {
@@ -753,6 +842,14 @@ export default function LearningRoadmapScreen(): React.ReactElement {
               onPress={() => openResourceUrl(primaryCourse.url)}
             >
               <View style={styles.inlineResourceText}>
+                {/* 👇 Explicit skill linkage */}
+                <View style={styles.skillLinkageBadge}>
+                  <Ionicons name="link-outline" size={12} color="#22c55e" />
+                  <Text style={styles.skillLinkageText}>
+                    Best for: {item.skill.name}
+                  </Text>
+                </View>
+
                 <Text style={styles.inlineResourceProvider} numberOfLines={1}>
                   {primaryCourse.provider}
                 </Text>
@@ -776,61 +873,6 @@ export default function LearningRoadmapScreen(): React.ReactElement {
               </View>
               <Ionicons name="open-outline" size={18} color="#8158F8" />
             </Pressable>
-          )}
-
-          {/* Progress Bar (for in-progress) */}
-          {isInProgress && (
-            <View style={styles.progressSection}>
-              <View style={styles.progressMeta}>
-                <Text style={styles.progressLabel}>Current Progress</Text>
-                <Text style={styles.progressTime}>{Math.round(item.skill.duration_hours * (1 - progress / 100))}h left</Text>
-              </View>
-              <View style={styles.progressBar}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { width: `${progress}%`, backgroundColor: "#8158F8" },
-                  ]}
-                />
-              </View>
-            </View>
-          )}
-
-          {/* Courses/Prerequisites Section */}
-          {(item.courses?.length > 0 || item.dependencies?.length > 0) && (
-            <View style={styles.metaSection}>
-              <Text style={styles.metaTitle}>
-                {isCompleted
-                  ? 'Certifications'
-                  : isLocked && item.dependencies?.length
-                    ? 'Prerequisites'
-                    : 'Featured Courses'}
-              </Text>
-              <View style={styles.metaItems}>
-                {isCompleted
-                  ? item.courses?.slice(0, 2).map((course) => (
-                      <Text key={course.id} style={styles.metaTag}>
-                        {course.provider}
-                      </Text>
-                    ))
-                  : isLocked && item.dependencies?.length
-                    ? item.dependencies.slice(0, 2).map((dep) => (
-                        <Text key={dep.id} style={[styles.metaTag, styles.metaTagLocked]}>
-                          {dep.name}
-                        </Text>
-                      ))
-                    : item.courses?.slice(0, 2).map((course) => (
-                        <Text key={course.id} style={styles.metaTag}>
-                          {course.provider}
-                        </Text>
-                      ))}
-                {((isCompleted ? item.courses : isLocked ? item.dependencies : item.courses) || []).length > 2 && (
-                  <Text style={styles.metaTag}>
-                    +{(isCompleted ? item.courses : isLocked ? item.dependencies : item.courses)?.length - 2}
-                  </Text>
-                )}
-              </View>
-            </View>
           )}
 
           {/* Action Buttons */}
@@ -857,15 +899,6 @@ export default function LearningRoadmapScreen(): React.ReactElement {
       </View>
     );
   };
-
-  if (loading) {
-    return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#8158F8" />
-        <Text style={styles.loadingText}>Generating your learning roadmap...</Text>
-      </View>
-    );
-  }
 
   if (!roadmap && !loading) {
     return (
@@ -895,7 +928,7 @@ export default function LearningRoadmapScreen(): React.ReactElement {
               style={[styles.textInput, styles.skillsInput]}
               value={skillsInput}
               onChangeText={setSkillsInput}
-              placeholder="python, git"
+              placeholder="e.g., javascript, react, node.js"
               placeholderTextColor="#9CA3AF"
               autoCapitalize="none"
               autoCorrect={false}
@@ -962,6 +995,21 @@ export default function LearningRoadmapScreen(): React.ReactElement {
           <View style={styles.ghostLine} />
 
           {/* Skills Timeline */}
+          {roadmap?.skills.length > 0 && (
+            <View style={styles.timelineSummary}>
+              <View style={styles.timelineSummaryIcon}>
+                <Ionicons name="book-outline" size={20} color="#8158F8" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.timelineSummaryTitle}>Skill-by-Skill Learning Journey</Text>
+                <Text style={styles.timelineSummarySubtitle}>
+                  Each step pairs a specific skill with the best-matched course. Tap any step to see more.
+                </Text>
+              </View>
+            </View>
+          )
+}
+
           <View style={styles.skillsTimeline}>
             {roadmap?.skills.map((skill, index) => renderSkillCard(skill, index))}
           </View>
@@ -1291,6 +1339,37 @@ const styles = StyleSheet.create({
   skillsTimeline: {
     paddingLeft: 0,
   },
+  timelineSummary: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#ffffff',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e9d5ff',
+  },
+  timelineSummaryIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#f2e2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineSummaryTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#37274d',
+    marginBottom: 4,
+  },
+  timelineSummarySubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6B5B95',
+    lineHeight: 18,
+  },
   timelineItem: {
     flexDirection: 'row',
     marginBottom: 24,
@@ -1414,6 +1493,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#37274d',
     lineHeight: 17,
+  },
+  skillLinkageBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#dcfce7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    marginBottom: 6,
+  },
+  skillLinkageText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#166534',
   },
   resourceReason: {
     marginTop: 5,

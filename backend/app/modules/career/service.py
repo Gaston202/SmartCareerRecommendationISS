@@ -1,6 +1,5 @@
 import logging
 import re
-import urllib.parse
 from typing import List, Dict, Any, Optional, Tuple
 from app.core.database import DatabaseService
 from app.core.ai_orchestrator import AIOrchestratorService
@@ -83,49 +82,26 @@ class CareerService:
         return result.strip()
 
     async def fetch_duckduckgo_snippets(self, query: str) -> List[str]:
-        """Fetch search result snippets from DuckDuckGo."""
-        import httpx
-
-        # Use the correct DuckDuckGo HTML search URL and ensure query doesn't have duplicate q=
-        clean_query = query.strip()
-        if clean_query.startswith('q='):
-            clean_query = clean_query[2:]
-        
-        url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote_plus(clean_query)}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        }
-
+        """Fetch search result snippets from DuckDuckGo using ddgs."""
         try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                response = await client.get(url, headers=headers, timeout=30.0)
-                response.raise_for_status()
+            import asyncio
+            try:
+                from ddgs import DDGS
+            except ImportError:
+                from duckduckgo_search import DDGS
 
-            html = response.text
-            import re
-            snippets = []
+            def _search() -> List[str]:
+                snippets: List[str] = []
+                with DDGS() as ddgs:
+                    for result in ddgs.text(query, max_results=8):
+                        body = result.get("body", "") or ""
+                        body = self.decode_html_entities(body)
+                        if body and len(body) > 24:
+                            snippets.append(body)
+                return snippets
 
-            # Extract snippet text from result__snippet class
-            pattern = r'<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)</a>'
-            for match in re.finditer(pattern, html, re.IGNORECASE):
-                text = self.decode_html_entities(match.group(1) or '')
-                if text and len(text) > 24:
-                    snippets.append(text)
-                if len(snippets) >= 8:
-                    break
-
-            # Fallback pattern
-            if len(snippets) < 3:
-                pattern = r'<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)</div>'
-                for match in re.finditer(pattern, html, re.IGNORECASE):
-                    text = self.decode_html_entities(match.group(1) or '')
-                    if text and len(text) > 24:
-                        snippets.append(text)
-                    if len(snippets) >= 8:
-                        break
-
-            return list(dict.fromkeys(snippets))[:8]
+            results = await asyncio.to_thread(_search)
+            return list(dict.fromkeys(results))[:8]
         except Exception as e:
             logger.warning(f'DuckDuckGo search failed for "{query}": {e}')
             return []

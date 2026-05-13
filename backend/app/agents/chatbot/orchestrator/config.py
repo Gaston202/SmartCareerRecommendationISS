@@ -37,8 +37,8 @@ class OrchestratorConfig:
     """Configuration for the ChatbotOrchestrator."""
 
     max_steps: int = 10
-    per_node_timeout_s: float = 30.0
-    graph_timeout_s: float = 60.0
+    per_node_timeout_s: float = 60.0
+    graph_timeout_s: float = 90.0
     max_message_length: int = 1000
     max_messages_per_thread: int = 100
 
