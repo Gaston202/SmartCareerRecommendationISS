@@ -29,10 +29,10 @@ python-jobspy>=1.1.82
 beautifulsoup4>=4.12.0
 lxml>=5.3.0
 scrapling>=0.4.7
-ddgs>=2025.0.0
+ddgs>=9.14.2
 # NOTE (Windows + Python 3.14): pin to versions with wheels to avoid source builds.
 pandas==2.3.3
-numpy==2.4.3
+numpy==1.26.3
 
 # PDF processing
 pdfminer.six>=20221105

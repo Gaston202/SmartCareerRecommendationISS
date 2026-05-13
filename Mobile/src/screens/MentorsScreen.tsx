@@ -9,6 +9,9 @@ import {
   Image,
   Pressable,
   ActivityIndicator,
+  Modal,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -18,10 +21,20 @@ import { MentorWithSpecialties } from "../types/mentor";
 import { homeColors } from "./homeTheme";
 import { MainTopBar } from "../ui/MainTopBar";
 
+const RATING_OPTIONS: { label: string; value: number | null }[] = [
+  { label: "Any Rating", value: null },
+  { label: "3.0+ ⭐", value: 3.0 },
+  { label: "3.5+ ⭐", value: 3.5 },
+  { label: "4.0+ ⭐", value: 4.0 },
+  { label: "4.5+ ⭐", value: 4.5 },
+];
+
 export default function MentorsScreen(): React.ReactElement {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSpecialty, setSelectedSpecialty] = useState<string | null>(null);
   const [minRating, setMinRating] = useState<number | null>(null);
+  const [specialtyMenuVisible, setSpecialtyMenuVisible] = useState(false);
+  const [ratingMenuVisible, setRatingMenuVisible] = useState(false);
 
   const getMentorSpecialties = (mentor: MentorWithSpecialties): string[] => {
     const fromMentorSpecialties = mentor.mentor_specialties?.map((s) => s.specialty) ?? [];
@@ -133,68 +146,41 @@ export default function MentorsScreen(): React.ReactElement {
           <View style={styles.filtersRow}>
             {/* Specialty Filter */}
             <Pressable
-              style={styles.filterButton}
-              onPress={() => {
-                // Cycle: All -> first specialty -> ... -> last specialty -> All
-                if (specialtiesSet.length === 0) {
-                  setSelectedSpecialty(null);
-                  return;
-                }
-
-                if (!selectedSpecialty) {
-                  setSelectedSpecialty(specialtiesSet[0]);
-                  return;
-                }
-
-                const index = specialtiesSet.indexOf(selectedSpecialty);
-                if (index === -1 || index === specialtiesSet.length - 1) {
-                  setSelectedSpecialty(null);
-                } else {
-                  setSelectedSpecialty(specialtiesSet[index + 1]);
-                }
-              }}
+              style={[styles.filterButton, selectedSpecialty ? styles.filterButtonActive : null]}
+              onPress={() => setSpecialtyMenuVisible(true)}
             >
               <Ionicons
                 name="filter-circle-outline"
                 size={16}
-                color={homeColors.primary}
+                color={selectedSpecialty ? homeColors.onPrimary : homeColors.primary}
               />
-              <Text style={styles.filterButtonText}>
+              <Text style={[styles.filterButtonText, selectedSpecialty ? styles.filterButtonTextActive : null]}>
                 {selectedSpecialty || "Specialty"}
               </Text>
               <Ionicons
                 name="chevron-down"
                 size={14}
-                color={homeColors.textMuted}
+                color={selectedSpecialty ? homeColors.onPrimary : homeColors.textMuted}
               />
             </Pressable>
 
             {/* Rating Filter */}
             <Pressable
-              style={styles.filterButton}
-              onPress={() => {
-                // Toggle between no filter, 4.0+, 4.5+
-                if (minRating === null) {
-                  setMinRating(4.0);
-                } else if (minRating === 4.0) {
-                  setMinRating(4.5);
-                } else {
-                  setMinRating(null);
-                }
-              }}
+              style={[styles.filterButton, minRating !== null ? styles.filterButtonActive : null]}
+              onPress={() => setRatingMenuVisible(true)}
             >
               <Ionicons
                 name="star"
                 size={16}
-                color={homeColors.primary}
+                color={minRating !== null ? homeColors.onPrimary : homeColors.primary}
               />
-              <Text style={styles.filterButtonText}>
-                {minRating ? `${minRating}+` : "Rating"}
+              <Text style={[styles.filterButtonText, minRating !== null ? styles.filterButtonTextActive : null]}>
+                {minRating !== null ? `${minRating}+ Stars` : "Rating"}
               </Text>
               <Ionicons
                 name="chevron-down"
                 size={14}
-                color={homeColors.textMuted}
+                color={minRating !== null ? homeColors.onPrimary : homeColors.textMuted}
               />
             </Pressable>
           </View>
@@ -247,6 +233,77 @@ export default function MentorsScreen(): React.ReactElement {
           )}
         </View>
       </ScrollView>
+      {/* Specialty Dropdown Modal */}
+      <Modal
+        visible={specialtyMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSpecialtyMenuVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setSpecialtyMenuVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalSheet}>
+                <Text style={styles.modalTitle}>Filter by Specialty</Text>
+                <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                  {/* All option */}
+                  <TouchableOpacity
+                    style={[styles.modalOption, !selectedSpecialty && styles.modalOptionSelected]}
+                    onPress={() => { setSelectedSpecialty(null); setSpecialtyMenuVisible(false); }}
+                  >
+                    <Text style={[styles.modalOptionText, !selectedSpecialty && styles.modalOptionTextSelected]}>
+                      All Specialties
+                    </Text>
+                    {!selectedSpecialty && <Ionicons name="checkmark" size={16} color={homeColors.onPrimary} />}
+                  </TouchableOpacity>
+                  {specialtiesSet.map((specialty) => (
+                    <TouchableOpacity
+                      key={specialty}
+                      style={[styles.modalOption, selectedSpecialty === specialty && styles.modalOptionSelected]}
+                      onPress={() => { setSelectedSpecialty(specialty); setSpecialtyMenuVisible(false); }}
+                    >
+                      <Text style={[styles.modalOptionText, selectedSpecialty === specialty && styles.modalOptionTextSelected]}>
+                        {specialty}
+                      </Text>
+                      {selectedSpecialty === specialty && <Ionicons name="checkmark" size={16} color={homeColors.onPrimary} />}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Rating Dropdown Modal */}
+      <Modal
+        visible={ratingMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRatingMenuVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setRatingMenuVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalSheet}>
+                <Text style={styles.modalTitle}>Filter by Rating</Text>
+                {RATING_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={String(option.value)}
+                    style={[styles.modalOption, minRating === option.value && styles.modalOptionSelected]}
+                    onPress={() => { setMinRating(option.value); setRatingMenuVisible(false); }}
+                  >
+                    <Text style={[styles.modalOptionText, minRating === option.value && styles.modalOptionTextSelected]}>
+                      {option.label}
+                    </Text>
+                    {minRating === option.value && <Ionicons name="checkmark" size={16} color={homeColors.onPrimary} />}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -630,5 +687,68 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.8,
+  },
+
+  // Active filter button
+  filterButtonActive: {
+    backgroundColor: homeColors.primary,
+    borderColor: homeColors.primary,
+  },
+  filterButtonTextActive: {
+    color: homeColors.onPrimary,
+  },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalSheet: {
+    width: '100%',
+    backgroundColor: homeColors.cardBg,
+    borderRadius: 24,
+    padding: 20,
+    maxHeight: 420,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: homeColors.textDark,
+    marginBottom: 14,
+  },
+  modalScroll: {
+    maxHeight: 320,
+  },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    marginBottom: 6,
+    backgroundColor: homeColors.cardBg,
+    borderWidth: 1,
+    borderColor: homeColors.cardBorder,
+  },
+  modalOptionSelected: {
+    backgroundColor: homeColors.primary,
+    borderColor: homeColors.primary,
+  },
+  modalOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: homeColors.textDark,
+  },
+  modalOptionTextSelected: {
+    color: homeColors.onPrimary,
   },
 });

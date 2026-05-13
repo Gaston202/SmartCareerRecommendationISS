@@ -45,7 +45,7 @@ function pickRealHumanAvatar(seed: string): string {
   return REAL_HUMAN_AVATARS[index];
 }
 
-function normalizeMentorAvatar<T extends { id?: string; user_id?: string; name?: string; avatar?: string }>(mentor: T): T {
+export function normalizeMentorAvatar<T extends { id?: string; user_id?: string; name?: string; avatar?: string }>(mentor: T): T {
   const seed = mentor.id || mentor.user_id || mentor.name || 'mentor';
   if (!isGeneratedAvatar(mentor.avatar)) return mentor;
   return {
