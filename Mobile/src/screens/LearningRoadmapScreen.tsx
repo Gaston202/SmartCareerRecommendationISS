@@ -22,6 +22,7 @@ import {
 import { useAuth } from '../auth/AuthProvider';
 import { homeColors } from './homeTheme';
 import { supabase } from '../api/supabase';
+import { sendNotification } from '../api/notifications';
 import type {
   LearningCourse,
   LearningRoadmap,
@@ -678,6 +679,16 @@ export default function LearningRoadmapScreen(): React.ReactElement {
       });
       const generated = buildLearningRoadmapFromPlan(planned);
       setRoadmap(generated);
+      
+      if (state.user?.id) {
+        sendNotification(
+          state.user.id,
+          'Roadmap Ready',
+          `Your learning roadmap for ${targetRole} was successfully generated!`,
+          'roadmap',
+          `LearningRoadmap:${generated.career_id}:${targetRole}`
+        );
+      }
     } catch (error: any) {
       console.error('[LearningRoadmap] Generate failed', error);
       Alert.alert('Generation failed', error?.message ? String(error.message) : 'Unknown error');

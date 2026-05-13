@@ -26,6 +26,8 @@ import {
   ToastTitle,
   ToastDescription,
 } from "@gluestack-ui/themed";
+import { useAuth } from "../../auth/AuthProvider";
+import { sendNotification } from "../../api/notifications";
 import { useUserSkills, useUpdateSkills } from "./hooks";
 import { SkillEditModal } from "./SkillEditModal";
 import { SkillAddModal } from "./SkillAddModal";
@@ -35,6 +37,7 @@ export function SkillsReviewScreen() {
   const { data: skills = [], isLoading, error } = useUserSkills();
   const { mutate: updateSkills, isPending: isSaving } = useUpdateSkills();
   const toast = useToast();
+  const { state } = useAuth();
 
   // Local draft state
   const [draftSkills, setDraftSkills] = useState<DraftSkill[]>([]);
@@ -138,6 +141,16 @@ export function SkillsReviewScreen() {
             } catch (err) {
               console.warn("Notification error:", err);
             }
+          }
+
+          if (state.user?.id) {
+            sendNotification(
+              state.user.id,
+              "Skills Saved",
+              "Your CV skills have been verified and saved to your profile.",
+              "cv_analysis",
+              "CVAnalysis"
+            );
           }
 
           toast.show({

@@ -22,6 +22,7 @@ import { SkillsReviewScreen, CVAnalysisScreen } from '../features/cv';
 import { MentorDetailScreen } from '../screens/mentors/MentorDetailScreen';
 import { GroupChatsScreen } from '../screens/mentors/GroupChatsScreen';
 import { GroupChatScreen } from '../screens/mentors/GroupChatScreen';
+import { NotificationsScreen } from '../screens/NotificationsScreen';
 
 import { MentorHomeScreen } from '../screens/mentors/MentorHomeScreen';
 import { JobListingsScreen } from '../screens/mentors/JobListingsScreen';
@@ -466,6 +467,7 @@ export function RootNavigator(): React.ReactElement {
     <NavigationContainer>
       {isSignedIn ? (
         <RootStack.Navigator
+          id="RootStack"
           screenOptions={{
             headerShown: false,
           }}
@@ -477,6 +479,7 @@ export function RootNavigator(): React.ReactElement {
           )}
           <RootStack.Group screenOptions={{ presentation: 'modal' }}>
             <RootStack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
+            <RootStack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
           </RootStack.Group>
         </RootStack.Navigator>
       ) : (

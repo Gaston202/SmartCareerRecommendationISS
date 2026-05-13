@@ -2,8 +2,10 @@ import React from 'react';
 import { Pressable, StyleSheet, View, Text } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { homeColors } from '../screens/homeTheme';
 import { useAuth } from '../auth/AuthProvider';
+import { useNotifications } from '../features/notifications/hooks';
 import { AppLogo } from './AppLogo';
 
 type MainTopBarProps = {
@@ -23,6 +25,9 @@ function getInitials(name: string): string {
 
 export function MainTopBar({ onProfilePress, topPadding = 0 }: MainTopBarProps): React.ReactElement {
   const { state: authState } = useAuth();
+  const navigation = useNavigation<any>();
+  const { unreadCount } = useNotifications();
+  
   const name = authState.user?.fullName || authState.user?.email?.split('@')[0] || 'U';
   const initials = getInitials(name);
 
@@ -45,12 +50,16 @@ export function MainTopBar({ onProfilePress, topPadding = 0 }: MainTopBarProps):
       <View style={styles.actions}>
         <Pressable
           style={({ pressed }) => [styles.iconBtn, pressed && styles.btnPressed]}
-          onPress={() => {}}
+          onPress={() => navigation.navigate('Notifications')}
           accessibilityRole="button"
           accessibilityLabel="Notifications"
         >
           <Ionicons name="notifications-outline" size={21} color="rgba(255,255,255,0.9)" />
-          <View style={styles.notifDot} />
+          {unreadCount > 0 && (
+            <View style={styles.notifBadge}>
+              <Text style={styles.notifBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          )}
         </Pressable>
 
         <Pressable
@@ -116,16 +125,24 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     transform: [{ scale: 0.93 }],
   },
-  notifDot: {
+  notifBadge: {
     position: 'absolute',
-    top: 7,
-    right: 7,
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#FFA040',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: 'transparent',
+    borderColor: homeColors.primary,
+    paddingHorizontal: 4,
+  },
+  notifBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '800',
   },
   avatarWrap: {
     borderRadius: 11,
