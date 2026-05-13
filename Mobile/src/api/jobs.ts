@@ -13,6 +13,40 @@ function resolveJobApiBaseUrl(): string {
 
 const API_BASE_URL = resolveJobApiBaseUrl();
 
+export async function fetchRecommendedJobs(
+  skills: string[],
+  specialty: string,
+  location?: string,
+  resultsWanted: number = 15,
+): Promise<JobListing[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/jobs/recommend`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        skills,
+        specialty,
+        location: location || '',
+        results_wanted: resultsWanted,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data: JobListing[] = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching recommended jobs:', error);
+    throw error;
+  }
+}
+
 export async function fetchJobs(filters: JobFilters = {}): Promise<JobListing[]> {
   const { search, location, siteNames, jobType, isRemoteOnly, resultsWanted = 20, hoursOld = 168 } = filters;
 

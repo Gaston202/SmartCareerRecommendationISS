@@ -21,9 +21,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthProvider';
 import { homeColors } from '../homeTheme';
-import { useJobListings } from '../../features/jobs/hooks';
+import { useJobListings, useRecommendedJobs } from '../../features/jobs/hooks';
 import { JobFilters, JobListing, JobEnrichedDetails } from '../../types/job';
 import { fetchJobDetails, extractJobInfo } from '../../api/jobDetails';
+import { getLatestCvAnalysisFromBackend } from '../../features/cv/api-backend';
 import { AppLogo } from '../../ui/AppLogo';
 import { AppBrand } from '../../ui/AppBrand';
 
@@ -66,6 +67,41 @@ export function JobListingsScreen() {
   const { state } = useAuth();
   const insets = useSafeAreaInsets();
   const specialty = state.user?.mentorSpecialty || 'General';
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'all' | 'foryou'>('all');
+
+  // CV skills state for "For You" recommendations
+  const [cvSkills, setCvSkills] = useState<string[]>([]);
+  const [cvLoading, setCvLoading] = useState(false);
+
+  // Load CV skills on mount for "For You" tab
+  useEffect(() => {
+    (async () => {
+      try {
+        setCvLoading(true);
+        const analysis = await getLatestCvAnalysisFromBackend();
+        if (analysis?.extracted_skills?.length) {
+          const skills = (analysis.extracted_skills as any[])
+            .map((s) => (typeof s === 'string' ? s : s?.name || s?.title || ''))
+            .filter(Boolean);
+          setCvSkills(skills);
+        }
+      } catch {
+        // CV not yet uploaded — silently ignore
+      } finally {
+        setCvLoading(false);
+      }
+    })();
+  }, []);
+
+  // Recommended jobs based on CV skills
+  const {
+    jobs: recommendedJobs,
+    loading: recLoading,
+    error: recError,
+    refetch: refetchRecommended,
+  } = useRecommendedJobs(cvSkills, specialty);
 
   // Filter state - default to Indeed and LinkedIn only (most reliable)
   const [filters, setFilters] = useState<JobFilters>({
@@ -541,15 +577,58 @@ export function JobListingsScreen() {
         </Pressable>
       </View>
 
+      {/* Tab bar: All Jobs | For You */}
+      <View style={styles.tabBar}>
+        <Pressable
+          style={[styles.tabBtn, activeTab === 'all' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('all')}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === 'all' }}
+        >
+          <Ionicons
+            name="briefcase-outline"
+            size={14}
+            color={activeTab === 'all' ? homeColors.primary : homeColors.textMuted}
+          />
+          <Text style={[styles.tabBtnText, activeTab === 'all' && styles.tabBtnTextActive]}>
+            All Jobs
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabBtn, activeTab === 'foryou' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('foryou')}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === 'foryou' }}
+        >
+          <Ionicons
+            name="sparkles-outline"
+            size={14}
+            color={activeTab === 'foryou' ? homeColors.primary : homeColors.textMuted}
+          />
+          <Text style={[styles.tabBtnText, activeTab === 'foryou' && styles.tabBtnTextActive]}>
+            For You
+          </Text>
+          {cvSkills.length > 0 && (
+            <View style={styles.tabBadge}>
+              <Text style={styles.tabBadgeText}>{cvSkills.length}</Text>
+            </View>
+          )}
+        </Pressable>
+      </View>
+
       {/* Job List */}
       <FlatList
-        data={jobs}
+        data={activeTab === 'all' ? jobs : recommendedJobs}
         keyExtractor={(item) => item.id}
         renderItem={renderJobCard}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={refetch} colors={[homeColors.primary]} />
+          <RefreshControl
+            refreshing={activeTab === 'all' ? loading : recLoading}
+            onRefresh={activeTab === 'all' ? refetch : refetchRecommended}
+            colors={[homeColors.primary]}
+          />
         }
         // Performance optimizations
         initialNumToRender={5}
@@ -557,37 +636,104 @@ export function JobListingsScreen() {
         windowSize={10}
         removeClippedSubviews={true}
         ListEmptyComponent={
-          !error && loading && jobs.length === 0 ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={homeColors.primary} />
-              <Text style={styles.loadingText}>Searching jobs...</Text>
-              <Text style={styles.loadingSubtext}>This may take 10-30 seconds</Text>
+          activeTab === 'foryou' ? (
+            recLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={homeColors.primary} />
+                <Text style={styles.loadingText}>Finding jobs for you...</Text>
+                <Text style={styles.loadingSubtext}>This may take 10–30 seconds</Text>
+              </View>
+            ) : !recError && recommendedJobs.length === 0 && cvSkills.length > 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="briefcase-outline" size={64} color={homeColors.textMuted} />
+                <Text style={styles.emptyText}>No matches found</Text>
+                <Text style={styles.emptySubtext}>Try refreshing or updating your CV with more skills</Text>
+                <Pressable style={styles.emptyActionBtn} onPress={refetchRecommended} accessibilityRole="button">
+                  <Text style={styles.emptyActionBtnText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : null
+          ) : (
+            !error && loading && jobs.length === 0 ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={homeColors.primary} />
+                <Text style={styles.loadingText}>Searching jobs...</Text>
+                <Text style={styles.loadingSubtext}>This may take 10-30 seconds</Text>
+              </View>
+            ) : !error && !loading && jobs.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="briefcase-outline" size={64} color={homeColors.textMuted} />
+                <Text style={styles.emptyText}>No jobs found</Text>
+                <Text style={styles.emptySubtext}>Try adjusting your filters or search terms</Text>
+                <Pressable
+                  style={styles.emptyActionBtn}
+                  onPress={clearFilters}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear all filters"
+                >
+                  <Text style={styles.emptyActionBtnText}>Clear All Filters</Text>
+                </Pressable>
+              </View>
+            ) : null
+          )
+        }
+        ListHeaderComponent={
+          activeTab === 'foryou' ? (
+            <View>
+              {/* CV Skills banner */}
+              {cvLoading ? (
+                <View style={styles.cvBanner}>
+                  <ActivityIndicator size="small" color={homeColors.primary} />
+                  <Text style={styles.cvBannerSubtext}>Loading your CV skills...</Text>
+                </View>
+              ) : cvSkills.length > 0 ? (
+                <View style={styles.cvBanner}>
+                  <View style={styles.cvBannerHeader}>
+                    <Ionicons name="document-text-outline" size={18} color={homeColors.primary} />
+                    <Text style={styles.cvBannerTitle}>Based on your CV</Text>
+                  </View>
+                  <View style={styles.cvSkillsRow}>
+                    {cvSkills.slice(0, 10).map((skill, idx) => (
+                      <View key={idx} style={styles.cvSkillChip}>
+                        <Text style={styles.cvSkillChipText}>{skill}</Text>
+                      </View>
+                    ))}
+                    {cvSkills.length > 10 && (
+                      <View style={styles.cvSkillChip}>
+                        <Text style={styles.cvSkillChipText}>+{cvSkills.length - 10} more</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.noCvBanner}>
+                  <Ionicons name="cloud-upload-outline" size={36} color={homeColors.textMuted} />
+                  <Text style={styles.noCvTitle}>No CV uploaded yet</Text>
+                  <Text style={styles.noCvSubtext}>
+                    Upload your CV from your profile to get personalized job recommendations
+                  </Text>
+                </View>
+              )}
+              {recError && (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle-outline" size={48} color={homeColors.textMuted} />
+                  <Text style={styles.errorText}>Failed to load recommendations. Please try again.</Text>
+                  <Pressable style={styles.retryBtn} onPress={refetchRecommended} accessibilityRole="button">
+                    <Text style={styles.retryBtnText}>Retry</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
-          ) : !error && !loading && jobs.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="briefcase-outline" size={64} color={homeColors.textMuted} />
-              <Text style={styles.emptyText}>No jobs found</Text>
-              <Text style={styles.emptySubtext}>Try adjusting your filters or search terms</Text>
-              <Pressable
-                style={styles.emptyActionBtn}
-                onPress={clearFilters}
-                accessibilityRole="button"
-                accessibilityLabel="Clear all filters"
-              >
-                <Text style={styles.emptyActionBtnText}>Clear All Filters</Text>
+          ) : error ? (
+            <View style={styles.errorContainer}>
+              <Ionicons name="alert-circle-outline" size={48} color={homeColors.textMuted} />
+              <Text style={styles.errorText}>Failed to load jobs. Please try again.</Text>
+              <Pressable style={styles.retryBtn} onPress={refetch} accessibilityRole="button">
+                <Text style={styles.retryBtnText}>Retry</Text>
               </Pressable>
             </View>
           ) : null
         }
-        ListHeaderComponent={error ? (
-          <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle-outline" size={48} color={homeColors.textMuted} />
-            <Text style={styles.errorText}>Failed to load jobs. Please try again.</Text>
-            <Pressable style={styles.retryBtn} onPress={refetch} accessibilityRole="button">
-              <Text style={styles.retryBtnText}>Retry</Text>
-            </Pressable>
-          </View>
-        ) : null}
       />
 
       {/* Filter Modal */}
@@ -1292,5 +1438,115 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 14,
+  },
+
+  // Tab bar
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: homeColors.cardBg,
+    borderBottomWidth: 1,
+    borderBottomColor: homeColors.cardBorder,
+    paddingHorizontal: TOKENS.spacing.lg,
+    paddingVertical: TOKENS.spacing.xs,
+    gap: TOKENS.spacing.sm,
+  },
+  tabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: TOKENS.spacing.xs,
+    paddingVertical: TOKENS.spacing.sm,
+    paddingHorizontal: TOKENS.spacing.md,
+    borderRadius: TOKENS.radius.full,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  tabBtnActive: {
+    backgroundColor: homeColors.primary + '15',
+    borderColor: homeColors.primary + '40',
+  },
+  tabBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: homeColors.textMuted,
+  },
+  tabBtnTextActive: {
+    color: homeColors.primary,
+  },
+  tabBadge: {
+    backgroundColor: homeColors.primary,
+    borderRadius: TOKENS.radius.full,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  tabBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#fff',
+  },
+
+  // CV Skills banner (For You tab)
+  cvBanner: {
+    backgroundColor: homeColors.primary + '08',
+    borderRadius: TOKENS.radius.xl,
+    borderWidth: 1,
+    borderColor: homeColors.primary + '20',
+    padding: TOKENS.spacing.lg,
+    marginBottom: TOKENS.spacing.lg,
+    gap: TOKENS.spacing.md,
+  },
+  cvBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: TOKENS.spacing.sm,
+  },
+  cvBannerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: homeColors.primary,
+  },
+  cvBannerSubtext: {
+    fontSize: 13,
+    color: homeColors.textMuted,
+    marginLeft: TOKENS.spacing.sm,
+  },
+  cvSkillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: TOKENS.spacing.sm,
+  },
+  cvSkillChip: {
+    backgroundColor: homeColors.primary + '18',
+    borderWidth: 1,
+    borderColor: homeColors.primary + '35',
+    paddingHorizontal: TOKENS.spacing.sm,
+    paddingVertical: TOKENS.spacing.xs,
+    borderRadius: TOKENS.radius.full,
+  },
+  cvSkillChipText: {
+    fontSize: 12,
+    color: homeColors.primary,
+    fontWeight: '600',
+  },
+
+  // No CV uploaded state
+  noCvBanner: {
+    alignItems: 'center',
+    paddingVertical: TOKENS.spacing.xxl,
+    paddingHorizontal: TOKENS.spacing.xl,
+    gap: TOKENS.spacing.md,
+  },
+  noCvTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: homeColors.textDark,
+  },
+  noCvSubtext: {
+    fontSize: 14,
+    color: homeColors.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

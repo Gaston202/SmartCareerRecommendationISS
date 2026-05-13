@@ -28,6 +28,8 @@ import { useAuth } from "../auth/AuthProvider";
 import { getMyUserRow, updateMyUserRow } from "../api/profile";
 import { supabase } from "../api/supabase";
 import { useCvAnalysis } from "../features/cv";
+import { uploadCvToBackend } from "../features/cv/api-backend";
+import * as DocumentPicker from "expo-document-picker";
 
 // ✅ Option A (NO QR CODE): Uses Expo Print + Sharing
 // Make sure you installed:
@@ -908,6 +910,7 @@ export default function ProfileScreen() {
       .slice(0, 10);
   }, [cvAnalysis]);
   
+  const [cvUploading, setCvUploading] = useState(false);
   const [importedSkills, setImportedSkills] = useState(false);
   const [importedInterests, setImportedInterests] = useState(false);
   const progress = useMemo(() => completeness(watched), [watched]);
@@ -1106,6 +1109,35 @@ export default function ProfileScreen() {
         "Gallery picker not installed",
         "Install it with: npx expo install expo-image-picker"
       );
+    }
+  };
+
+  const handleUploadCv = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "application/pdf",
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const asset = result.assets[0];
+      setCvUploading(true);
+
+      await uploadCvToBackend({
+        uri: asset.uri,
+        name: asset.name ?? "cv.pdf",
+        mimeType: asset.mimeType ?? "application/pdf",
+      });
+
+      Alert.alert(
+        "CV uploaded ✅",
+        "Your CV is being analyzed. Skills will appear in your profile once processing is complete."
+      );
+    } catch (e: any) {
+      Alert.alert("Upload failed", e?.message ?? "Could not upload CV. Please try again.");
+    } finally {
+      setCvUploading(false);
     }
   };
 
@@ -1550,6 +1582,21 @@ export default function ProfileScreen() {
                   )}
                   <Text style={styles.quickActionText}>
                     {uploadingPhoto ? "Uploading…" : "Update Photo"}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.quickActionBtn, cvUploading && styles.quickActionBtnDisabled]}
+                  disabled={cvUploading}
+                  onPress={handleUploadCv}
+                >
+                  {cvUploading ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <Ionicons name="document-attach-outline" size={18} color={COLORS.primary} />
+                  )}
+                  <Text style={styles.quickActionText}>
+                    {cvUploading ? "Analyzing…" : "Upload CV"}
                   </Text>
                 </Pressable>
               </View>

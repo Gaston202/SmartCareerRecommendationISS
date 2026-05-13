@@ -491,3 +491,118 @@ async def extract_job_info(request: Request):
                 detail=f"LLM extraction failed and fallback also failed: {llm_error}, fallback: {fallback_error}",
             )
         raise HTTPException(status_code=500, detail=f"Regex fallback extraction failed: {fallback_error}")
+
+
+@router.post("/api/jobs/recommend")
+async def recommend_jobs_from_cv(request: Request):
+    """
+    Recommend jobs based on skills extracted from a mentor's CV analysis.
+
+    Expected JSON body:
+    {
+        "skills": ["Python", "Machine Learning", ...],
+        "specialty": "AI/ML",
+        "location": "San Francisco, CA",   (optional)
+        "results_wanted": 15               (optional, default 15, max 50)
+    }
+
+    Returns job listings ranked by skill overlap with the provided skills.
+    """
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+
+    skills: List[str] = body.get("skills", [])
+    specialty: str = body.get("specialty", "")
+    location: str = body.get("location", "")
+    results_wanted: int = min(int(body.get("results_wanted", 15)), 50)
+
+    if not skills and not specialty:
+        raise HTTPException(status_code=400, detail="At least one skill or specialty is required")
+
+    # Build a focused search query from specialty + top skills
+    top_skills = [s for s in skills[:3] if s]
+    search_parts: List[str] = []
+    if specialty:
+        search_parts.append(specialty)
+    for sk in top_skills[:2]:
+        if sk not in search_parts:
+            search_parts.append(sk)
+    search_term = " ".join(search_parts) if search_parts else "software engineer"
+
+    loop = asyncio.get_event_loop()
+
+    scrape_kwargs: Dict[str, Any] = {
+        "site_name": DEFAULT_SITES,
+        "search_term": search_term,
+        "results_wanted": results_wanted,
+        "hours_old": 168,
+    }
+    if location:
+        scrape_kwargs["location"] = location
+    if "indeed" in DEFAULT_SITES or "glassdoor" in DEFAULT_SITES:
+        scrape_kwargs["country_indeed"] = infer_country_indeed(location) or "USA"
+
+    try:
+        jobs_df = await loop.run_in_executor(
+            None,
+            lambda: scrape_jobs(**scrape_kwargs),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error scraping recommended jobs: {exc}")
+
+    if jobs_df.empty:
+        return JSONResponse(
+            content=[],
+            headers={"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
+        )
+
+    # Serialize DataFrame
+    try:
+        jobs_json = jobs_df.to_json(orient="records", date_format="iso", default_handler=str)
+        jobs_list: List[Dict[str, Any]] = json.loads(jobs_json)
+    except Exception:
+        jobs_list = []
+        for _, row in jobs_df.iterrows():
+            job_dict: Dict[str, Any] = {}
+            for col in jobs_df.columns:
+                val = row[col]
+                if pd.isna(val):
+                    job_dict[col] = None
+                elif isinstance(val, (float, np.floating)) and (math.isnan(val) or math.isinf(val)):
+                    job_dict[col] = None
+                elif hasattr(val, "isoformat"):
+                    try:
+                        job_dict[col] = val.isoformat()
+                    except Exception:
+                        job_dict[col] = str(val)
+                else:
+                    job_dict[col] = val
+            jobs_list.append(job_dict)
+
+    # Rank by skill overlap: count how many CV skills appear in each job's text
+    skills_lower = {s.lower() for s in skills if s}
+
+    def _skill_score(job: Dict[str, Any]) -> int:
+        text = " ".join(
+            filter(None, [job.get("title", ""), job.get("description", ""), str(job.get("skills", []))])
+        ).lower()
+        return sum(1 for skill in skills_lower if skill in text)
+
+    jobs_list.sort(key=_skill_score, reverse=True)
+
+    # Assign IDs
+    for idx, job in enumerate(jobs_list):
+        if not job.get("id"):
+            url = job.get("job_url", "")
+            job["id"] = (
+                str(hash(url + job.get("title", "") + job.get("company", "")))
+                if url
+                else f"rec_{idx}"
+            )
+
+    return JSONResponse(
+        content=jobs_list,
+        headers={"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
+    )

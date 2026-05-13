@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.config import settings
 from app.api.v1.router import api_router
+from app.modules.jobs.router import router as jobs_router
 from app.core.logging import setup_logging
 from app.core.middleware import (
     ExceptionHandler,
@@ -43,6 +44,9 @@ app.add_exception_handler(Exception, ExceptionHandler.general_exception_handler)
 
 # Include API routers (MVC structure via api/v1/router.py)
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+# Jobs router mounts directly at root (routes already include /api/ prefix)
+app.include_router(jobs_router)
 
 # Health check endpoint
 @app.get("/health")
