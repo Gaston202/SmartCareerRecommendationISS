@@ -493,6 +493,56 @@ async def extract_job_info(request: Request):
         raise HTTPException(status_code=500, detail=f"Regex fallback extraction failed: {fallback_error}")
 
 
+# Maps mentor specialties to concrete job-title search terms for better accuracy
+_SPECIALTY_TO_JOB_TITLE: Dict[str, str] = {
+    "ai/ml": "machine learning engineer",
+    "ai/machine learning": "machine learning engineer",
+    "artificial intelligence": "AI engineer",
+    "cybersecurity": "cybersecurity engineer",
+    "web development": "web developer",
+    "web dev": "web developer",
+    "mobile development": "mobile developer",
+    "mobile dev": "mobile developer",
+    "cloud architecture": "cloud architect",
+    "cloud": "cloud engineer",
+    "devops": "devops engineer",
+    "data science": "data scientist",
+    "data": "data engineer",
+    "full stack": "full stack developer",
+    "fullstack": "full stack developer",
+    "backend": "backend engineer",
+    "frontend": "frontend engineer",
+    "ml": "machine learning engineer",
+}
+
+
+def _specialty_to_title(specialty: str) -> str:
+    """Return a proper job-title search term for a given mentor specialty."""
+    return _SPECIALTY_TO_JOB_TITLE.get(specialty.lower().strip(), "")
+
+
+def _score_job(job: Dict[str, Any], skills_lower: set) -> float:
+    """
+    Return a relevance score (0–100) for a job against the given skill set.
+    Title matches are weighted 3× higher than description/skills matches.
+    """
+    if not skills_lower:
+        return 0.0
+
+    title = (job.get("title") or "").lower()
+    body = " ".join(filter(None, [
+        job.get("description") or "",
+        str(job.get("skills") or []),
+    ])).lower()
+
+    title_hits = sum(1 for sk in skills_lower if sk in title)
+    body_hits = sum(1 for sk in skills_lower if sk in body and sk not in title)
+
+    raw = title_hits * 3 + body_hits
+    max_raw = len(skills_lower) * 3
+    return round(min(raw / max_raw * 100, 100), 1) if max_raw > 0 else 0.0
+
+
 @router.post("/api/jobs/recommend")
 async def recommend_jobs_from_cv(request: Request):
     """
@@ -502,11 +552,14 @@ async def recommend_jobs_from_cv(request: Request):
     {
         "skills": ["Python", "Machine Learning", ...],
         "specialty": "AI/ML",
+        "career_suggestions": ["Machine Learning Engineer", "Data Scientist"],  (optional, from CV analysis)
         "location": "San Francisco, CA",   (optional)
         "results_wanted": 15               (optional, default 15, max 50)
     }
 
-    Returns job listings ranked by skill overlap with the provided skills.
+    Returns job listings ranked by a weighted skill-match score (title hits
+    count 3× more than description hits).  Jobs with 0% match are excluded.
+    Each job includes a `match_score` field (0–100).
     """
     try:
         body = await request.json()
@@ -515,21 +568,35 @@ async def recommend_jobs_from_cv(request: Request):
 
     skills: List[str] = body.get("skills", [])
     specialty: str = body.get("specialty", "")
+    career_suggestions: List[str] = body.get("career_suggestions", [])
     location: str = body.get("location", "")
     results_wanted: int = min(int(body.get("results_wanted", 15)), 50)
 
-    if not skills and not specialty:
-        raise HTTPException(status_code=400, detail="At least one skill or specialty is required")
+    if not skills and not specialty and not career_suggestions:
+        raise HTTPException(status_code=400, detail="At least one skill, specialty, or career suggestion is required")
 
-    # Build a focused search query from specialty + top skills
-    top_skills = [s for s in skills[:3] if s]
-    search_parts: List[str] = []
-    if specialty:
-        search_parts.append(specialty)
-    for sk in top_skills[:2]:
-        if sk not in search_parts:
-            search_parts.append(sk)
-    search_term = " ".join(search_parts) if search_parts else "software engineer"
+    # -------------------------------------------------------------------
+    # Build the best possible search term, in priority order:
+    #  1. First AI-suggested career title from the CV analysis
+    #  2. Specialty mapped to a concrete job title
+    #  3. Top technical skills joined as a phrase
+    # -------------------------------------------------------------------
+    search_term: str = ""
+
+    if career_suggestions:
+        search_term = career_suggestions[0].strip()
+
+    if not search_term and specialty:
+        search_term = _specialty_to_title(specialty)
+
+    if not search_term and skills:
+        # Take the first 2–3 most specific-sounding skills (longer names tend
+        # to be more technical and produce better results)
+        sorted_skills = sorted([s for s in skills if s], key=len, reverse=True)
+        search_term = " ".join(sorted_skills[:3])
+
+    if not search_term:
+        search_term = "software engineer"
 
     loop = asyncio.get_event_loop()
 
@@ -581,19 +648,26 @@ async def recommend_jobs_from_cv(request: Request):
                     job_dict[col] = val
             jobs_list.append(job_dict)
 
-    # Rank by skill overlap: count how many CV skills appear in each job's text
+    # -------------------------------------------------------------------
+    # Score, filter, and sort results
+    # -------------------------------------------------------------------
     skills_lower = {s.lower() for s in skills if s}
 
-    def _skill_score(job: Dict[str, Any]) -> int:
-        text = " ".join(
-            filter(None, [job.get("title", ""), job.get("description", ""), str(job.get("skills", []))])
-        ).lower()
-        return sum(1 for skill in skills_lower if skill in text)
+    scored: List[tuple] = []
+    for job in jobs_list:
+        score = _score_job(job, skills_lower)
+        scored.append((score, job))
 
-    jobs_list.sort(key=_skill_score, reverse=True)
+    # Drop jobs with no skill match at all (they are irrelevant noise)
+    if skills_lower:
+        scored = [(s, j) for s, j in scored if s > 0]
 
-    # Assign IDs
-    for idx, job in enumerate(jobs_list):
+    # Sort descending by match score
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Assign IDs and attach match_score
+    result: List[Dict[str, Any]] = []
+    for idx, (score, job) in enumerate(scored):
         if not job.get("id"):
             url = job.get("job_url", "")
             job["id"] = (
@@ -601,8 +675,10 @@ async def recommend_jobs_from_cv(request: Request):
                 if url
                 else f"rec_{idx}"
             )
+        job["match_score"] = score
+        result.append(job)
 
     return JSONResponse(
-        content=jobs_list,
+        content=result,
         headers={"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
     )

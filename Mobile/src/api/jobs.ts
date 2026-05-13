@@ -18,6 +18,7 @@ export async function fetchRecommendedJobs(
   specialty: string,
   location?: string,
   resultsWanted: number = 15,
+  careerSuggestions?: string[],
 ): Promise<JobListing[]> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/jobs/recommend`, {
@@ -31,6 +32,7 @@ export async function fetchRecommendedJobs(
         specialty,
         location: location || '',
         results_wanted: resultsWanted,
+        career_suggestions: careerSuggestions ?? [],
       }),
     });
 

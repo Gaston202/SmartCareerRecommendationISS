@@ -257,7 +257,7 @@ export function GroupChatsScreen() {
 
   const [selectedSpecialty, setSelectedSpecialty] = useState<string | undefined>();
   const [joiningId, setJoiningId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'joined'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'joined'>('joined');
 
   const { chats, loading, error, refetch } = useGroupChats(selectedSpecialty);
   const { joinedIds, loadingJoined, markJoined, markLeft } = useJoinedGroupChats(userId);

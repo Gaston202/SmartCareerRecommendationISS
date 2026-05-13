@@ -20,8 +20,10 @@ import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthProvider';
+import { useNavigation } from '@react-navigation/native';
 import { homeColors } from '../homeTheme';
 import { useJobListings, useRecommendedJobs } from '../../features/jobs/hooks';
+import { MainTopBar } from '../../ui/MainTopBar';
 import { JobFilters, JobListing, JobEnrichedDetails } from '../../types/job';
 import { fetchJobDetails, extractJobInfo } from '../../api/jobDetails';
 import { getLatestCvAnalysisFromBackend } from '../../features/cv/api-backend';
@@ -65,27 +67,41 @@ const TOKENS = {
 
 export function JobListingsScreen() {
   const { state } = useAuth();
+  const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const specialty = state.user?.mentorSpecialty || 'General';
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'all' | 'foryou'>('all');
 
-  // CV skills state for "For You" recommendations
+  // CV skills + career suggestions state for "For You" recommendations
   const [cvSkills, setCvSkills] = useState<string[]>([]);
+  const [cvCareerSuggestions, setCvCareerSuggestions] = useState<string[]>([]);
   const [cvLoading, setCvLoading] = useState(false);
 
-  // Load CV skills on mount for "For You" tab
+  // Load CV analysis on mount for "For You" tab
   useEffect(() => {
     (async () => {
       try {
         setCvLoading(true);
         const analysis = await getLatestCvAnalysisFromBackend();
-        if (analysis?.extracted_skills?.length) {
-          const skills = (analysis.extracted_skills as any[])
-            .map((s) => (typeof s === 'string' ? s : s?.name || s?.title || ''))
+        if (analysis) {
+          // Extract skills
+          const rawSkills = [
+            ...(analysis.extracted_skills ?? []),
+            ...(analysis.skills_extracted ?? []),
+            ...(analysis.skills ?? []),
+          ];
+          const skills = rawSkills
+            .map((s: any) => (typeof s === 'string' ? s : s?.name || s?.title || ''))
             .filter(Boolean);
-          setCvSkills(skills);
+          setCvSkills([...new Set(skills)] as string[]);
+
+          // Extract career suggestion titles (used as primary search terms)
+          const suggestions = (analysis.career_suggestions ?? [])
+            .map((s: any) => (typeof s === 'string' ? s : s?.title || ''))
+            .filter(Boolean);
+          setCvCareerSuggestions(suggestions as string[]);
         }
       } catch {
         // CV not yet uploaded — silently ignore
@@ -95,13 +111,13 @@ export function JobListingsScreen() {
     })();
   }, []);
 
-  // Recommended jobs based on CV skills
+  // Recommended jobs based on CV skills + AI career suggestions
   const {
     jobs: recommendedJobs,
     loading: recLoading,
     error: recError,
     refetch: refetchRecommended,
-  } = useRecommendedJobs(cvSkills, specialty);
+  } = useRecommendedJobs(cvSkills, specialty, undefined, cvCareerSuggestions);
 
   // Filter state - default to Indeed and LinkedIn only (most reliable)
   const [filters, setFilters] = useState<JobFilters>({
@@ -426,6 +442,38 @@ export function JobListingsScreen() {
           )}
         </View>
 
+        {/* Match score badge — only visible on the "For You" tab */}
+        {activeTab === 'foryou' && (item as any).match_score != null && (
+          <View style={[
+            styles.matchScoreBadge,
+            (item as any).match_score >= 60
+              ? styles.matchScoreHigh
+              : (item as any).match_score >= 30
+                ? styles.matchScoreMid
+                : styles.matchScoreLow,
+          ]}>
+            <Ionicons
+              name="analytics-outline"
+              size={12}
+              color={(item as any).match_score >= 60
+                ? homeColors.accentGreen
+                : (item as any).match_score >= 30
+                  ? homeColors.primary
+                  : homeColors.textMuted}
+            />
+            <Text style={[
+              styles.matchScoreText,
+              { color: (item as any).match_score >= 60
+                  ? homeColors.accentGreen
+                  : (item as any).match_score >= 30
+                    ? homeColors.primary
+                    : homeColors.textMuted },
+            ]}>
+              {Math.round((item as any).match_score)}% match
+            </Text>
+          </View>
+        )}
+
         {/* Optional: job board source */}
         {item.site && (
           <Text style={styles.sourceText}>Source: {SITE_LABELS[item.site] || item.site}</Text>
@@ -504,13 +552,17 @@ export function JobListingsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: homeColors.backgroundStart }]}>
-      {/* Header with Search */}
-      <View style={[styles.headerRow, { paddingTop: Math.max(insets.top, 20), backgroundColor: homeColors.cardBg }]}>
+      {/* Gradient top bar — consistent with all mentor screens */}
+      <MainTopBar
+        title="Job Listings"
+        onBack={() => navigation.goBack()}
+        onProfilePress={() => navigation.navigate('Profile')}
+        topPadding={insets.top}
+      />
+
+      {/* Search sub-header */}
+      <View style={[styles.headerRow, { backgroundColor: homeColors.cardBg }]}>
         <View style={styles.headerContent}>
-          <View style={styles.brandRow}>
-            <AppBrand width={120} height={26} />
-          </View>
-          <Text style={styles.headerTitle}>Job Listings</Text>
           <Text style={styles.headerSubtitle}>
             Opportunities for <Text style={{ fontWeight: '700', color: homeColors.primary }}>{specialty}</Text>
           </Text>
@@ -690,7 +742,11 @@ export function JobListingsScreen() {
                 <View style={styles.cvBanner}>
                   <View style={styles.cvBannerHeader}>
                     <Ionicons name="document-text-outline" size={18} color={homeColors.primary} />
-                    <Text style={styles.cvBannerTitle}>Based on your CV</Text>
+                    <Text style={styles.cvBannerTitle}>
+                      {cvCareerSuggestions.length > 0
+                        ? `Searching for: ${cvCareerSuggestions[0]}`
+                        : 'Based on your CV skills'}
+                    </Text>
                   </View>
                   <View style={styles.cvSkillsRow}>
                     {cvSkills.slice(0, 10).map((skill, idx) => (
@@ -1529,6 +1585,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: homeColors.primary,
     fontWeight: '600',
+  },
+
+  // Match score badge
+  matchScoreBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: TOKENS.spacing.xs,
+    alignSelf: 'flex-start',
+    paddingHorizontal: TOKENS.spacing.sm,
+    paddingVertical: 3,
+    borderRadius: TOKENS.radius.full,
+    borderWidth: 1,
+    marginBottom: TOKENS.spacing.sm,
+  },
+  matchScoreHigh: {
+    backgroundColor: homeColors.accentGreen + '12',
+    borderColor: homeColors.accentGreen + '40',
+  },
+  matchScoreMid: {
+    backgroundColor: homeColors.primary + '10',
+    borderColor: homeColors.primary + '30',
+  },
+  matchScoreLow: {
+    backgroundColor: homeColors.backgroundMuted,
+    borderColor: homeColors.cardBorder,
+  },
+  matchScoreText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 
   // No CV uploaded state

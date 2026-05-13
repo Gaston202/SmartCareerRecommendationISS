@@ -9,6 +9,12 @@ import { AppLogo } from './AppLogo';
 type MainTopBarProps = {
   onProfilePress: () => void;
   topPadding?: number;
+  /** If provided, replaces the brand with a back-chevron + title */
+  title?: string;
+  onBack?: () => void;
+  /** Extra action shown on the right (replaces notifications bell) */
+  rightIcon?: keyof typeof Ionicons.glyphMap;
+  onRightPress?: () => void;
 };
 
 function getInitials(name: string): string {
@@ -21,10 +27,19 @@ function getInitials(name: string): string {
   return result || '?';
 }
 
-export function MainTopBar({ onProfilePress, topPadding = 0 }: MainTopBarProps): React.ReactElement {
+export function MainTopBar({
+  onProfilePress,
+  topPadding = 0,
+  title,
+  onBack,
+  rightIcon,
+  onRightPress,
+}: MainTopBarProps): React.ReactElement {
   const { state: authState } = useAuth();
   const name = authState.user?.fullName || authState.user?.email?.split('@')[0] || 'U';
   const initials = getInitials(name);
+
+  const isSubScreen = !!title || !!onBack;
 
   return (
     <LinearGradient
@@ -33,25 +48,53 @@ export function MainTopBar({ onProfilePress, topPadding = 0 }: MainTopBarProps):
       end={{ x: 1, y: 0 }}
       style={[styles.bar, { paddingTop: topPadding }]}
     >
-      {/* Brand */}
-      <View style={styles.brand}>
-        <View style={styles.logoIconWrap}>
-          <AppLogo size={18} />
+      {/* Left: back button (sub-screens) or brand (home) */}
+      {isSubScreen ? (
+        <View style={styles.leftSection}>
+          {onBack && (
+            <Pressable
+              style={({ pressed }) => [styles.iconBtn, pressed && styles.btnPressed]}
+              onPress={onBack}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <Ionicons name="chevron-back" size={22} color="rgba(255,255,255,0.95)" />
+            </Pressable>
+          )}
+          {title ? (
+            <Text style={styles.titleText} numberOfLines={1}>{title}</Text>
+          ) : null}
         </View>
-        <Text style={styles.brandText}>MyPath</Text>
-      </View>
+      ) : (
+        <View style={styles.brand}>
+          <View style={styles.logoIconWrap}>
+            <AppLogo size={18} />
+          </View>
+          <Text style={styles.brandText}>MyPath</Text>
+        </View>
+      )}
 
       {/* Right actions */}
       <View style={styles.actions}>
-        <Pressable
-          style={({ pressed }) => [styles.iconBtn, pressed && styles.btnPressed]}
-          onPress={() => {}}
-          accessibilityRole="button"
-          accessibilityLabel="Notifications"
-        >
-          <Ionicons name="notifications-outline" size={21} color="rgba(255,255,255,0.9)" />
-          <View style={styles.notifDot} />
-        </Pressable>
+        {rightIcon ? (
+          <Pressable
+            style={({ pressed }) => [styles.iconBtn, pressed && styles.btnPressed]}
+            onPress={onRightPress ?? (() => {})}
+            accessibilityRole="button"
+          >
+            <Ionicons name={rightIcon} size={21} color="rgba(255,255,255,0.9)" />
+          </Pressable>
+        ) : !isSubScreen ? (
+          <Pressable
+            style={({ pressed }) => [styles.iconBtn, pressed && styles.btnPressed]}
+            onPress={() => {}}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+          >
+            <Ionicons name="notifications-outline" size={21} color="rgba(255,255,255,0.9)" />
+            <View style={styles.notifDot} />
+          </Pressable>
+        ) : null}
 
         <Pressable
           onPress={onProfilePress}
@@ -75,6 +118,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+
+  // Sub-screen left section (back + title)
+  leftSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+    marginRight: 8,
+  },
+  titleText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+    flexShrink: 1,
   },
 
   // Brand

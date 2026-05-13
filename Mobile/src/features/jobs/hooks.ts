@@ -32,19 +32,21 @@ export function useRecommendedJobs(
   skills: string[],
   specialty: string,
   location?: string,
+  careerSuggestions?: string[],
 ): UseRecommendedJobsResult {
   const [jobs, setJobs] = useState<JobListing[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
 
   const skillsKey = useMemo(() => [...skills].sort().join(','), [skills]);
+  const suggestionsKey = useMemo(() => (careerSuggestions ?? []).join(','), [careerSuggestions]);
 
   const loadJobs = useCallback(async () => {
-    if (!skills.length && !specialty) return;
+    if (!skills.length && !specialty && !careerSuggestions?.length) return;
     try {
       setLoading(true);
       setError(null);
-      const data = await fetchRecommendedJobs(skills, specialty, location);
+      const data = await fetchRecommendedJobs(skills, specialty, location, 15, careerSuggestions);
       setJobs(data);
     } catch (err) {
       setJobs([]);
@@ -52,7 +54,7 @@ export function useRecommendedJobs(
     } finally {
       setLoading(false);
     }
-  }, [skillsKey, specialty, location]);
+  }, [skillsKey, specialty, location, suggestionsKey]);
 
   useEffect(() => {
     loadJobs();
