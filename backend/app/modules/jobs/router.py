@@ -491,3 +491,194 @@ async def extract_job_info(request: Request):
                 detail=f"LLM extraction failed and fallback also failed: {llm_error}, fallback: {fallback_error}",
             )
         raise HTTPException(status_code=500, detail=f"Regex fallback extraction failed: {fallback_error}")
+
+
+# Maps mentor specialties to concrete job-title search terms for better accuracy
+_SPECIALTY_TO_JOB_TITLE: Dict[str, str] = {
+    "ai/ml": "machine learning engineer",
+    "ai/machine learning": "machine learning engineer",
+    "artificial intelligence": "AI engineer",
+    "cybersecurity": "cybersecurity engineer",
+    "web development": "web developer",
+    "web dev": "web developer",
+    "mobile development": "mobile developer",
+    "mobile dev": "mobile developer",
+    "cloud architecture": "cloud architect",
+    "cloud": "cloud engineer",
+    "devops": "devops engineer",
+    "data science": "data scientist",
+    "data": "data engineer",
+    "full stack": "full stack developer",
+    "fullstack": "full stack developer",
+    "backend": "backend engineer",
+    "frontend": "frontend engineer",
+    "ml": "machine learning engineer",
+}
+
+
+def _specialty_to_title(specialty: str) -> str:
+    """Return a proper job-title search term for a given mentor specialty."""
+    return _SPECIALTY_TO_JOB_TITLE.get(specialty.lower().strip(), "")
+
+
+def _score_job(job: Dict[str, Any], skills_lower: set) -> float:
+    """
+    Return a relevance score (0–100) for a job against the given skill set.
+    Title matches are weighted 3× higher than description/skills matches.
+    """
+    if not skills_lower:
+        return 0.0
+
+    title = (job.get("title") or "").lower()
+    body = " ".join(filter(None, [
+        job.get("description") or "",
+        str(job.get("skills") or []),
+    ])).lower()
+
+    title_hits = sum(1 for sk in skills_lower if sk in title)
+    body_hits = sum(1 for sk in skills_lower if sk in body and sk not in title)
+
+    raw = title_hits * 3 + body_hits
+    max_raw = len(skills_lower) * 3
+    return round(min(raw / max_raw * 100, 100), 1) if max_raw > 0 else 0.0
+
+
+@router.post("/api/jobs/recommend")
+async def recommend_jobs_from_cv(request: Request):
+    """
+    Recommend jobs based on skills extracted from a mentor's CV analysis.
+
+    Expected JSON body:
+    {
+        "skills": ["Python", "Machine Learning", ...],
+        "specialty": "AI/ML",
+        "career_suggestions": ["Machine Learning Engineer", "Data Scientist"],  (optional, from CV analysis)
+        "location": "San Francisco, CA",   (optional)
+        "results_wanted": 15               (optional, default 15, max 50)
+    }
+
+    Returns job listings ranked by a weighted skill-match score (title hits
+    count 3× more than description hits).  Jobs with 0% match are excluded.
+    Each job includes a `match_score` field (0–100).
+    """
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+
+    skills: List[str] = body.get("skills", [])
+    specialty: str = body.get("specialty", "")
+    career_suggestions: List[str] = body.get("career_suggestions", [])
+    location: str = body.get("location", "")
+    results_wanted: int = min(int(body.get("results_wanted", 15)), 50)
+
+    if not skills and not specialty and not career_suggestions:
+        raise HTTPException(status_code=400, detail="At least one skill, specialty, or career suggestion is required")
+
+    # -------------------------------------------------------------------
+    # Build the best possible search term, in priority order:
+    #  1. First AI-suggested career title from the CV analysis
+    #  2. Specialty mapped to a concrete job title
+    #  3. Top technical skills joined as a phrase
+    # -------------------------------------------------------------------
+    search_term: str = ""
+
+    if career_suggestions:
+        search_term = career_suggestions[0].strip()
+
+    if not search_term and specialty:
+        search_term = _specialty_to_title(specialty)
+
+    if not search_term and skills:
+        # Take the first 2–3 most specific-sounding skills (longer names tend
+        # to be more technical and produce better results)
+        sorted_skills = sorted([s for s in skills if s], key=len, reverse=True)
+        search_term = " ".join(sorted_skills[:3])
+
+    if not search_term:
+        search_term = "software engineer"
+
+    loop = asyncio.get_event_loop()
+
+    scrape_kwargs: Dict[str, Any] = {
+        "site_name": DEFAULT_SITES,
+        "search_term": search_term,
+        "results_wanted": results_wanted,
+        "hours_old": 168,
+    }
+    if location:
+        scrape_kwargs["location"] = location
+    if "indeed" in DEFAULT_SITES or "glassdoor" in DEFAULT_SITES:
+        scrape_kwargs["country_indeed"] = infer_country_indeed(location) or "USA"
+
+    try:
+        jobs_df = await loop.run_in_executor(
+            None,
+            lambda: scrape_jobs(**scrape_kwargs),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error scraping recommended jobs: {exc}")
+
+    if jobs_df.empty:
+        return JSONResponse(
+            content=[],
+            headers={"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
+        )
+
+    # Serialize DataFrame
+    try:
+        jobs_json = jobs_df.to_json(orient="records", date_format="iso", default_handler=str)
+        jobs_list: List[Dict[str, Any]] = json.loads(jobs_json)
+    except Exception:
+        jobs_list = []
+        for _, row in jobs_df.iterrows():
+            job_dict: Dict[str, Any] = {}
+            for col in jobs_df.columns:
+                val = row[col]
+                if pd.isna(val):
+                    job_dict[col] = None
+                elif isinstance(val, (float, np.floating)) and (math.isnan(val) or math.isinf(val)):
+                    job_dict[col] = None
+                elif hasattr(val, "isoformat"):
+                    try:
+                        job_dict[col] = val.isoformat()
+                    except Exception:
+                        job_dict[col] = str(val)
+                else:
+                    job_dict[col] = val
+            jobs_list.append(job_dict)
+
+    # -------------------------------------------------------------------
+    # Score, filter, and sort results
+    # -------------------------------------------------------------------
+    skills_lower = {s.lower() for s in skills if s}
+
+    scored: List[tuple] = []
+    for job in jobs_list:
+        score = _score_job(job, skills_lower)
+        scored.append((score, job))
+
+    # Drop jobs with no skill match at all (they are irrelevant noise)
+    if skills_lower:
+        scored = [(s, j) for s, j in scored if s > 0]
+
+    # Sort descending by match score
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Assign IDs and attach match_score
+    result: List[Dict[str, Any]] = []
+    for idx, (score, job) in enumerate(scored):
+        if not job.get("id"):
+            url = job.get("job_url", "")
+            job["id"] = (
+                str(hash(url + job.get("title", "") + job.get("company", "")))
+                if url
+                else f"rec_{idx}"
+            )
+        job["match_score"] = score
+        result.append(job)
+
+    return JSONResponse(
+        content=result,
+        headers={"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
+    )

@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     View,
     Text,
     ScrollView,
     TouchableOpacity,
+    TextInput,
     ActivityIndicator,
     RefreshControl,
     StyleSheet,
@@ -17,6 +18,7 @@ import { useGroupChats } from '../../features/mentors/hooks';
 import { GroupChat } from '../../types/mentor';
 import { homeColors } from '../homeTheme';
 import { useAuth } from '../../auth/AuthProvider';
+import { MainTopBar } from '../../ui/MainTopBar';
 
 type MentorsStackParamList = {
     MentorGroupChats: undefined;
@@ -30,10 +32,17 @@ export function MentorSpecialtyGroupChatsScreen() {
     const insets = useSafeAreaInsets();
     const { state } = useAuth();
 
-    // Mentor's explicit specialty
-    const specialty = state.user?.mentorSpecialty || 'General';
+    // Load all chats — specialty filtering happens via search below
+    const { chats, loading, error, refetch } = useGroupChats();
+    const [search, setSearch] = useState('');
 
-    const { chats, loading, error, refetch } = useGroupChats(specialty);
+    const filteredChats = search.trim()
+        ? chats.filter(chat =>
+            chat.mentor?.name?.toLowerCase().includes(search.toLowerCase()) ||
+            chat.title?.toLowerCase().includes(search.toLowerCase()) ||
+            chat.specialty?.toLowerCase().includes(search.toLowerCase())
+          )
+        : chats;
 
     const renderChatCard = (chat: GroupChat) => (
         <TouchableOpacity
@@ -99,17 +108,33 @@ export function MentorSpecialtyGroupChatsScreen() {
                 colors={[homeColors.backgroundStart, homeColors.backgroundEnd]}
                 style={StyleSheet.absoluteFill}
             />
+
+            {/* Consistent gradient top bar */}
+            <MainTopBar
+                title="Group Chats"
+                onProfilePress={() => navigation.navigate('Profile' as any)}
+                topPadding={insets.top}
+            />
+
+            {/* Search bar */}
+            <View style={styles.searchRow}>
+                <Ionicons name="search-outline" size={18} color={homeColors.textMuted} />
+                <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search by mentor name, title or specialty…"
+                    placeholderTextColor={homeColors.textMuted}
+                    value={search}
+                    onChangeText={setSearch}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    clearButtonMode="while-editing"
+                />
+            </View>
+
             <ScrollView
                 showsVerticalScrollIndicator={false}
                 refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} />}
             >
-                {/* Header */}
-                <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
-                    <Ionicons name="chatbubbles" size={32} color={homeColors.primary} />
-                    <Text style={styles.headerTitle}>{specialty} Chats</Text>
-                    <Text style={styles.headerSubtitle}>Engage with users learning about your field</Text>
-                </View>
-
                 {/* Chats List */}
                 <View style={styles.chatsList}>
                     {error && (
@@ -118,21 +143,23 @@ export function MentorSpecialtyGroupChatsScreen() {
                         </View>
                     )}
 
-                    {chats.length === 0 ? (
+                    {filteredChats.length === 0 ? (
                         <View style={styles.emptyContainer}>
+                            <Ionicons name="chatbubbles-outline" size={48} color={homeColors.textMuted} />
                             <Text style={styles.emptyTitle}>
-                                No group chats found for {specialty}.
+                                {search ? `No chats matching "${search}"` : 'No group chats available'}
                             </Text>
                             <Text style={styles.emptySubtitle}>
-                                Create one or check back later!
+                                {search ? 'Try a different search term.' : 'Check back later!'}
                             </Text>
                         </View>
                     ) : (
                         <>
                             <Text style={styles.chatsCount}>
-                                {chats.length} Chat{chats.length !== 1 ? 's' : ''} Available
+                                {filteredChats.length} Chat{filteredChats.length !== 1 ? 's' : ''}
+                                {search ? ` for "${search}"` : ' Available'}
                             </Text>
-                            {chats.map(renderChatCard)}
+                            {filteredChats.map(renderChatCard)}
                         </>
                     )}
                 </View>
@@ -150,24 +177,21 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    header: {
-        paddingHorizontal: 20,
-        paddingTop: 20,
-        paddingBottom: 16,
+    searchRow: {
+        flexDirection: 'row',
         alignItems: 'center',
+        backgroundColor: homeColors.cardBg,
+        borderBottomWidth: 1,
+        borderBottomColor: homeColors.cardBorder,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        gap: 10,
     },
-    headerTitle: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: homeColors.textDark,
-        marginTop: 8,
-        marginBottom: 4,
-        textAlign: 'center',
-    },
-    headerSubtitle: {
-        color: homeColors.textMuted,
+    searchInput: {
+        flex: 1,
         fontSize: 15,
-        textAlign: 'center',
+        color: homeColors.textDark,
+        paddingVertical: 6,
     },
     chatsList: {
         paddingHorizontal: 16,

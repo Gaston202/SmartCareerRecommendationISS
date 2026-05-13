@@ -1,5 +1,19 @@
+import { fetchBackend } from './backend';
 import { supabase } from './supabase';
-import { MentorAvailabilityRule, MentorSession, MentorReview, GroupChat, ChatMessage, MentorWithSpecialties, MentorFilters } from '../types/mentor';
+import {
+  MentorAvailabilityRule,
+  MentorSession,
+  MentorReview,
+  GroupChat,
+  ChatMessage,
+  MentorWithSpecialties,
+  MentorFilters,
+} from '../types/mentor';
+
+// ---------------------------------------------------------------------------
+// Avatar normalization — keeps generated/placeholder avatars replaced with
+// real human photos so the UI always looks polished.
+// ---------------------------------------------------------------------------
 
 const REAL_HUMAN_AVATARS = [
   'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&w=600&q=80',
@@ -48,38 +62,35 @@ function pickRealHumanAvatar(seed: string): string {
 export function normalizeMentorAvatar<T extends { id?: string; user_id?: string; name?: string; avatar?: string }>(mentor: T): T {
   const seed = mentor.id || mentor.user_id || mentor.name || 'mentor';
   if (!isGeneratedAvatar(mentor.avatar)) return mentor;
-  return {
-    ...mentor,
-    avatar: pickRealHumanAvatar(seed),
-  };
+  return { ...mentor, avatar: pickRealHumanAvatar(seed) };
 }
+
+// ---------------------------------------------------------------------------
+// Internal helper — wraps fetchBackend, throws on HTTP errors
+// ---------------------------------------------------------------------------
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetchBackend(path, init);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).detail || `HTTP ${res.status}: ${res.statusText}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ---------------------------------------------------------------------------
+// Mentors
+// ---------------------------------------------------------------------------
 
 export const fetchMentors = async (filters?: MentorFilters): Promise<MentorWithSpecialties[]> => {
   try {
-    let query = supabase
-      .from('mentors')
-      .select(`
-        *,
-        mentor_specialties (*)
-      `)
-      .eq('status', 'active');
-
-    if (filters?.specialty) {
-      query = query.contains('mentor_specialties', [{ specialty: filters.specialty }]);
-    }
-
-    if (filters?.minRating) {
-      query = query.gte('rating', filters.minRating);
-    }
-
-    if (filters?.isVerified) {
-      query = query.eq('is_verified', filters.isVerified);
-    }
-
-    const { data, error } = await query;
-
-    if (error) throw error;
-    return ((data as MentorWithSpecialties[]) || []).map(normalizeMentorAvatar);
+    const params = new URLSearchParams();
+    if (filters?.specialty) params.set('specialty', filters.specialty);
+    if (filters?.minRating != null) params.set('min_rating', String(filters.minRating));
+    if (filters?.isVerified != null) params.set('is_verified', String(filters.isVerified));
+    const qs = params.toString();
+    const data = await api<MentorWithSpecialties[]>(`/mentors${qs ? `?${qs}` : ''}`);
+    return (data || []).map(normalizeMentorAvatar);
   } catch (error) {
     console.error('Error fetching mentors:', error);
     throw error;
@@ -88,18 +99,8 @@ export const fetchMentors = async (filters?: MentorFilters): Promise<MentorWithS
 
 export const fetchMentorById = async (mentorId: string): Promise<MentorWithSpecialties> => {
   try {
-    const { data, error } = await supabase
-      .from('mentors')
-      .select(`
-        *,
-        mentor_specialties (*),
-        mentor_reviews (*)
-      `)
-      .eq('id', mentorId)
-      .single();
-
-    if (error) throw error;
-    return normalizeMentorAvatar(data as MentorWithSpecialties);
+    const data = await api<MentorWithSpecialties>(`/mentors/${mentorId}`);
+    return normalizeMentorAvatar(data);
   } catch (error) {
     console.error('Error fetching mentor:', error);
     throw error;
@@ -108,32 +109,25 @@ export const fetchMentorById = async (mentorId: string): Promise<MentorWithSpeci
 
 export const fetchMentorByUserId = async (userId: string): Promise<MentorWithSpecialties | null> => {
   try {
-    const { data, error } = await supabase
-      .from('mentors')
-      .select(`
-        *,
-        mentor_specialties (*),
-        mentor_reviews (*)
-      `)
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data ? normalizeMentorAvatar(data as MentorWithSpecialties) : null;
-  } catch (error) {
+    const data = await api<MentorWithSpecialties>(`/mentors/by-user/${userId}`);
+    return data ? normalizeMentorAvatar(data) : null;
+  } catch (error: any) {
+    if (error?.message?.includes('404') || error?.message?.includes('not found')) return null;
     console.error('Error fetching mentor by user_id:', error);
     return null;
   }
 };
 
-export const fetchUserProfile = async (userId: string): Promise<{ id: string; email?: string; name?: string; avatar?: string; bio?: string } | null> => {
+// fetchUserProfile stays on Supabase — no dedicated backend endpoint
+export const fetchUserProfile = async (
+  userId: string,
+): Promise<{ id: string; email?: string; name?: string; avatar?: string; bio?: string } | null> => {
   try {
     const { data, error } = await supabase
       .from('users')
       .select('id, email, name, avatar, bio')
       .eq('id', userId)
       .maybeSingle();
-
     if (error) {
       console.error('Error fetching user profile:', error);
       return null;
@@ -145,29 +139,17 @@ export const fetchUserProfile = async (userId: string): Promise<{ id: string; em
   }
 };
 
+// ---------------------------------------------------------------------------
+// Group chats
+// ---------------------------------------------------------------------------
+
 export const fetchGroupChats = async (specialty?: string): Promise<GroupChat[]> => {
   try {
-    let query = supabase
-      .from('group_chats')
-      .select(`
-        *,
-        mentors (*)
-      `);
-
-    if (specialty) {
-      query = query.eq('specialty', specialty);
-    }
-
-    const { data, error } = await query;
-
-    if (error) throw error;
-    return ((data as any[]) || []).map((chat) => {
-      if (chat?.mentor) {
-        return { ...chat, mentor: normalizeMentorAvatar(chat.mentor) } as GroupChat;
-      }
-      if (chat?.mentors) {
-        return { ...chat, mentor: normalizeMentorAvatar(chat.mentors) } as GroupChat;
-      }
+    const qs = specialty ? `?specialty=${encodeURIComponent(specialty)}` : '';
+    const data = await api<any[]>(`/mentors/group-chats${qs}`);
+    return (data || []).map((chat) => {
+      if (chat?.mentors) return { ...chat, mentor: normalizeMentorAvatar(chat.mentors) } as GroupChat;
+      if (chat?.mentor) return { ...chat, mentor: normalizeMentorAvatar(chat.mentor) } as GroupChat;
       return chat as GroupChat;
     });
   } catch (error) {
@@ -178,24 +160,10 @@ export const fetchGroupChats = async (specialty?: string): Promise<GroupChat[]> 
 
 export const fetchGroupChatById = async (chatId: string): Promise<GroupChat> => {
   try {
-    const { data, error } = await supabase
-      .from('group_chats')
-      .select(`
-        *,
-        mentors (*)
-      `)
-      .eq('id', chatId)
-      .single();
-
-    if (error) throw error;
-    const chat = data as any;
-    if (chat?.mentor) {
-      return { ...chat, mentor: normalizeMentorAvatar(chat.mentor) } as GroupChat;
-    }
-    if (chat?.mentors) {
-      return { ...chat, mentor: normalizeMentorAvatar(chat.mentors) } as GroupChat;
-    }
-    return data as GroupChat;
+    const chat = await api<any>(`/mentors/group-chats/${chatId}`);
+    if (chat?.mentors) return { ...chat, mentor: normalizeMentorAvatar(chat.mentors) } as GroupChat;
+    if (chat?.mentor) return { ...chat, mentor: normalizeMentorAvatar(chat.mentor) } as GroupChat;
+    return chat as GroupChat;
   } catch (error) {
     console.error('Error fetching group chat:', error);
     throw error;
@@ -205,18 +173,13 @@ export const fetchGroupChatById = async (chatId: string): Promise<GroupChat> => 
 export const fetchChatMessages = async (
   chatId: string,
   limit = 50,
-  offset = 0
+  offset = 0,
 ): Promise<ChatMessage[]> => {
   try {
-    const { data, error } = await supabase
-      .from('chat_messages')
-      .select('*')
-      .eq('group_chat_id', chatId)
-      .order('created_at', { ascending: true })
-      .range(offset, offset + limit - 1);
-
-    if (error) throw error;
-    return (data as ChatMessage[]) || [];
+    const data = await api<ChatMessage[]>(
+      `/mentors/group-chats/${chatId}/messages?limit=${limit}&offset=${offset}`,
+    );
+    return data || [];
   } catch (error) {
     console.error('Error fetching chat messages:', error);
     throw error;
@@ -228,25 +191,14 @@ export const sendChatMessage = async (
   senderId: string,
   senderName: string,
   senderAvatar: string | undefined,
-  message: string
+  message: string,
 ): Promise<ChatMessage> => {
   try {
-    const { data, error } = await supabase
-      .from('chat_messages')
-      .insert([
-        {
-          group_chat_id: chatId,
-          sender_id: senderId,
-          sender_name: senderName,
-          sender_avatar: senderAvatar,
-          message,
-        },
-      ])
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as ChatMessage;
+    return await api<ChatMessage>(`/mentors/group-chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender_id: senderId, sender_name: senderName, sender_avatar: senderAvatar, message }),
+    });
   } catch (error) {
     console.error('Error sending message:', error);
     throw error;
@@ -255,12 +207,12 @@ export const sendChatMessage = async (
 
 export const deleteMessage = async (messageId: string): Promise<void> => {
   try {
-    const { error } = await supabase
-      .from('chat_messages')
-      .delete()
-      .eq('id', messageId);
-
-    if (error) throw error;
+    // chat_id is required by the route but not used by the service — "_" is a safe placeholder
+    const res = await fetchBackend(`/mentors/group-chats/_/messages/${messageId}`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 204) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as any).detail || `HTTP ${res.status}`);
+    }
   } catch (error) {
     console.error('Error deleting message:', error);
     throw error;
@@ -269,32 +221,27 @@ export const deleteMessage = async (messageId: string): Promise<void> => {
 
 export const pinMessage = async (messageId: string, isPinned: boolean): Promise<void> => {
   try {
-    const { error } = await supabase
-      .from('chat_messages')
-      .update({ is_pinned: isPinned })
-      .eq('id', messageId);
-
-    if (error) throw error;
+    const res = await fetchBackend(`/mentors/group-chats/_/messages/${messageId}/pin`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_pinned: isPinned }),
+    });
+    if (!res.ok && res.status !== 204) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as any).detail || `HTTP ${res.status}`);
+    }
   } catch (error) {
     console.error('Error pinning message:', error);
     throw error;
   }
 };
 
-export const checkGroupChatMembership = async (
-  chatId: string,
-  userId: string
-): Promise<boolean> => {
+export const checkGroupChatMembership = async (chatId: string, userId: string): Promise<boolean> => {
   try {
-    const { data, error } = await supabase
-      .from('group_chat_members')
-      .select('id')
-      .eq('group_chat_id', chatId)
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (error) throw error;
-    return !!data;
+    const data = await api<{ is_member: boolean }>(
+      `/mentors/group-chats/${chatId}/membership?user_id=${encodeURIComponent(userId)}`,
+    );
+    return data?.is_member ?? false;
   } catch (error) {
     console.error('Error checking membership:', error);
     return false;
@@ -303,34 +250,24 @@ export const checkGroupChatMembership = async (
 
 export const fetchJoinedGroupChatIds = async (userId: string): Promise<string[]> => {
   try {
-    const { data, error } = await supabase
-      .from('group_chat_members')
-      .select('group_chat_id')
-      .eq('user_id', userId);
-
-    if (error) throw error;
-    return (data || []).map((row: any) => row.group_chat_id);
+    const data = await api<string[]>(`/mentors/group-chats/joined?user_id=${encodeURIComponent(userId)}`);
+    return data || [];
   } catch (error) {
     console.error('Error fetching joined chats:', error);
     return [];
   }
 };
 
-export const joinGroupChat = async (
-  chatId: string,
-  userId: string
-): Promise<void> => {
+export const joinGroupChat = async (chatId: string, userId: string): Promise<void> => {
   try {
-    const { error } = await supabase
-      .from('group_chat_members')
-      .insert([
-        {
-          group_chat_id: chatId,
-          user_id: userId,
-        },
-      ]);
-
-    if (error && error.code !== 'PGRST116') throw error;
+    const res = await fetchBackend(
+      `/mentors/group-chats/${chatId}/join?user_id=${encodeURIComponent(userId)}`,
+      { method: 'POST' },
+    );
+    if (!res.ok && res.status !== 204) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as any).detail || `HTTP ${res.status}`);
+    }
   } catch (error) {
     console.error('Error joining group chat:', error);
     throw error;
@@ -339,41 +276,36 @@ export const joinGroupChat = async (
 
 export const leaveGroupChat = async (chatId: string, userId: string): Promise<void> => {
   try {
-    const { error } = await supabase
-      .from('group_chat_members')
-      .delete()
-      .eq('group_chat_id', chatId)
-      .eq('user_id', userId);
-
-    if (error) throw error;
+    const res = await fetchBackend(
+      `/mentors/group-chats/${chatId}/leave?user_id=${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    );
+    if (!res.ok && res.status !== 204) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as any).detail || `HTTP ${res.status}`);
+    }
   } catch (error) {
     console.error('Error leaving group chat:', error);
     throw error;
   }
 };
 
+// ---------------------------------------------------------------------------
+// Reviews
+// ---------------------------------------------------------------------------
+
 export const submitMentorReview = async (
   mentorId: string,
   reviewerId: string,
   rating: number,
-  comment?: string
+  comment?: string,
 ): Promise<MentorReview> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_reviews')
-      .insert([
-        {
-          mentor_id: mentorId,
-          reviewer_id: reviewerId,
-          rating,
-          comment,
-        },
-      ])
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as MentorReview;
+    return await api<MentorReview>('/mentors/reviews', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mentor_id: mentorId, reviewer_id: reviewerId, rating, comment }),
+    });
   } catch (error) {
     console.error('Error submitting review:', error);
     throw error;
@@ -382,18 +314,17 @@ export const submitMentorReview = async (
 
 export const fetchMentorReviews = async (mentorId: string): Promise<MentorReview[]> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_reviews')
-      .select('*')
-      .eq('mentor_id', mentorId);
-
-    if (error) throw error;
-    return (data as MentorReview[]) || [];
+    const data = await api<MentorReview[]>(`/mentors/${mentorId}/reviews`);
+    return data || [];
   } catch (error) {
     console.error('Error fetching reviews:', error);
     throw error;
   }
 };
+
+// ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
 
 export const scheduleMentorSession = async (
   mentorId: string,
@@ -401,28 +332,21 @@ export const scheduleMentorSession = async (
   title: string,
   description: string | undefined,
   scheduledAt: string,
-  durationMinutes = 30
+  durationMinutes = 30,
 ): Promise<MentorSession> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_sessions')
-      .insert([
-        {
-          mentor_id: mentorId,
-          user_id: userId,
-          title,
-          description,
-          scheduled_at: scheduledAt,
-          duration_minutes: durationMinutes,
-          status: 'pending',
-          confirmation_status: 'pending',
-        },
-      ])
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as MentorSession;
+    return await api<MentorSession>('/mentors/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mentor_id: mentorId,
+        user_id: userId,
+        title,
+        description,
+        scheduled_at: scheduledAt,
+        duration_minutes: durationMinutes,
+      }),
+    });
   } catch (error) {
     console.error('Error scheduling session:', error);
     throw error;
@@ -431,14 +355,8 @@ export const scheduleMentorSession = async (
 
 export const fetchMentorSessions = async (userId: string): Promise<MentorSession[]> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_sessions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('scheduled_at', { ascending: true });
-
-    if (error) throw error;
-    return (data as MentorSession[]) || [];
+    const data = await api<MentorSession[]>(`/mentors/sessions/user?user_id=${encodeURIComponent(userId)}`);
+    return data || [];
   } catch (error) {
     console.error('Error fetching sessions:', error);
     throw error;
@@ -447,15 +365,8 @@ export const fetchMentorSessions = async (userId: string): Promise<MentorSession
 
 export const fetchMentorPendingSessions = async (mentorId: string): Promise<MentorSession[]> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_sessions')
-      .select('*')
-      .eq('mentor_id', mentorId)
-      .eq('confirmation_status', 'pending')
-      .order('scheduled_at', { ascending: true });
-
-    if (error) throw error;
-    return (data as MentorSession[]) || [];
+    const data = await api<MentorSession[]>(`/mentors/${mentorId}/sessions/pending`);
+    return data || [];
   } catch (error) {
     console.error('Error fetching pending sessions:', error);
     throw error;
@@ -464,14 +375,8 @@ export const fetchMentorPendingSessions = async (mentorId: string): Promise<Ment
 
 export const fetchMentorAllSessions = async (mentorId: string): Promise<MentorSession[]> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_sessions')
-      .select('*')
-      .eq('mentor_id', mentorId)
-      .order('scheduled_at', { ascending: true });
-
-    if (error) throw error;
-    return (data as MentorSession[]) || [];
+    const data = await api<MentorSession[]>(`/mentors/${mentorId}/sessions`);
+    return data || [];
   } catch (error) {
     console.error('Error fetching all mentor sessions:', error);
     throw error;
@@ -480,15 +385,7 @@ export const fetchMentorAllSessions = async (mentorId: string): Promise<MentorSe
 
 export const confirmMentorSession = async (sessionId: string): Promise<MentorSession> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_sessions')
-      .update({ confirmation_status: 'confirmed', status: 'scheduled' })
-      .eq('id', sessionId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as MentorSession;
+    return await api<MentorSession>(`/mentors/sessions/${sessionId}/confirm`, { method: 'PATCH' });
   } catch (error) {
     console.error('Error confirming session:', error);
     throw error;
@@ -497,15 +394,7 @@ export const confirmMentorSession = async (sessionId: string): Promise<MentorSes
 
 export const rejectMentorSession = async (sessionId: string): Promise<MentorSession> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_sessions')
-      .update({ confirmation_status: 'rejected', status: 'cancelled' })
-      .eq('id', sessionId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as MentorSession;
+    return await api<MentorSession>(`/mentors/sessions/${sessionId}/reject`, { method: 'PATCH' });
   } catch (error) {
     console.error('Error rejecting session:', error);
     throw error;
@@ -514,15 +403,7 @@ export const rejectMentorSession = async (sessionId: string): Promise<MentorSess
 
 export const cancelMentorSession = async (sessionId: string): Promise<MentorSession> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_sessions')
-      .update({ status: 'cancelled', confirmation_status: 'rejected' })
-      .eq('id', sessionId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as MentorSession;
+    return await api<MentorSession>(`/mentors/sessions/${sessionId}/cancel`, { method: 'PATCH' });
   } catch (error) {
     console.error('Error cancelling session:', error);
     throw error;
@@ -531,15 +412,7 @@ export const cancelMentorSession = async (sessionId: string): Promise<MentorSess
 
 export const completeMentorSession = async (sessionId: string): Promise<MentorSession> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_sessions')
-      .update({ status: 'completed' })
-      .eq('id', sessionId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as MentorSession;
+    return await api<MentorSession>(`/mentors/sessions/${sessionId}/complete`, { method: 'PATCH' });
   } catch (error) {
     console.error('Error completing session:', error);
     throw error;
@@ -548,32 +421,21 @@ export const completeMentorSession = async (sessionId: string): Promise<MentorSe
 
 export const markNoShowSession = async (sessionId: string): Promise<MentorSession> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_sessions')
-      .update({ status: 'no-show' })
-      .eq('id', sessionId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as MentorSession;
+    return await api<MentorSession>(`/mentors/sessions/${sessionId}/no-show`, { method: 'PATCH' });
   } catch (error) {
     console.error('Error marking no-show session:', error);
     throw error;
   }
 };
 
+// ---------------------------------------------------------------------------
+// Availability
+// ---------------------------------------------------------------------------
+
 export const fetchMentorAvailability = async (mentorId: string): Promise<MentorAvailabilityRule[]> => {
   try {
-    const { data, error } = await supabase
-      .from('mentor_availability_rules')
-      .select('*')
-      .eq('mentor_id', mentorId)
-      .order('day_of_week', { ascending: true })
-      .order('start_time', { ascending: true });
-
-    if (error) throw error;
-    return (data as MentorAvailabilityRule[]) || [];
+    const data = await api<MentorAvailabilityRule[]>(`/mentors/${mentorId}/availability`);
+    return data || [];
   } catch (error) {
     console.error('Error fetching availability:', error);
     throw error;
@@ -582,17 +444,17 @@ export const fetchMentorAvailability = async (mentorId: string): Promise<MentorA
 
 export const saveMentorAvailability = async (
   mentorId: string,
-  rules: Omit<MentorAvailabilityRule, 'id' | 'mentor_id' | 'created_at'>[]
+  rules: Omit<MentorAvailabilityRule, 'id' | 'mentor_id' | 'created_at'>[],
 ): Promise<void> => {
   try {
-    await supabase.from('mentor_availability_rules').delete().eq('mentor_id', mentorId);
-
-    if (rules.length > 0) {
-      const { error } = await supabase
-        .from('mentor_availability_rules')
-        .insert(rules.map((r) => ({ ...r, mentor_id: mentorId })));
-
-      if (error) throw error;
+    const res = await fetchBackend(`/mentors/${mentorId}/availability`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules }),
+    });
+    if (!res.ok && res.status !== 204) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as any).detail || `HTTP ${res.status}`);
     }
   } catch (error) {
     console.error('Error saving availability:', error);
@@ -602,80 +464,18 @@ export const saveMentorAvailability = async (
 
 export const fetchAvailableSlots = async (
   mentorId: string,
-  targetDate: string
+  targetDate: string,
 ): Promise<{ date: string; startTime: string; endTime: string }[]> => {
   try {
-    const slotDuration = 30;
-    const day = new Date(targetDate).getDay();
-
-    const { data: rules, error: rulesError } = await supabase
-      .from('mentor_availability_rules')
-      .select('*')
-      .eq('mentor_id', mentorId)
-      .eq('day_of_week', day);
-
-    if (rulesError) throw rulesError;
-    if (!rules || rules.length === 0) return [];
-
-    const dayStart = new Date(targetDate);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(targetDate);
-    dayEnd.setHours(23, 59, 59, 999);
-
-    const { data: sessions, error: sessionsError } = await supabase
-      .from('mentor_sessions')
-      .select('scheduled_at, duration_minutes, confirmation_status')
-      .eq('mentor_id', mentorId)
-      .gte('scheduled_at', dayStart.toISOString())
-      .lte('scheduled_at', dayEnd.toISOString());
-
-    if (sessionsError) throw sessionsError;
-
-    const bookedSlots = new Set<string>();
-
-    if (sessions && sessions.length > 0) {
-      for (const session of sessions) {
-        if (session.scheduled_at && session.confirmation_status !== 'rejected') {
-          const sessionStart = new Date(session.scheduled_at);
-          const sessionEnd = new Date(sessionStart.getTime() + (session.duration_minutes ?? 30) * 60000);
-          const slotStart = new Date(sessionStart);
-          while (slotStart < sessionEnd) {
-            bookedSlots.add(slotStart.toISOString());
-            slotStart.setMinutes(slotStart.getMinutes() + slotDuration);
-          }
-        }
-      }
-    }
-
-    const availableSlots: { date: string; startTime: string; endTime: string }[] = [];
-
-    for (const rule of rules) {
-      const [startHour, startMinute] = rule.start_time.split(':').map(Number);
-      const [endHour, endMinute] = rule.end_time.split(':').map(Number);
-
-      const targetYear = dayStart.getFullYear();
-      const targetMonth = dayStart.getMonth();
-      const targetDay = dayStart.getDate();
-
-      let currentTime = new Date(targetYear, targetMonth, targetDay, startHour, startMinute);
-      const endTime = new Date(targetYear, targetMonth, targetDay, endHour, endMinute);
-
-      while (currentTime < endTime) {
-        if (!bookedSlots.has(currentTime.toISOString())) {
-          const slotEnd = new Date(currentTime.getTime() + slotDuration * 60000);
-          if (slotEnd <= endTime) {
-            availableSlots.push({
-              date: targetDate,
-              startTime: currentTime.toTimeString().slice(0, 5),
-              endTime: slotEnd.toTimeString().slice(0, 5),
-            });
-          }
-        }
-        currentTime.setMinutes(currentTime.getMinutes() + slotDuration);
-      }
-    }
-
-    return availableSlots;
+    const data = await api<{ date: string; start_time: string; end_time: string }[]>(
+      `/mentors/${mentorId}/availability/slots?date=${encodeURIComponent(targetDate)}`,
+    );
+    // Map snake_case from backend to camelCase expected by the frontend
+    return (data || []).map((slot) => ({
+      date: slot.date,
+      startTime: slot.start_time,
+      endTime: slot.end_time,
+    }));
   } catch (error) {
     console.error('Error fetching available slots:', error);
     throw error;

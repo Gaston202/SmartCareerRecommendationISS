@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -7,6 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthProvider';
 import { homeColors } from '../homeTheme';
 import { MainTopBar } from '../../ui/MainTopBar';
+import { useMentorByUserId, useMentorSessionManagement } from '../../features/mentors/hooks';
+import { uploadCvToBackend } from '../../features/cv/api-backend';
+import * as DocumentPicker from 'expo-document-picker';
 
 export function MentorHomeScreen() {
     const { state } = useAuth();
@@ -15,6 +18,42 @@ export function MentorHomeScreen() {
     const rawName = state.user?.fullName || state.user?.email?.split('@')[0] || 'Mentor';
     const userName = (rawName.split(/[\s.]/)[0] ?? 'Mentor').replace(/^\w/, (c: string) => c.toUpperCase());
     const specialty = state.user?.mentorSpecialty || 'General';
+
+    // Load real mentor profile data for stats
+    const { mentor } = useMentorByUserId(state.user?.id || '');
+    const mentorId = mentor?.id || '';
+    const { sessions } = useMentorSessionManagement(mentorId);
+
+    const avgRating = mentor?.rating != null ? Number(mentor.rating).toFixed(1) : '—';
+    const studentsHelped = sessions.filter(s => s.status === 'completed').length;
+    const totalReviews = mentor?.total_reviews ?? 0;
+
+    const [cvUploading, setCvUploading] = useState(false);
+
+    const handleUploadCv = async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: 'application/pdf',
+                copyToCacheDirectory: true,
+            });
+            if (result.canceled || !result.assets?.[0]) return;
+            const asset = result.assets[0];
+            setCvUploading(true);
+            await uploadCvToBackend({
+                uri: asset.uri,
+                name: asset.name ?? 'cv.pdf',
+                mimeType: asset.mimeType ?? 'application/pdf',
+            });
+            Alert.alert(
+                'CV uploaded ✅',
+                'Your CV is being analyzed. Job recommendations in the "For You" tab will update shortly.',
+            );
+        } catch (e: any) {
+            Alert.alert('Upload failed', e?.message ?? 'Could not upload CV. Please try again.');
+        } finally {
+            setCvUploading(false);
+        }
+    };
 
     const goToGroupChats = () => navigation.navigate('MentorGroupChats');
     const goToSessions = () => navigation.navigate('MentorSessions');
@@ -124,6 +163,38 @@ export function MentorHomeScreen() {
                             </Text>
                         </View>
                     </Pressable>
+
+                    {/* CV Upload card */}
+                    <Pressable
+                        style={({ pressed }) => [
+                            styles.actionCardSmall,
+                            cvUploading && { opacity: 0.7 },
+                            pressed && !cvUploading && { opacity: 0.9 },
+                        ]}
+                        onPress={handleUploadCv}
+                        disabled={cvUploading}
+                    >
+                        <View style={styles.actionCardSmallContent}>
+                            <View style={[styles.actionCardIcon, { backgroundColor: homeColors.primary + '15' }]}>
+                                {cvUploading ? (
+                                    <ActivityIndicator size="small" color={homeColors.primary} />
+                                ) : (
+                                    <Ionicons name="document-attach-outline" size={24} color={homeColors.primary} />
+                                )}
+                            </View>
+                            <Text style={styles.actionCardSmallTitle}>
+                                {cvUploading ? 'Analyzing CV…' : 'Upload Your CV'}
+                            </Text>
+                            <Text style={styles.actionCardSmallDescription}>
+                                Upload your CV to unlock personalized job recommendations in the For You tab.
+                            </Text>
+                        </View>
+                        <View style={[styles.actionCardSmallButton, { backgroundColor: homeColors.primary + '15' }]}>
+                            <Text style={styles.actionCardSmallButtonText}>
+                                {cvUploading ? 'Processing…' : 'Upload PDF'}
+                            </Text>
+                        </View>
+                    </Pressable>
                 </View>
 
                 {/* Stats section */}
@@ -131,16 +202,16 @@ export function MentorHomeScreen() {
                     <Text style={styles.sectionTitle}>Your Impact</Text>
                     <View style={styles.statsRow}>
                         <View style={styles.statBox}>
-                            <Text style={styles.statValue}>12</Text>
-                            <Text style={styles.statLabel}>Active Chats</Text>
+                            <Text style={styles.statValue}>{totalReviews}</Text>
+                            <Text style={styles.statLabel}>Reviews</Text>
                         </View>
                         <View style={styles.statBox}>
-                            <Text style={styles.statValue}>4.9</Text>
+                            <Text style={styles.statValue}>{avgRating}</Text>
                             <Text style={styles.statLabel}>Avg Rating</Text>
                         </View>
                         <View style={styles.statBox}>
-                            <Text style={styles.statValue}>82</Text>
-                            <Text style={styles.statLabel}>Students Helped</Text>
+                            <Text style={styles.statValue}>{studentsHelped}</Text>
+                            <Text style={styles.statLabel}>Sessions Done</Text>
                         </View>
                     </View>
                 </View>

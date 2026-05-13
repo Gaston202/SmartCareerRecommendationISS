@@ -16,11 +16,10 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGroupChats } from '../../features/mentors/hooks';
-import { joinGroupChat, leaveGroupChat } from '../../api/mentor';
+import { joinGroupChat, leaveGroupChat, fetchJoinedGroupChatIds } from '../../api/mentor';
 import { GroupChat } from '../../types/mentor';
 import { homeColors } from '../homeTheme';
 import { useAuth } from '../../auth/AuthProvider';
-import { supabase } from '../../api/supabase';
 import { MainTopBar } from '../../ui/MainTopBar';
 
 type MentorsStackParamList = {
@@ -60,7 +59,7 @@ const DESIGN_COLORS = {
 
 const specialties = Object.keys(SPECIALTY_ICONS);
 
-// Fetches joined chat IDs from Supabase and keeps them in sync
+// Fetches joined chat IDs via the backend (service role — bypasses RLS)
 function useJoinedGroupChats(userId?: string) {
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
   const [loadingJoined, setLoadingJoined] = useState(false);
@@ -74,13 +73,7 @@ function useJoinedGroupChats(userId?: string) {
     const fetchJoined = async () => {
       setLoadingJoined(true);
       try {
-        const { data, error } = await supabase
-          .from('group_chat_members')
-          .select('group_chat_id')
-          .eq('user_id', userId);
-
-        if (error) throw error;
-        const ids = (data || []).map((row: any) => row.group_chat_id as string);
+        const ids = await fetchJoinedGroupChatIds(userId);
         setJoinedIds(new Set(ids));
       } catch (e) {
         console.warn('Failed to fetch joined chats:', e);
@@ -257,10 +250,17 @@ export function GroupChatsScreen() {
 
   const [selectedSpecialty, setSelectedSpecialty] = useState<string | undefined>();
   const [joiningId, setJoiningId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'joined'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'joined'>('joined');
 
   const { chats, loading, error, refetch } = useGroupChats(selectedSpecialty);
   const { joinedIds, loadingJoined, markJoined, markLeft } = useJoinedGroupChats(userId);
+
+  // Auto-switch to "All Chats" if the user has not joined any chat yet
+  useEffect(() => {
+    if (!loadingJoined && joinedIds.size === 0) {
+      setActiveTab('all');
+    }
+  }, [loadingJoined, joinedIds.size]);
 
   const animatePress = () => {
     Animated.sequence([
