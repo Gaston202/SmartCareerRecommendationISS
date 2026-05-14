@@ -20,6 +20,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGroupChat, useChatMessages } from '../../features/mentors/hooks';
 import { useAuth } from '../../auth/AuthProvider';
+import { supabase } from '../../api/supabase';
+import { normalizeMentorAvatar } from '../../api/mentor';
 import { homeColors } from '../homeTheme';
 import type { ChatMessage } from '../../types/mentor';
 import { AppLogo } from '../../ui/AppLogo';
@@ -52,6 +54,64 @@ export function GroupChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const sendButtonScale = useRef(new Animated.Value(1)).current;
 
+  // ── Live avatar + role resolution ─────────────────────────────────────────
+  const [liveAvatars, setLiveAvatars] = useState<Record<string, string | null>>({});
+  const [senderRoles, setSenderRoles] = useState<Record<string, string>>({});
+  const fetchedIdsRef = useRef<Set<string>>(new Set());
+
+  const senderKey = messages.length
+    ? [...new Set((messages as any[]).map((m) => m.sender_id as string))].sort().join(',')
+    : '';
+
+  useEffect(() => {
+    if (!senderKey) return;
+
+    const allIds = senderKey.split(',');
+    const missing = allIds.filter((id) => !fetchedIdsRef.current.has(id));
+    if (!missing.length) return;
+
+    missing.forEach((id) => fetchedIdsRef.current.add(id));
+
+    Promise.all([
+      supabase.from('users').select('id, avatar, role').in('id', missing),
+      supabase.from('mentors').select('id, user_id, name, avatar').in('user_id', missing)
+    ]).then(([usersRes, mentorsRes]) => {
+      const avatarMap: Record<string, string | null> = {};
+      const roleMap: Record<string, string> = {};
+
+      // 1. Process from users table
+      if (usersRes.data) {
+        (usersRes.data as { id: string; avatar: string | null; role: string | null }[]).forEach((row) => {
+          avatarMap[row.id] = row.avatar ?? null;
+          roleMap[row.id] = row.role ?? 'user';
+        });
+      }
+
+      // 2. Override role and avatar if they explicitly exist in the mentors table
+      if (mentorsRes.data) {
+        (mentorsRes.data as { id: string; user_id: string; name: string; avatar: string | null }[]).forEach((row) => {
+          roleMap[row.user_id] = 'mentor';
+          const normalized = normalizeMentorAvatar({
+            id: row.id,
+            user_id: row.user_id,
+            name: row.name,
+            avatar: row.avatar ?? undefined,
+          });
+          // Only override avatar if normalizeMentorAvatar gave us something valid
+          if (normalized.avatar && typeof normalized.avatar === 'string' && normalized.avatar.trim() !== '') {
+            avatarMap[row.user_id] = normalized.avatar;
+          }
+        });
+      }
+
+      setLiveAvatars((prev) => ({ ...prev, ...avatarMap }));
+      setSenderRoles((prev) => ({ ...prev, ...roleMap }));
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [senderKey]);
+  // ─────────────────────────────────────────────────────────────────────────
+
+
   const canSend = messageText.trim().length > 0;
 
   // Scroll to bottom when messages change
@@ -71,7 +131,10 @@ export function GroupChatScreen() {
 
     try {
       setSending(true);
-      const avatarUrl = user.avatar ?? `https://api.dicebear.com/7.x/initials/png?seed=${encodeURIComponent(user.email ?? user.id)}`;
+      // Use the real uploaded avatar (from users.avatar) — no generated fallback.
+      // If the user hasn't uploaded a photo yet the DB stores null/undefined and
+      // the message bubble will show the initials placeholder instead.
+      const avatarUrl = user.avatar ?? undefined;
       await sendMessage(user.id, user.email || 'Anonymous', avatarUrl, messageText);
       setMessageText('');
     } catch (error) {
@@ -80,6 +143,7 @@ export function GroupChatScreen() {
       setSending(false);
     }
   };
+
 
   if (chatLoading) {
     return (
@@ -99,6 +163,12 @@ export function GroupChatScreen() {
 
   const renderMessage = (message: any) => {
     const isCurrentUser = message.sender_id === user?.id;
+    const resolvedAvatar: string | null =
+      (message.sender_avatar && message.sender_avatar.trim() !== ''
+        ? message.sender_avatar
+        : null) ?? liveAvatars[message.sender_id] ?? null;
+    const role = isCurrentUser ? (user?.role ?? 'user') : (senderRoles[message.sender_id] ?? 'user');
+    const isMentor = role === 'mentor';
 
     return (
       <View
@@ -108,22 +178,27 @@ export function GroupChatScreen() {
         {!isCurrentUser && (
           <TouchableOpacity
             style={styles.avatarContainer}
-            onPress={() => {
-              navigation.navigate('MentorDetail', { userId: message.sender_id });
-            }}
+            onPress={() => navigation.navigate('MentorDetail', { userId: message.sender_id })}
             activeOpacity={0.7}
           >
-            {message.sender_avatar && message.sender_avatar.trim() !== '' ? (
-              <Image
-                source={{ uri: message.sender_avatar }}
-                style={styles.avatar}
-                resizeMode="cover"
-              />
+            {/* Avatar image or initials */}
+            {resolvedAvatar ? (
+              <Image source={{ uri: resolvedAvatar }} style={styles.avatar} resizeMode="cover" />
             ) : (
-              <View style={styles.avatarPlaceholder}>
+              <View style={[styles.avatarPlaceholder, isMentor && styles.avatarPlaceholderMentor]}>
                 <Text style={styles.avatarText}>
                   {message.sender_name.charAt(0).toUpperCase()}
                 </Text>
+              </View>
+            )}
+            {/* Role badge on avatar */}
+            {isMentor ? (
+              <View style={styles.mentorAvatarBadge}>
+                <Ionicons name="star" size={8} color="#fff" />
+              </View>
+            ) : (
+              <View style={styles.memberAvatarBadge}>
+                <Ionicons name="checkmark" size={8} color="#fff" />
               </View>
             )}
           </TouchableOpacity>
@@ -138,22 +213,31 @@ export function GroupChatScreen() {
           >
             {!isCurrentUser && (
               <TouchableOpacity
-                onPress={() => {
-                  navigation.navigate('MentorDetail', { userId: message.sender_id });
-                }}
+                onPress={() => navigation.navigate('MentorDetail', { userId: message.sender_id })}
                 activeOpacity={0.7}
               >
-                <Text style={styles.senderName}>
-                  {message.sender_name}
-                </Text>
+                <View style={styles.senderNameRow}>
+                  <Text style={[styles.senderName, isMentor && styles.senderNameMentor]}>
+                    {message.sender_name}
+                  </Text>
+                  {isMentor ? (
+                    <View style={styles.mentorPill}>
+                      <Ionicons name="star" size={9} color="#7C4DFF" />
+                      <Text style={styles.mentorPillText}>Mentor</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.memberPill}>
+                      <Ionicons name="checkmark-circle" size={10} color="#0D9488" />
+                      <Text style={styles.memberPillText}>Member</Text>
+                    </View>
+                  )}
+                </View>
               </TouchableOpacity>
             )}
             <Text style={isCurrentUser ? styles.messageTextOwn : styles.messageTextOther}>
               {message.message}
             </Text>
-            <Text
-              style={isCurrentUser ? styles.timestampOwn : styles.timestampOther}
-            >
+            <Text style={isCurrentUser ? styles.timestampOwn : styles.timestampOther}>
               {new Date(message.created_at).toLocaleTimeString([], {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -424,10 +508,11 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   avatarContainer: {
-    width: 34,
-    height: 34,
+    width: 38,
+    height: 38,
     marginRight: 8,
     alignSelf: 'flex-end',
+    position: 'relative',
   },
   avatarPlaceholder: {
     width: 34,
@@ -454,50 +539,56 @@ const styles = StyleSheet.create({
     maxWidth: '78%',
   },
   messageBubble: {
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1.5 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 2,
   },
   messageBubbleOwn: {
     backgroundColor: '#7C4DFF',
-    borderBottomRightRadius: 4,
+    borderBottomRightRadius: 6,
   },
   messageBubbleOther: {
     backgroundColor: '#FFFFFF',
-    borderBottomLeftRadius: 4,
+    borderBottomLeftRadius: 6,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: 'rgba(226,232,240,0.6)',
   },
   senderName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#475569',
-    marginBottom: 3,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#334155',
+    marginBottom: 4,
+    letterSpacing: 0.1,
   },
   messageTextOwn: {
     color: '#FFFFFF',
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 15.5,
+    lineHeight: 22,
     fontWeight: '400',
   },
   messageTextOther: {
     color: '#0F172A',
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 15.5,
+    lineHeight: 22,
     fontWeight: '400',
   },
   timestampOwn: {
-    fontSize: 11,
-    marginTop: 4,
-    color: 'rgba(255,255,255,0.65)',
-    fontWeight: '400',
+    fontSize: 10,
+    marginTop: 6,
+    color: 'rgba(255,255,255,0.75)',
+    fontWeight: '500',
     textAlign: 'right',
   },
   timestampOther: {
-    fontSize: 11,
-    marginTop: 4,
+    fontSize: 10,
+    marginTop: 6,
     color: '#94A3B8',
-    fontWeight: '400',
+    fontWeight: '500',
   },
 
   // ========== INPUT ==========
@@ -506,7 +597,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
+    borderTopColor: '#F1F5F9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 8,
   },
   inputWrapper: {
     gap: 8,
@@ -514,36 +610,36 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 10,
+    gap: 12,
   },
   textInput: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     color: '#0F172A',
-    maxHeight: 100,
+    maxHeight: 120,
     fontSize: 15,
     fontWeight: '400',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: '#7C4DFF',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#7C4DFF',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 5,
   },
   sendBtnDisabled: {
-    backgroundColor: '#CBD5E1',
+    backgroundColor: '#E2E8F0',
     shadowOpacity: 0,
     elevation: 0,
   },
@@ -562,5 +658,76 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#64748B',
+  },
+
+  // ========== ROLE BADGES ==========
+  avatarPlaceholderMentor: {
+    backgroundColor: '#5B21B6',  // deeper purple for mentors
+  },
+  mentorAvatarBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#F59E0B',  // gold
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  memberAvatarBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#0D9488',  // teal
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  senderNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 3,
+    flexWrap: 'wrap',
+  },
+  senderNameMentor: {
+    color: '#5B21B6',
+  },
+  mentorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: 'rgba(124,77,255,0.10)',
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  mentorPillText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#7C4DFF',
+    letterSpacing: 0.2,
+  },
+  memberPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: 'rgba(13,148,136,0.10)',
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  memberPillText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#0D9488',
+    letterSpacing: 0.2,
   },
 });

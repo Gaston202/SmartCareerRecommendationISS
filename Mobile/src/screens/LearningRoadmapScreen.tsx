@@ -20,6 +20,7 @@ import {
   saveLearningRoadmap,
   getLearningRoadmapByCareerTitle,
 } from '../features/learning-roadmap/storage';
+import { sendNotification } from '../api/notifications';
 import type {
   LearningCourse,
   LearningRoadmap,
@@ -421,6 +422,16 @@ export default function LearningRoadmapScreen(): React.ReactElement {
 
       const generated = buildLearningRoadmapFromPlan(planned);
       setRoadmap(generated);
+      
+      if (state.user?.id) {
+        sendNotification(
+          state.user.id,
+          'Roadmap Ready',
+          `Your learning roadmap for ${targetRole} was successfully generated!`,
+          'roadmap',
+          `LearningRoadmap:${generated.career_id}:${targetRole}`
+        );
+      }
 
       if (state.user?.id) {
         const roadmapWithUser = { ...generated, user_id: state.user.id };

@@ -21,6 +21,8 @@ import {
   fetchMentorAvailability,
   saveMentorAvailability,
 } from '../../api/mentor';
+import { supabase } from '../../api/supabase';
+import { sendNotification } from '../../api/notifications';
 import {
   Mentor,
   MentorWithSpecialties,
@@ -243,6 +245,19 @@ export function useChatMessages(chatId: string) {
     try {
       const newMessage = await sendChatMessage(chatId, senderId, senderName, senderAvatar, message);
       setMessages([...messages, newMessage]);
+      
+      // Notify other participants in the chat
+      const uniqueRecipients = new Set(messages.map(m => m.sender_id).filter(id => id && id !== senderId));
+      uniqueRecipients.forEach((id) => {
+        sendNotification(
+          id,
+          "New Group Chat Message",
+          `New message from ${senderName} in your group chat.`,
+          "chat_message",
+          `GroupChat:${chatId}`
+        );
+      });
+
       return newMessage;
     } catch (err) {
       setError(err as Error);
@@ -382,6 +397,20 @@ export function useMentorSessions(userId: string) {
         durationMinutes
       );
       setSessions([...sessions, newSession]);
+
+      // Notify the mentor
+      supabase.from('mentors').select('user_id').eq('id', mentorId).single().then(({ data }) => {
+        if (data?.user_id) {
+          sendNotification(
+            data.user_id,
+            "New Session Booked",
+            `${title} was just scheduled.`,
+            "mentor_session",
+            "MentorSessions"
+          );
+        }
+      });
+
       return newSession;
     } catch (err) {
       setError(err as Error);

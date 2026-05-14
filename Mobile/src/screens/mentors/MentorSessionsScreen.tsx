@@ -18,6 +18,7 @@ import { useUserProfile } from '../../features/mentors/hooks';
 import { fetchMentorByUserId } from '../../api/mentor';
 import { homeColors } from '../homeTheme';
 import type { MentorSession } from '../../types/mentor';
+import { MainTopBar } from '../../ui/MainTopBar';
 
 type TabType = 'requests' | 'scheduled' | 'history';
 
@@ -79,18 +80,13 @@ export function MentorSessionsScreen() {
   if (!mentorId) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Ionicons name="chevron-back" size={24} color={homeColors.primary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Sessions</Text>
-          <TouchableOpacity
-            style={styles.settingsButton}
-            onPress={() => navigation.navigate('AvailabilitySettings')}
-          >
-            <Ionicons name="settings-outline" size={22} color={homeColors.primary} />
-          </TouchableOpacity>
-        </View>
+        <MainTopBar
+          title="Sessions"
+          onBack={() => navigation.goBack()}
+          onProfilePress={() => navigation.navigate('Profile')}
+          rightIcon="settings-outline"
+          onRightPress={() => navigation.navigate('AvailabilitySettings')}
+        />
         <View style={styles.emptyState}>
           <Ionicons name="alert-circle-outline" size={48} color={homeColors.cardBorder} />
           <Text style={styles.emptyText}>Mentor profile not found</Text>
@@ -101,18 +97,13 @@ export function MentorSessionsScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color={homeColors.primary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Sessions</Text>
-        <TouchableOpacity
-          style={styles.settingsButton}
-          onPress={() => navigation.navigate('AvailabilitySettings')}
-        >
-          <Ionicons name="settings-outline" size={22} color={homeColors.primary} />
-        </TouchableOpacity>
-      </View>
+      <MainTopBar
+        title="Sessions"
+        onBack={() => navigation.goBack()}
+        onProfilePress={() => navigation.navigate('Profile')}
+        rightIcon="settings-outline"
+        onRightPress={() => navigation.navigate('AvailabilitySettings')}
+      />
 
       <View style={styles.tabBar}>
         {(['requests', 'scheduled', 'history'] as TabType[]).map((tab) => (
