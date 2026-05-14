@@ -13,26 +13,51 @@ class CourseSearchService:
 
     def search_courses(self, skill_name: str, difficulty: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search for courses related to a skill via DuckDuckGo web search."""
-        query = self._build_query(skill_name, difficulty)
+        query = self._build_course_query(skill_name, difficulty)
+        logger.info("[CourseSearch] query=%s", query)
+        results = self._execute(query)
+        logger.info("[CourseSearch] skill='%s' returned=%s results", skill_name, len(results))
+        return results
+
+    def search_certifications(self, skill_name: str) -> List[Dict[str, Any]]:
+        """Search for certifications related to a skill."""
+        query = self._build_cert_query(skill_name)
+        logger.info("[CertSearch] query=%s", query)
+        results = self._execute(query)
+        logger.info("[CertSearch] skill='%s' returned=%s results", skill_name, len(results))
+        return results
+
+    def _execute(self, query: str) -> List[Dict[str, Any]]:
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
 
             with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=self.max_results))
-            return [self._parse_result(r) for r in results]
+                raw = list(ddgs.text(query, max_results=self.max_results))
+            parsed = [self._parse_result(r) for r in raw]
+            # Filter out entries with no URL or no title
+            return [p for p in parsed if p.get("url") and p.get("title")]
         except ImportError:
-            logger.warning("duckduckgo-search not installed. Run: pip install duckduckgo-search")
+            logger.warning("ddgs not installed. Run: pip install ddgs")
             return []
         except Exception as e:
-            logger.warning(f"Course search failed for '{skill_name}': {e}")
+            logger.warning("DDGS search failed: %s", e)
             return []
 
-    def _build_query(self, skill_name: str, difficulty: Optional[str] = None) -> str:
-        base = f"best {skill_name} online course"
-        if difficulty:
-            base += f" {difficulty}"
-        base += " site:coursera.org OR site:udemy.com OR site:edx.org OR site:freecodecamp.org OR site:pluralsight.com"
-        return base
+    def _build_course_query(self, skill_name: str, difficulty: Optional[str] = None) -> str:
+        """Build a concise DDGS query."""
+        q = skill_name.strip()
+        if not any(w in q.lower() for w in ["course", "class", "training", "tutorial"]):
+            q += " course"
+        if difficulty and difficulty.lower() in {"beginner", "intermediate", "advanced"}:
+            q += f" {difficulty}"
+        return q
+
+    def _build_cert_query(self, skill_name: str) -> str:
+        """Build a concise DDGS query for certifications."""
+        q = skill_name.strip()
+        if "certification" not in q.lower():
+            q += " certification"
+        return q
 
     def _parse_result(self, result: Dict) -> Dict[str, Any]:
         return {
@@ -40,25 +65,37 @@ class CourseSearchService:
             "url": result.get("href", ""),
             "snippet": result.get("body", ""),
             "provider": self._extract_provider(result.get("href", "")),
+            "score": 0.5,
         }
 
     def _extract_provider(self, url: str) -> str:
         if not url:
             return "Online Course"
-        if "coursera" in url:
-            return "Coursera"
-        if "udemy" in url:
-            return "Udemy"
-        if "edx" in url:
-            return "edX"
-        if "freecodecamp" in url:
-            return "freeCodeCamp"
-        if "pluralsight" in url:
-            return "Pluralsight"
-        if "linkedin.com/learning" in url:
-            return "LinkedIn Learning"
-        if "youtube" in url:
-            return "YouTube"
+        domain_map = {
+            "coursera": "Coursera",
+            "udemy": "Udemy",
+            "edx": "edX",
+            "freecodecamp": "freeCodeCamp",
+            "pluralsight": "Pluralsight",
+            "linkedin.com/learning": "LinkedIn Learning",
+            "linkedin": "LinkedIn",
+            "datacamp": "DataCamp",
+            "codecademy": "Codecademy",
+            "khanacademy": "Khan Academy",
+            "udacity": "Udacity",
+            "skillshare": "Skillshare",
+            "futurelearn": "FutureLearn",
+            "alison": "Alison",
+            "google": "Google",
+            "microsoft": "Microsoft",
+            "aws": "AWS",
+            "oracle": "Oracle",
+            "youtube": "YouTube",
+        }
+        url_lower = url.lower()
+        for key, label in domain_map.items():
+            if key in url_lower:
+                return label
         return "Online Course"
 
 

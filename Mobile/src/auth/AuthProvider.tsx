@@ -29,15 +29,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let avatar: string | null = null;
 
       try {
-        // Fetch user profile including full_name from users table
         const { data: userData } = await supabase
           .from('users')
-          .select('full_name, role, avatar')
+          .select('full_name, name, role, avatar')
           .eq('id', baseUser.id)
           .maybeSingle();
 
         if (userData) {
-          fullName = userData.full_name || null;
+          fullName = baseUser.user_metadata?.full_name || userData.full_name || userData.name || null;
           avatar = userData.avatar || null;
           if (userData.role === 'mentor') {
             role = 'mentor';
@@ -126,20 +125,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error) throw new Error(error.message);
         // Ensure a row exists in public.users (e.g. if they signed up before sync existed). Do not overwrite existing name/role/status.
         if (data.user) {
-          const displayName =
-            data.user.user_metadata?.full_name ??
-            data.user.email?.split('@')[0] ??
-            'User';
-          await supabase.from('users').upsert(
-            {
-              id: data.user.id,
-              email: data.user.email ?? email,
-              name: displayName,
-              role: 'user',
-              status: 'active',
-            },
-            { onConflict: 'id', ignoreDuplicates: true }
-          );
+          const metadataName = data.user.user_metadata?.full_name;
+          if (metadataName) {
+            await supabase.from('users')
+              .update({ name: metadataName, full_name: metadataName })
+              .eq('id', data.user.id)
+              .is('full_name', null);
+          }
         }
       },
       signUp: async (email, password, metadata?: SignUpMetadata) => {
@@ -159,6 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             id: data.user.id,
             email: data.user.email ?? email,
             name: metadata?.fullName ?? null,
+            full_name: metadata?.fullName ?? null,
             role,
             status: 'active',
             phone: metadata?.phone ?? null,

@@ -47,6 +47,43 @@ function getDominantDiscColor(
   return colors[0]?.[0] as any || 'blue';
 }
 
+function normalizePersonaDescription(rawDescription: string | null | undefined): string | null {
+  if (!rawDescription) return null;
+
+  const cleaned = rawDescription
+    .replace(/^[-*\s]+/g, '')
+    .replace(/^"+|"+$/g, '')
+    .replace(/^'+|'+$/g, '')
+    .trim();
+
+  if (!cleaned) return null;
+
+  const lower = cleaned.toLowerCase();
+  const looksLikePromptLeak =
+    lower.startsWith('we need to') ||
+    lower.startsWith('important:') ||
+    lower.startsWith('respond with') ||
+    lower.startsWith('generate only') ||
+    lower.startsWith('it should') ||
+    lower.includes('persona description') ||
+    lower.includes('base archetype') ||
+    lower.includes('disc profile');
+
+  if (looksLikePromptLeak) return null;
+
+  const sentences = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+  const shortDescription = (sentences.slice(0, 2).join(' ') || cleaned).trim();
+  if (!shortDescription) return null;
+
+  if (shortDescription.length <= 150) return shortDescription;
+
+  return shortDescription.slice(0, 147).trimEnd() + '...';
+}
+
 /**
  * Build user profile from quiz and CV data
  */
@@ -134,12 +171,17 @@ Respond with ONLY the persona description, nothing else.`;
         model: PERSONA_MODEL,
         messages: [
           {
+            role: 'system',
+            content:
+              'You write only concise persona descriptions. Never repeat instructions, headings, or analysis. Return one short paragraph of 1-2 sentences, under 150 characters.',
+          },
+          {
             role: 'user',
             content: prompt,
           },
         ],
-        temperature: 0.7,
-        max_tokens: 200,
+        temperature: 0.4,
+        max_tokens: 120,
       }),
     });
 
@@ -149,7 +191,7 @@ Respond with ONLY the persona description, nothing else.`;
     }
 
     const data = (await response.json()) as any;
-    const description = data.choices?.[0]?.message?.content?.trim();
+    const description = normalizePersonaDescription(data.choices?.[0]?.message?.content);
 
     return description || archetype.baseDescription;
   } catch (error) {

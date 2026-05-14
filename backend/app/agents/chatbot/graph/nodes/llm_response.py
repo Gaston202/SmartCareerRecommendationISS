@@ -83,6 +83,30 @@ def _format_messages_for_llm(state: Dict[str, Any]) -> list[Dict[str, str]]:
     if user_id:
         context_parts.append(f"User ID: {user_id}")
 
+    # Inject profile context so the LLM can personalize general answers
+    profile_data = state.get("profile_data")
+    if profile_data and isinstance(profile_data, dict):
+        profile = profile_data.get("profile", {})
+        cv = profile_data.get("cv_analysis", {}) or {}
+        quiz = profile_data.get("quiz", {}) or {}
+        if profile or cv or quiz:
+            context_parts.append("User profile context:")
+            if profile.get("name"):
+                context_parts.append(f"Name: {profile['name']}")
+            if profile.get("career_goal"):
+                context_parts.append(f"Career goal: {profile['career_goal']}")
+            if profile.get("education_level"):
+                context_parts.append(f"Education: {profile['education_level']}")
+            declared = profile.get("declared_skills", [])
+            extracted = cv.get("extracted_skills", [])
+            all_skills = list(dict.fromkeys(declared + extracted))
+            if all_skills:
+                context_parts.append(f"Skills: {', '.join(all_skills[:10])}")
+            if cv.get("summary"):
+                context_parts.append(f"CV summary: {cv['summary'][:120]}")
+            if quiz:
+                context_parts.append("Quiz: completed")
+
     intent = state.get("current_intent")
     if intent:
         context_parts.append(f"Detected intent: {intent}")

@@ -17,6 +17,11 @@ async def get_supabase_client() -> AsyncClient:
     return db_service.get_client()
 
 
+def _normalize_specialty(s: str) -> str:
+    """Normalize a specialty string for fuzzy comparison."""
+    return s.lower().replace("-", "").replace(" ", "").replace("_", "").replace(".", "")
+
+
 @tool
 async def check_mentor_availability(
     mentor_id: str,
@@ -94,6 +99,7 @@ async def get_available_mentors(
 ) -> dict:
     """
     Get list of available mentors, optionally filtered by date and specialty.
+    Specialty matching is fuzzy: "cybersecurity" will match "Cyber Security".
 
     Args:
         date: Optional date in YYYY-MM-DD format to check availability
@@ -105,12 +111,40 @@ async def get_available_mentors(
     """
     client = await get_supabase_client()
 
+    mentor_ids = None
+    if specialty:
+        # 1) Try ILIKE partial match on mentor_specialties table
+        ilike_response = await client.from_("mentor_specialties").select(
+            "mentor_id, specialty"
+        ).ilike("specialty", f"%{specialty}%").execute()
+        matching = {s["mentor_id"]: s["specialty"] for s in (ilike_response.data or [])}
+
+        # 2) Fallback: normalized fuzzy match across all specialties
+        norm_input = _normalize_specialty(specialty)
+        if not matching:
+            all_specs = await client.from_("mentor_specialties").select(
+                "mentor_id, specialty"
+            ).limit(500).execute()
+            for s in (all_specs.data or []):
+                norm_stored = _normalize_specialty(s["specialty"])
+                if norm_input in norm_stored or norm_stored in norm_input:
+                    matching[s["mentor_id"]] = s["specialty"]
+
+        mentor_ids = list(matching.keys()) if matching else []
+
+        if not mentor_ids:
+            return {
+                "mentors": [],
+                "count": 0,
+                "filters": {"date": date, "specialty": specialty}
+            }
+
     query = client.from_("mentors").select("*, mentor_specialties(specialty)").eq(
         "status", "active"
-    ).limit(limit)
-
-    if specialty:
-        query = query.contains("mentor_specialties", [{"specialty": specialty}])
+    )
+    if mentor_ids:
+        query = query.in_("id", mentor_ids)
+    query = query.limit(limit)
 
     response = await query.execute()
     mentors = response.data or []

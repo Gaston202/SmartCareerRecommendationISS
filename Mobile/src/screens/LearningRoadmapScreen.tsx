@@ -1,27 +1,25 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Pressable,
   ActivityIndicator,
-  Animated,
   Alert,
+  Animated,
   Linking,
-  TextInput,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useAuth } from '../auth/AuthProvider';
+import { homeColors } from './homeTheme';
 import {
   saveLearningRoadmap,
   getLearningRoadmapByCareerTitle,
 } from '../features/learning-roadmap/storage';
-import { useAuth } from '../auth/AuthProvider';
-import { homeColors } from './homeTheme';
-import { supabase } from '../api/supabase';
 import type {
   LearningCourse,
   LearningRoadmap,
@@ -31,12 +29,10 @@ import type {
   SkillLevel,
 } from '../features/learning-roadmap/types';
 import {
-  fetchIngestionStatus,
   fetchRoadmapPlanFromBackend,
-  refreshRoadmapProvider,
   saveLearningRoadmapToBackend,
-  type BackendIngestionStatusData,
   type BackendPlannedRoadmapResponse,
+  type BackendPlannedRoadmapStep,
   type BackendRoadmapResource,
 } from '../features/roadmaps/api-backend';
 
@@ -52,19 +48,6 @@ type LearningRoadmapScreenNavigationProp = NativeStackNavigationProp<
   HomeStackParamList,
   'LearningRoadmap'
 >;
-
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case 'completed':
-      return homeColors.accentGreen;
-    case 'in-progress':
-      return homeColors.primary;
-    case 'locked':
-      return '#9CA3AF';
-    default:
-      return homeColors.textMuted;
-  }
-};
 
 const getDifficultyIcon = (level: string) => {
   if (level.toLowerCase() === 'beginner') return 'trending-up-outline';
@@ -85,12 +68,6 @@ const normalizeSkillLabel = (skill: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
 
-const parseSkillsInput = (value: string) =>
-  value
-    .split(/[,\n]/)
-    .map((skill) => skill.trim().toLowerCase().replace(/\s+/g, '_'))
-    .filter(Boolean);
-
 const toSkillLevel = (value?: string | null): SkillLevel => {
   if (value === 'beginner' || value === 'intermediate' || value === 'advanced') return value;
   return 'beginner';
@@ -109,7 +86,8 @@ const toLearningResource = (
     score: resource?.score ?? fallback?.score ?? 0,
     why_selected: resource?.why_selected ?? fallback?.why_selected ?? null,
     display_badges: resource?.display_badges ?? fallback?.display_badges ?? null,
-    recommendation_reason: resource?.recommendation_reason ?? fallback?.recommendation_reason ?? null,
+    recommendation_reason:
+      resource?.recommendation_reason ?? fallback?.recommendation_reason ?? null,
   };
 };
 
@@ -125,7 +103,9 @@ const resourceToCourse = (
   id: `${skillId}-resource-${index}`,
   skill_id: skillId,
   title: resource.title || `${skillName} resource`,
-  description: resource.why_selected || `This resource focuses directly on ${skillName.replace(/_/g, ' ')}, giving you practical skills for this step.`,
+  description:
+    resource.why_selected ||
+    `This resource focuses directly on ${skillName.replace(/_/g, ' ')}, giving you practical skills for this step.`,
   provider: resource.provider || 'Curated Resource',
   url: resource.source_url || '',
   source_resource_id: resource.resource_id,
@@ -140,24 +120,17 @@ const resourceToCourse = (
   created_at: createdAt,
 });
 
-const isRagRoadmap = (value?: LearningRoadmap | null) =>
-  Boolean(value?.confidence != null || value?.metadata || value?.diagnostics || value?.weak_evidence != null);
-
 export default function LearningRoadmapScreen(): React.ReactElement {
   const route = useRoute<any>();
   const navigation = useNavigation<LearningRoadmapScreenNavigationProp>();
   const params = route.params;
   const insets = useSafeAreaInsets();
+  const { state } = useAuth();
 
   const [roadmap, setRoadmap] = useState<LearningRoadmap | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<LearningRoadmapNode | null>(null);
-  const [skillsInput, setSkillsInput] = useState('');
-  const [targetRoleInput, setTargetRoleInput] = useState(params.careerTitle || 'backend_developer');
-  const [refreshingSkillId, setRefreshingSkillId] = useState<string | null>(null);
-  const [ingestionStatusBySkill, setIngestionStatusBySkill] = useState<Record<string, BackendIngestionStatusData>>({});
-  const { state } = useAuth();
 
   const progressAnim = useRef(new Animated.Value(0)).current;
   const rotationAnim = useRef(new Animated.Value(0)).current;
@@ -166,10 +139,8 @@ export default function LearningRoadmapScreen(): React.ReactElement {
     plan: BackendPlannedRoadmapResponse,
   ): LearningRoadmap => {
     const now = new Date().toISOString();
-    const steps = plan.steps || [];
-    const orderedSteps = [...steps].sort((a, b) => a.order_index - b.order_index);
-    const skillIdByName = new Map<string, string>();
-    const targetRoleTitle = plan.target_role || targetRoleInput || params.careerTitle;
+    const steps = [...(plan.steps || [])].sort((a, b) => a.order_index - b.order_index);
+    const targetRoleTitle = plan.target_role || params.careerTitle;
 
     const toSkillId = (name: string, index: number) =>
       `${params.careerTitle}-${index}-${name}`
@@ -177,14 +148,31 @@ export default function LearningRoadmapScreen(): React.ReactElement {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
 
-    orderedSteps.forEach((step, index) => {
-      skillIdByName.set(step.skill_name.toLowerCase(), toSkillId(step.skill_name, index));
+    // Map skill_name to ID using index to ensure uniqueness (handles duplicate names)
+    const skillIdByName = new Map<string, string>();
+    const skillIdByIndex = new Map<number, string>();
+    
+    steps.forEach((step, index) => {
+      const skillId = toSkillId(step.skill_name, index);
+      skillIdByIndex.set(index, skillId);
+      // Also track by name, but only for first occurrence
+      const nameLower = step.skill_name.toLowerCase();
+      if (!skillIdByName.has(nameLower)) {
+        skillIdByName.set(nameLower, skillId);
+      }
     });
 
-    const skills = orderedSteps.map((step, index): LearningRoadmapNode => {
-      const skillId = skillIdByName.get(step.skill_name.toLowerCase()) || toSkillId(step.skill_name, index);
+    const roadmapNodes = steps.map((step, index): LearningRoadmapNode => {
+      // Use index-based lookup first to ensure uniqueness, fallback to name lookup for prerequisites
+      const skillId = skillIdByIndex.get(index) || toSkillId(step.skill_name, index);
       const prerequisiteIds = step.prerequisites
-        .map((name) => skillIdByName.get(name.toLowerCase()))
+        .map((name) => {
+          // Find prerequisite by name and return its index-based ID
+          const prereqIndex = steps.findIndex(
+            (s) => s.skill_name.toLowerCase() === name.toLowerCase()
+          );
+          return prereqIndex >= 0 ? skillIdByIndex.get(prereqIndex) : undefined;
+        })
         .filter((value): value is string => Boolean(value));
 
       const primaryResource = toLearningResource(step.primary_resource, {
@@ -193,8 +181,6 @@ export default function LearningRoadmapScreen(): React.ReactElement {
         provider: step.provider,
         source_url: step.source_url,
         score: step.confidence_score,
-        display_badges: step.primary_resource?.display_badges ?? null,
-        recommendation_reason: step.primary_resource?.recommendation_reason ?? null,
       });
       const backupResources = (step.backup_resources || [])
         .map((resource) => toLearningResource(resource))
@@ -210,21 +196,19 @@ export default function LearningRoadmapScreen(): React.ReactElement {
         confidence_score: step.confidence_score,
         duration_hours: Math.max(1, Math.round(step.estimated_duration_hours || 1)),
         prerequisites: prerequisiteIds,
-        category: 'RAG Roadmap',
+        category: 'Learning Roadmap',
         importance: index < 2 ? 'critical' : index < 4 ? 'important' : 'nice-to-have',
         created_at: now,
       };
 
       const dependencies: LearningSkill[] = step.prerequisites
         .map((name) => {
-          const dependencyIndex = orderedSteps.findIndex(
+          const dependencyIndex = steps.findIndex(
             (candidate) => candidate.skill_name.toLowerCase() === name.toLowerCase(),
           );
           if (dependencyIndex < 0) return null;
-          const dependencyStep = orderedSteps[dependencyIndex];
-          const dependencyId =
-            skillIdByName.get(dependencyStep.skill_name.toLowerCase()) ||
-            toSkillId(dependencyStep.skill_name, dependencyIndex);
+          const dependencyStep = steps[dependencyIndex];
+          const dependencyId = skillIdByIndex.get(dependencyIndex) || toSkillId(dependencyStep.skill_name, dependencyIndex);
 
           return {
             id: dependencyId,
@@ -233,7 +217,7 @@ export default function LearningRoadmapScreen(): React.ReactElement {
             level: dependencyStep.difficulty,
             duration_hours: Math.max(1, Math.round(dependencyStep.estimated_duration_hours || 1)),
             prerequisites: [],
-            category: 'RAG Roadmap',
+            category: 'Learning Roadmap',
             importance: dependencyIndex < 2 ? 'critical' : dependencyIndex < 4 ? 'important' : 'nice-to-have',
             created_at: now,
           };
@@ -244,7 +228,11 @@ export default function LearningRoadmapScreen(): React.ReactElement {
         .filter((resource): resource is LearningRoadmapResource => Boolean(resource?.title))
         .filter((resource, resourceIndex, all) => {
           const key = resource.source_url || resource.resource_id || resource.title;
-          return all.findIndex((candidate) => (candidate.source_url || candidate.resource_id || candidate.title) === key) === resourceIndex;
+          return (
+            all.findIndex(
+              (candidate) => (candidate.source_url || candidate.resource_id || candidate.title) === key,
+            ) === resourceIndex
+          );
         })
         .slice(0, 7);
 
@@ -261,12 +249,17 @@ export default function LearningRoadmapScreen(): React.ReactElement {
         free: step.free_or_paid !== 'paid',
       }));
 
+      const certifications = (step.certifications || [])
+        .map((resource) => toLearningResource(resource))
+        .filter((resource): resource is LearningRoadmapResource => Boolean(resource));
+
       return {
         skill,
         courses,
         dependencies,
         primaryResource,
         backupResources,
+        certifications,
         evidenceReasons: step.evidence_reasons || [],
         userProgress: {
           started: index === 0,
@@ -276,68 +269,62 @@ export default function LearningRoadmapScreen(): React.ReactElement {
       };
     });
 
-    const totalDurationHours = skills.reduce((sum, node) => sum + node.skill.duration_hours, 0);
+    const totalDurationHours = roadmapNodes.reduce((sum, node) => sum + node.skill.duration_hours, 0);
 
     return {
-      id: `learning-rag-${params.careerId || params.careerTitle}-${Date.now()}`,
+      id: `learning-roadmap-${plan.career_id || params.careerTitle}-${Date.now()}`,
       user_id: state.user?.id || '',
       career_id: plan.career_id || params.careerId || targetRoleTitle,
       career_title: targetRoleTitle,
       title: `${normalizeSkillLabel(targetRoleTitle)} Learning Roadmap`,
-      description: `Retrieval-backed learning path for ${normalizeSkillLabel(targetRoleTitle)}.`,
+      description: `Learning path for ${normalizeSkillLabel(targetRoleTitle)}.`,
       confidence: plan.confidence,
       weak_evidence: plan.weak_evidence,
       message: plan.message,
       diagnostics: plan.diagnostics || null,
       metadata: plan.metadata || null,
-      skills,
+      skills: roadmapNodes,
       total_duration_hours: totalDurationHours,
       estimated_weeks: Math.max(1, Math.ceil(totalDurationHours / 8)),
-      skill_count: skills.length,
+      skill_count: roadmapNodes.length,
       created_at: now,
       updated_at: now,
     };
   };
 
   useEffect(() => {
-    if (roadmap) {
-      // Start rotation animation for in-progress items
-      Animated.loop(
-        Animated.timing(rotationAnim, {
-          toValue: 1,
-          duration: 8000,
-          useNativeDriver: true,
-        })
-      ).start();
-    }
-  }, [roadmap, rotationAnim]);
-
-  useEffect(() => {
     navigation.setOptions({ headerShown: false });
-    loadInitialRoadmap();
+    void loadInitialRoadmap();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (roadmap) {
-      const completedCount = roadmap.skills.filter(
-        (s) => s.userProgress?.completedPercentage === 100,
-      ).length;
-      const totalCount = roadmap.skills.length;
-      const percentValue = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+    if (!roadmap) return;
 
-      Animated.timing(progressAnim, {
-        toValue: percentValue,
-        duration: 1500,
-        useNativeDriver: false,
-      }).start();
-    }
-  }, [roadmap]);
+    const completedCount = roadmap.skills.filter(
+      (skill) => skill.userProgress?.completedPercentage === 100,
+    ).length;
+    const totalCount = roadmap.skills.length;
+    const percentValue = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
 
-  // Auto-save roadmap progress whenever it changes
+    Animated.timing(progressAnim, {
+      toValue: percentValue,
+      duration: 1500,
+      useNativeDriver: false,
+    }).start();
+
+    Animated.loop(
+      Animated.timing(rotationAnim, {
+        toValue: 1,
+        duration: 8000,
+        useNativeDriver: true,
+      }),
+    ).start();
+  }, [roadmap, progressAnim, rotationAnim]);
+
   useEffect(() => {
     if (!roadmap || !state.user?.id) return;
 
-    // Debounce the save to avoid excessive writes
     const saveTimer = setTimeout(async () => {
       try {
         const roadmapWithUser = { ...roadmap, user_id: state.user!.id };
@@ -347,154 +334,25 @@ export default function LearningRoadmapScreen(): React.ReactElement {
           careerTitle: String(roadmap.career_title || params.careerTitle),
           roadmapData: roadmapWithUser as unknown as Record<string, unknown>,
         });
-        console.log('[LearningRoadmap] Auto-saved progress');
       } catch (error) {
         console.warn('[LearningRoadmap] Auto-save failed', error);
       }
-    }, 1000); // Wait 1 second after last change before saving
+    }, 1000);
 
     return () => clearTimeout(saveTimer);
   }, [roadmap, state.user?.id]);
 
   const loadInitialRoadmap = async () => {
     if (!state.user?.id) return;
+
     try {
-      // Load existing roadmap
       const existing = await getLearningRoadmapByCareerTitle(state.user.id, params.careerTitle);
-      if (isRagRoadmap(existing?.roadmap)) {
+      if (existing?.roadmap) {
         setRoadmap(existing.roadmap);
       }
-
-      // Load user's real skills from multiple sources
-      const userSkills = await fetchUserSkillsCombined(state.user.id);
-      if (userSkills.length > 0) {
-        setSkillsInput(userSkills.join(', '));
-      }
     } catch (error) {
-      console.warn('[LearningRoadmap] Failed to load roadmap/skills', error);
+      console.warn('[LearningRoadmap] Failed to load roadmap', error);
     }
-  };
-
-  /**
-   * Fetch user skills from:
-   * 1. user_skills table (confirmed/edited)
-   * 2. users profile 'skills' column
-   * 3. Latest CV analysis extracted_skills
-   */
-  const fetchUserSkillsCombined = async (userId: string): Promise<string[]> => {
-    const sources: string[] = [];
-
-    try {
-      // 1. user_skills table
-      const { data: dbSkills, error: dbError } = await supabase
-        .from('user_skills')
-        .select('name')
-        .eq('user_id', userId)
-        .neq('status', 'removed')
-        .order('name', { ascending: true });
-
-      if (!dbError && dbSkills) {
-        dbSkills.forEach((s) => {
-          if (s.name) sources.push(s.name.trim().toLowerCase().replace(/\s+/g, '_'));
-        });
-      }
-    } catch (e) {
-      console.warn('[LearningRoadmap] Failed to fetch user_skills', e);
-    }
-
-    try {
-      // 2. users profile skills column
-      const { data: profile, error: profileError } = await supabase
-        .from('users')
-        .select('skills')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (!profileError && profile?.skills) {
-        const profileSkills = profile.skills
-          .split(/[,\n]/)
-          .map((s: string) => s.trim().toLowerCase().replace(/\s+/g, '_'))
-          .filter(Boolean);
-        sources.push(...profileSkills);
-      }
-    } catch (e) {
-      console.warn('[LearningRoadmap] Failed to fetch profile skills', e);
-    }
-
-    try {
-      // 3. Latest CV analysis
-      const { data: cvAnalyses, error: cvError } = await supabase
-        .from('cv_analysis')
-        .select('extracted_skills, skills_extracted, skills')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!cvError && cvAnalyses) {
-        const rawSkills =
-          cvAnalyses.extracted_skills ||
-          cvAnalyses.skills_extracted ||
-          cvAnalyses.skills ||
-          [];
-
-        if (Array.isArray(rawSkills)) {
-          rawSkills.forEach((s) => {
-            if (typeof s === 'string' && s.trim()) {
-              sources.push(s.trim().toLowerCase().replace(/\s+/g, '_'));
-            }
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('[LearningRoadmap] Failed to fetch CV skills', e);
-    }
-
-    // Deduplicate
-    const unique = Array.from(new Set(sources)).filter(Boolean);
-    console.log('[LearningRoadmap] Combined user skills:', unique);
-    return unique;
-  };
-
-  const handleStartSkill = (skillIndex: number) => {
-    if (!roadmap) return;
-    const updatedRoadmap = { ...roadmap };
-    const skill = updatedRoadmap.skills[skillIndex];
-    
-    if (!skill.userProgress) {
-      skill.userProgress = {
-        started: true,
-        completedPercentage: 0,
-        completedCourses: [],
-      };
-    } else {
-      skill.userProgress.started = true;
-    }
-    
-    setRoadmap(updatedRoadmap);
-  };
-
-  const handleUpdateProgress = (skillIndex: number, percentage: number) => {
-    if (!roadmap) return;
-    const updatedRoadmap = { ...roadmap };
-    const skill = updatedRoadmap.skills[skillIndex];
-    
-    if (!skill.userProgress) {
-      skill.userProgress = {
-        started: true,
-        completedPercentage: percentage,
-        completedCourses: [],
-      };
-    } else {
-      skill.userProgress.completedPercentage = Math.min(percentage, 100);
-      skill.userProgress.started = true;
-    }
-    
-    setRoadmap(updatedRoadmap);
-  };
-
-  const handleCompleteSkill = (skillIndex: number) => {
-    handleUpdateProgress(skillIndex, 100);
   };
 
   const openResourceUrl = async (url?: string | null) => {
@@ -509,175 +367,70 @@ export default function LearningRoadmapScreen(): React.ReactElement {
     }
   };
 
-  const replacePrimaryResource = (
-    skillId: string,
-    resource: LearningRoadmapResource,
-    confidenceScore?: number,
-  ) => {
-    setRoadmap((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        skills: current.skills.map((node) => {
-          if (node.skill.id !== skillId) return node;
-          const updatedCourse: LearningCourse = {
-            id: `${skillId}-resource`,
-            skill_id: skillId,
-            title: resource.title || node.courses[0]?.title || node.skill.name,
-            description: resource.why_selected || node.courses[0]?.description || `Recommended learning resource for ${node.skill.name}`,
-            provider: resource.provider || node.courses[0]?.provider || 'Curated Resource',
-            url: resource.source_url || node.courses[0]?.url || '',
-            source_resource_id: resource.resource_id,
-            confidence_score: confidenceScore ?? resource.score,
-            display_badges: resource.display_badges,
-            recommendation_reason: resource.recommendation_reason,
-            duration_hours: node.courses[0]?.duration_hours || Math.max(1, Math.round(node.skill.duration_hours * 0.6)),
-            level: node.courses[0]?.level || node.skill.level,
-            rating: node.courses[0]?.rating || 4,
-            free: node.courses[0]?.free ?? true,
-            course_type: node.courses[0]?.course_type || 'text',
-            created_at: node.courses[0]?.created_at || new Date().toISOString(),
-          };
+  const handleStartSkill = (skillIndex: number) => {
+    if (!roadmap) return;
+    const updatedRoadmap = { ...roadmap };
+    const skill = updatedRoadmap.skills[skillIndex];
 
-          return {
-            ...node,
-            primaryResource: resource,
-            courses: [updatedCourse, ...node.courses.slice(1)],
-          };
-        }),
-        updated_at: new Date().toISOString(),
+    if (!skill.userProgress) {
+      skill.userProgress = {
+        started: true,
+        completedPercentage: 0,
+        completedCourses: [],
       };
-    });
+    } else {
+      skill.userProgress.started = true;
+    }
 
-    setSelectedSkill((current) => {
-      if (!current || current.skill.id !== skillId) return current;
-      const updatedCourse: LearningCourse = {
-        id: `${skillId}-resource`,
-        skill_id: skillId,
-        title: resource.title || current.courses[0]?.title || current.skill.name,
-        description: resource.why_selected || current.courses[0]?.description || `Recommended learning resource for ${current.skill.name}`,
-        provider: resource.provider || current.courses[0]?.provider || 'Curated Resource',
-        url: resource.source_url || current.courses[0]?.url || '',
-        source_resource_id: resource.resource_id,
-        confidence_score: confidenceScore ?? resource.score,
-        display_badges: resource.display_badges,
-        recommendation_reason: resource.recommendation_reason,
-        duration_hours: current.courses[0]?.duration_hours || Math.max(1, Math.round(current.skill.duration_hours * 0.6)),
-        level: current.courses[0]?.level || current.skill.level,
-        rating: current.courses[0]?.rating || 4,
-        free: current.courses[0]?.free ?? true,
-        course_type: current.courses[0]?.course_type || 'text',
-        created_at: current.courses[0]?.created_at || new Date().toISOString(),
-      };
-      return {
-        ...current,
-        primaryResource: resource,
-        courses: [updatedCourse, ...current.courses.slice(1)],
-      };
-    });
+    setRoadmap(updatedRoadmap);
   };
 
-  const pollIngestionStatus = async (
-    skillId: string,
-    jobId: string,
-    replacementResource: LearningRoadmapResource | null,
-  ) => {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      const response = await fetchIngestionStatus(jobId);
-      const status = response.data;
-      setIngestionStatusBySkill((current) => ({ ...current, [skillId]: status }));
+  const handleUpdateProgress = (skillIndex: number, percentage: number) => {
+    if (!roadmap) return;
+    const updatedRoadmap = { ...roadmap };
+    const skill = updatedRoadmap.skills[skillIndex];
 
-      if (
-        status.outcome === 'completed' ||
-        status.outcome === 'partial_success' ||
-        status.outcome === 'no_changes' ||
-        status.status === 'completed'
-      ) {
-        const storedResource = status.stored_resource
-          ? {
-              resource_id: status.stored_resource.resource_id,
-              title: status.stored_resource.title,
-              provider: status.stored_resource.provider,
-              source_url: status.stored_resource.url,
-              score: replacementResource?.score ?? 0,
-              why_selected: replacementResource?.why_selected ?? null,
-              display_badges: replacementResource?.display_badges ?? null,
-              recommendation_reason: replacementResource?.recommendation_reason ?? null,
-            }
-          : replacementResource;
-        if (storedResource) replacePrimaryResource(skillId, storedResource);
-        return;
-      }
-
-      if (status.outcome === 'failed' || status.status === 'failed') {
-        Alert.alert('Source refresh failed', status.error_message || 'The source could not be ingested.');
-        return;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+    if (!skill.userProgress) {
+      skill.userProgress = {
+        started: true,
+        completedPercentage: percentage,
+        completedCourses: [],
+      };
+    } else {
+      skill.userProgress.completedPercentage = Math.min(percentage, 100);
+      skill.userProgress.started = true;
     }
+
+    setRoadmap(updatedRoadmap);
   };
 
-  const handleRefreshResource = async (node: LearningRoadmapNode) => {
-    const replacement =
-      node.backupResources?.find(
-        (resource) => resource.source_url && resource.source_url !== node.primaryResource?.source_url,
-      ) || node.primaryResource || null;
-
-    if (!replacement?.source_url) {
-      Alert.alert('No source URL', 'This step does not have a refreshable source yet.');
-      return;
-    }
-
-    setRefreshingSkillId(node.skill.id);
-    try {
-      const response = await refreshRoadmapProvider({
-        url: replacement.source_url,
-        skillName: node.skill.name.toLowerCase().replace(/\s+/g, '_'),
-        targetRole: roadmap?.career_title || targetRoleInput || params.careerTitle,
-      });
-      setIngestionStatusBySkill((current) => ({
-        ...current,
-        [node.skill.id]: {
-          id: response.data.id,
-          provider: response.data.provider,
-          job_type: 'on_demand_refresh',
-          status: response.data.status,
-          outcome: response.data.status === 'completed' ? 'completed' : 'pending',
-          stats: null,
-          filters: response.data.filters || null,
-          error_message: null,
-          started_at: null,
-          finished_at: null,
-          created_at: null,
-          updated_at: null,
-          queue_state: null,
-          stored_resource: null,
-        },
-      }));
-      await pollIngestionStatus(node.skill.id, response.data.id, replacement);
-    } catch (error: any) {
-      Alert.alert('Refresh failed', error?.message ? String(error.message) : 'Unable to refresh this source.');
-    } finally {
-      setRefreshingSkillId(null);
-    }
+  const handleCompleteSkill = (skillIndex: number) => {
+    handleUpdateProgress(skillIndex, 100);
   };
 
   const handleGenerate = async () => {
     setLoading(true);
     try {
-      const userSkills = parseSkillsInput(skillsInput);
-      const targetRole = targetRoleInput.trim() || params.careerTitle;
       const planned = await fetchRoadmapPlanFromBackend({
         careerId: params.careerId,
-        careerTitle: targetRole,
-        targetRole,
+        careerTitle: params.careerTitle,
         careerDescription: params.careerDescription,
-        userSkills,
+        targetRole: params.careerTitle,
         maxSteps: 12,
       });
+
       const generated = buildLearningRoadmapFromPlan(planned);
       setRoadmap(generated);
+
+      if (state.user?.id) {
+        const roadmapWithUser = { ...generated, user_id: state.user.id };
+        await saveLearningRoadmap(state.user.id, roadmapWithUser);
+        await saveLearningRoadmapToBackend({
+          careerId: String(generated.career_id || params.careerId || params.careerTitle),
+          careerTitle: String(generated.career_title || params.careerTitle),
+          roadmapData: roadmapWithUser as unknown as Record<string, unknown>,
+        });
+      }
     } catch (error: any) {
       console.error('[LearningRoadmap] Generate failed', error);
       Alert.alert('Generation failed', error?.message ? String(error.message) : 'Unknown error');
@@ -688,6 +441,7 @@ export default function LearningRoadmapScreen(): React.ReactElement {
 
   const handleSave = async () => {
     if (!roadmap || !state.user?.id) return;
+
     setSaving(true);
     try {
       const roadmapWithUser = { ...roadmap, user_id: state.user.id };
@@ -708,36 +462,27 @@ export default function LearningRoadmapScreen(): React.ReactElement {
   };
 
   const renderSkillCard = (item: LearningRoadmapNode, index: number) => {
-    // Determine status based on actual userProgress data
     const userProgress = item.userProgress;
     const isCompleted = userProgress?.completedPercentage === 100;
-    const isInProgress = (userProgress?.started === true && userProgress?.completedPercentage < 100);
+    const isInProgress = userProgress?.started === true && userProgress?.completedPercentage < 100;
     const isLocked = !userProgress?.started;
-    const progress = userProgress?.completedPercentage || 0;
-    const primaryCourse = item.courses?.[0];
-
     const rotation = rotationAnim.interpolate({
       inputRange: [0, 1],
       outputRange: ['0deg', '360deg'],
     });
 
+    const primaryCourse = item.courses?.[0];
+
     return (
       <View key={item.skill.id} style={styles.timelineItem}>
-        {/* Timeline Circle */}
         <View style={styles.timelineCircleContainer}>
           <View
             style={[
               styles.timelineCircle,
               {
-                backgroundColor: isCompleted
-                  ? '#22c55e'
-                  : isInProgress
-                    ? '#8158F8'
-                    : '#E5E7EB',
+                backgroundColor: isCompleted ? '#22c55e' : isInProgress ? '#8158F8' : '#E5E7EB',
                 borderColor: isInProgress ? '#8158F8' : 'transparent',
                 borderWidth: isInProgress ? 4 : 0,
-                shadowColor: isInProgress ? '#8158F8' : '#000',
-                shadowOpacity: isInProgress ? 0.25 : 0.1,
               },
             ]}
           >
@@ -751,12 +496,11 @@ export default function LearningRoadmapScreen(): React.ReactElement {
           </View>
         </View>
 
-        {/* Timeline Card */}
         <Pressable
           style={({ pressed }) => [
             styles.skillCard,
             {
-              backgroundColor: isInProgress ? '#f5f3ff' : isCompleted ? '#f0fdf4' : '#f8f9fa',
+              backgroundColor: isInProgress ? '#f5f3ff' : isCompleted ? '#f0fdf4' : '#ffffff',
               borderLeftColor: isInProgress ? '#8158F8' : isCompleted ? '#22c55e' : '#E5E7EB',
               opacity: isLocked ? 0.6 : 1,
             },
@@ -764,28 +508,19 @@ export default function LearningRoadmapScreen(): React.ReactElement {
           ]}
           onPress={() => !isLocked && setSelectedSkill(item)}
         >
-          {/* Header Row */}
           <View style={styles.cardHeader}>
             <View style={{ flex: 1 }}>
               <Text style={styles.skillTitle}>{item.skill.name}</Text>
               {isCompleted && <Text style={styles.statusBadge}>Completed</Text>}
             </View>
-            {!isLocked && (
-              <Ionicons
-                name={isLocked ? 'eye-off' : 'chevron-forward'}
-                size={20}
-                color="#6B5B95"
-              />
-            )}
+            {!isLocked && <Ionicons name="chevron-forward" size={20} color="#6B5B95" />}
           </View>
 
           <Text style={[styles.skillDescription, { color: isLocked ? '#9CA3AF' : '#6B5B95' }]}>
             {item.skill.description}
           </Text>
 
-          {/* Metadata Row */}
           <View style={styles.metadataRow}>
-            {/* Difficulty Badge */}
             <View style={[styles.badge, { backgroundColor: getDifficultyColor(item.skill.level) + '20' }]}>
               <Ionicons
                 name={getDifficultyIcon(item.skill.level)}
@@ -797,13 +532,11 @@ export default function LearningRoadmapScreen(): React.ReactElement {
               </Text>
             </View>
 
-            {/* Duration Badge */}
             <View style={[styles.badge, { backgroundColor: '#f2e2ff' }]}>
               <Ionicons name="time-outline" size={12} color="#8158F8" />
               <Text style={[styles.badgeText, { color: '#8158F8' }]}>{item.skill.duration_hours}h</Text>
             </View>
 
-            {/* Importance Badge */}
             <View
               style={[
                 styles.badge,
@@ -833,7 +566,6 @@ export default function LearningRoadmapScreen(): React.ReactElement {
                 {item.skill.importance === 'critical' ? '★' : item.skill.importance === 'important' ? '◆' : '○'}
               </Text>
             </View>
-
           </View>
 
           {primaryCourse?.url && (
@@ -842,12 +574,9 @@ export default function LearningRoadmapScreen(): React.ReactElement {
               onPress={() => openResourceUrl(primaryCourse.url)}
             >
               <View style={styles.inlineResourceText}>
-                {/* 👇 Explicit skill linkage */}
                 <View style={styles.skillLinkageBadge}>
                   <Ionicons name="link-outline" size={12} color="#22c55e" />
-                  <Text style={styles.skillLinkageText}>
-                    Best for: {item.skill.name}
-                  </Text>
+                  <Text style={styles.skillLinkageText}>Best for: {item.skill.name}</Text>
                 </View>
 
                 <Text style={styles.inlineResourceProvider} numberOfLines={1}>
@@ -856,26 +585,11 @@ export default function LearningRoadmapScreen(): React.ReactElement {
                 <Text style={styles.inlineResourceTitle} numberOfLines={2}>
                   {primaryCourse.title}
                 </Text>
-                {primaryCourse.recommendation_reason && (
-                  <Text style={styles.resourceReason} numberOfLines={2}>
-                    {primaryCourse.recommendation_reason}
-                  </Text>
-                )}
-                {Boolean(primaryCourse.display_badges?.length) && (
-                  <View style={styles.resourceBadgeRow}>
-                    {primaryCourse.display_badges?.map((badge) => (
-                      <View key={badge} style={styles.resourceBadge}>
-                        <Text style={styles.resourceBadgeText}>{badge}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
               </View>
               <Ionicons name="open-outline" size={18} color="#8158F8" />
             </Pressable>
           )}
 
-          {/* Action Buttons */}
           {!isCompleted && (
             <View style={[styles.metaSection, { paddingTop: 12, marginTop: 12 }]}>
               {isLocked ? (
@@ -912,30 +626,6 @@ export default function LearningRoadmapScreen(): React.ReactElement {
             Generate a personalized learning roadmap to master the skills needed for {params.careerTitle}
           </Text>
 
-          <View style={styles.planForm}>
-            <Text style={styles.inputLabel}>Target role</Text>
-            <TextInput
-              style={styles.textInput}
-              value={targetRoleInput}
-              onChangeText={setTargetRoleInput}
-              placeholder="backend_developer"
-              placeholderTextColor="#9CA3AF"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Text style={styles.inputLabel}>Your skills</Text>
-            <TextInput
-              style={[styles.textInput, styles.skillsInput]}
-              value={skillsInput}
-              onChangeText={setSkillsInput}
-              placeholder="e.g., javascript, react, node.js"
-              placeholderTextColor="#9CA3AF"
-              autoCapitalize="none"
-              autoCorrect={false}
-              multiline
-            />
-          </View>
-
           <Pressable
             style={({ pressed }) => [styles.generateButton, pressed && styles.generateButtonPressed]}
             onPress={handleGenerate}
@@ -948,7 +638,25 @@ export default function LearningRoadmapScreen(): React.ReactElement {
     );
   }
 
-  const completedCount = roadmap?.skills.filter(s => s.userProgress?.completedPercentage === 100).length || 0;
+  if (loading) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.loadingContainer}>
+          <View style={styles.loadingIcon}>
+            <Ionicons name="sparkles" size={48} color="#8158F8" />
+          </View>
+          <Text style={styles.loadingTitle}>Building your roadmap</Text>
+          <Text style={styles.loadingSubtitle}>
+            Analyzing skills and finding the best courses for {normalizeSkillLabel(params.careerTitle)}
+          </Text>
+          <ActivityIndicator size="large" color="#8158F8" style={{ marginTop: 24 }} />
+        </View>
+      </View>
+    );
+  }
+
+  const completedCount =
+    roadmap?.skills.filter((skill) => skill.userProgress?.completedPercentage === 100).length || 0;
   const totalCount = roadmap?.skills.length || 1;
   const progressPercent = (completedCount / totalCount) * 100;
 
@@ -960,12 +668,13 @@ export default function LearningRoadmapScreen(): React.ReactElement {
         scrollEnabled={!selectedSkill}
         contentContainerStyle={{ paddingBottom: 80 }}
       >
-        {/* Progress Header Section */}
         <View style={styles.progressHeaderSection}>
           <View style={styles.progressHeader}>
             <View>
               <Text style={styles.currentPathLabel}>Current Path</Text>
-              <Text style={styles.careerTitle}>{normalizeSkillLabel(String(roadmap?.career_title || params.careerTitle))}</Text>
+              <Text style={styles.careerTitle}>
+                {normalizeSkillLabel(String(roadmap?.career_title || params.careerTitle))}
+              </Text>
             </View>
             <View style={styles.progressPercentage}>
               <Text style={styles.progressPercent}>{Math.round(progressPercent)}%</Text>
@@ -973,7 +682,6 @@ export default function LearningRoadmapScreen(): React.ReactElement {
             </View>
           </View>
 
-          {/* Progress Bar */}
           <View style={styles.progressBarContainer}>
             <Animated.View
               style={[
@@ -989,12 +697,9 @@ export default function LearningRoadmapScreen(): React.ReactElement {
           </View>
         </View>
 
-        {/* Timeline Section */}
         <View style={styles.timelineSection}>
-          {/* Ghost Line */}
           <View style={styles.ghostLine} />
 
-          {/* Skills Timeline */}
           {roadmap?.skills.length > 0 && (
             <View style={styles.timelineSummary}>
               <View style={styles.timelineSummaryIcon}>
@@ -1007,15 +712,11 @@ export default function LearningRoadmapScreen(): React.ReactElement {
                 </Text>
               </View>
             </View>
-          )
-}
+          )}
 
-          <View style={styles.skillsTimeline}>
-            {roadmap?.skills.map((skill, index) => renderSkillCard(skill, index))}
-          </View>
+          <View style={styles.skillsTimeline}>{roadmap?.skills.map((skill, index) => renderSkillCard(skill, index))}</View>
         </View>
 
-        {/* AI Recommendation Card */}
         {roadmap && (
           <View style={styles.aiRecommendationCard}>
             <View style={styles.aiIconContainer}>
@@ -1026,14 +727,10 @@ export default function LearningRoadmapScreen(): React.ReactElement {
               <Text style={styles.aiText}>
                 Complete fundamentals first to build a strong foundation. Consider scheduling a 1:1 mentor session for advanced topics.
               </Text>
-              <Pressable style={styles.aiButton}>
-                <Text style={styles.aiButtonText}>Schedule Mentor →</Text>
-              </Pressable>
             </View>
           </View>
         )}
 
-        {/* Action Buttons */}
         {roadmap && !selectedSkill && (
           <View style={[styles.actionButtons, { marginHorizontal: 16, marginVertical: 12, borderTopWidth: 0 }]}>
             <Pressable
@@ -1066,51 +763,38 @@ export default function LearningRoadmapScreen(): React.ReactElement {
         )}
       </ScrollView>
 
-      {/* Detail Panel */}
       {selectedSkill && (
         <View style={[styles.detailPanel, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          {/* Close Button */}
-          <Pressable 
-            style={styles.detailCloseButton}
-            onPress={() => setSelectedSkill(null)}
-          >
+          <Pressable style={styles.detailCloseButton} onPress={() => setSelectedSkill(null)}>
             <Ionicons name="chevron-down" size={24} color="#37274d" />
           </Pressable>
 
           <ScrollView style={styles.detailScroll} showsVerticalScrollIndicator={false}>
-            {/* Header Card */}
             <View style={styles.detailHeaderCard}>
               <View style={styles.detailHeaderBadge}>
                 <Ionicons name="school-outline" size={40} color="#8158F8" />
               </View>
               <Text style={styles.detailHeaderTitle}>{selectedSkill.skill.name}</Text>
               <Text style={styles.detailHeaderSubtitle}>{selectedSkill.skill.description}</Text>
-              
-              {/* Metadata Pills */}
+
               <View style={styles.metadatapills}>
                 <View style={styles.metadataPill}>
                   <Ionicons name="time-outline" size={14} color="#8158F8" />
                   <Text style={styles.metadataPillText}>{selectedSkill.skill.duration_hours}h</Text>
                 </View>
                 <View style={styles.metadataPill}>
-                  <Ionicons name={getDifficultyIcon(selectedSkill.skill.level)} size={14} color={getDifficultyColor(selectedSkill.skill.level)} />
+                  <Ionicons
+                    name={getDifficultyIcon(selectedSkill.skill.level)}
+                    size={14}
+                    color={getDifficultyColor(selectedSkill.skill.level)}
+                  />
                   <Text style={[styles.metadataPillText, { color: getDifficultyColor(selectedSkill.skill.level) }]}>
                     {selectedSkill.skill.level}
-                  </Text>
-                </View>
-                <View style={[styles.metadataPill, {
-                  backgroundColor: selectedSkill.skill.importance === 'critical' ? '#fee2e2' : selectedSkill.skill.importance === 'important' ? '#fef3c7' : '#f2e2ff'
-                }]}>
-                  <Text style={[styles.metadataPillText, {
-                    color: selectedSkill.skill.importance === 'critical' ? '#dc2626' : selectedSkill.skill.importance === 'important' ? '#d97706' : '#8158F8'
-                  }]}>
-                    {selectedSkill.skill.importance === 'critical' ? '★ Critical' : selectedSkill.skill.importance === 'important' ? '◆ Important' : '○ Optional'}
                   </Text>
                 </View>
               </View>
             </View>
 
-            {/* Courses Section */}
             {selectedSkill.courses && selectedSkill.courses.length > 0 && (
               <View style={styles.detailSectionContent}>
                 <View style={styles.sectionHeader}>
@@ -1135,31 +819,11 @@ export default function LearningRoadmapScreen(): React.ReactElement {
                           <Text style={styles.courseTitle} numberOfLines={2}>
                             {course.title}
                           </Text>
-                          {course.recommendation_reason && (
-                            <Text style={styles.resourceReason} numberOfLines={2}>
-                              {course.recommendation_reason}
-                            </Text>
-                          )}
-                          {Boolean(course.display_badges?.length) && (
-                            <View style={styles.resourceBadgeRow}>
-                              {course.display_badges?.map((badge) => (
-                                <View key={badge} style={styles.resourceBadge}>
-                                  <Text style={styles.resourceBadgeText}>{badge}</Text>
-                                </View>
-                              ))}
-                            </View>
-                          )}
                         </View>
                         <Ionicons name="open-outline" size={22} color="#8158F8" />
                       </View>
 
                       <View style={styles.courseMetadata}>
-                        {course.rating && (
-                          <View style={styles.courseMetaItem}>
-                            <Ionicons name="star" size={14} color="#FCD34D" />
-                            <Text style={styles.courseMetaLabel}>{course.rating}/5</Text>
-                          </View>
-                        )}
                         <View style={styles.courseMetaItem}>
                           <Ionicons name="flag-outline" size={14} color={getDifficultyColor(course.level)} />
                           <Text style={[styles.courseMetaLabel, { color: getDifficultyColor(course.level) }]}>
@@ -1169,56 +833,13 @@ export default function LearningRoadmapScreen(): React.ReactElement {
                         {course.free && (
                           <View style={[styles.courseMetaItem, { backgroundColor: '#dcfce7' }]}>
                             <Ionicons name="pricetag-outline" size={14} color="#22c55e" />
-                            <Text style={[styles.courseMetaLabel, { color: '#22c55e' }]}>
-                              Free
-                            </Text>
+                            <Text style={[styles.courseMetaLabel, { color: '#22c55e' }]}>Free</Text>
                           </View>
                         )}
                       </View>
                     </View>
                   </Pressable>
                 ))}
-
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.refreshSourceButton,
-                    pressed && styles.buttonPressed,
-                    refreshingSkillId === selectedSkill.skill.id && styles.buttonDisabled,
-                  ]}
-                  onPress={() => handleRefreshResource(selectedSkill)}
-                  disabled={refreshingSkillId === selectedSkill.skill.id}
-                >
-                  {refreshingSkillId === selectedSkill.skill.id ? (
-                    <ActivityIndicator size="small" color="#8158F8" />
-                  ) : (
-                    <Ionicons name="refresh" size={18} color="#8158F8" />
-                  )}
-                  <Text style={styles.refreshSourceText}>Generate More Options</Text>
-                </Pressable>
-
-                {ingestionStatusBySkill[selectedSkill.skill.id] && (
-                  <View style={styles.ingestionStatusCard}>
-                    <View style={styles.ingestionStatusHeader}>
-                      <Ionicons name="cloud-done-outline" size={18} color="#8158F8" />
-                      <Text style={styles.ingestionStatusTitle}>
-                        {ingestionStatusBySkill[selectedSkill.skill.id].outcome}
-                      </Text>
-                    </View>
-                    <View style={styles.ingestionStatsRow}>
-                      <Text style={styles.ingestionStatText}>
-                        Stored {ingestionStatusBySkill[selectedSkill.skill.id].stats?.stored_count ?? 0}
-                      </Text>
-                      <Text style={styles.ingestionStatText}>
-                        Skipped {ingestionStatusBySkill[selectedSkill.skill.id].stats?.skipped_count ?? 0}
-                      </Text>
-                    </View>
-                    {ingestionStatusBySkill[selectedSkill.skill.id].queue_state && (
-                      <Text style={styles.queueStateText}>
-                        Queue {String(ingestionStatusBySkill[selectedSkill.skill.id].queue_state?.status || 'active')}
-                      </Text>
-                    )}
-                  </View>
-                )}
               </View>
             )}
 
@@ -1239,6 +860,48 @@ export default function LearningRoadmapScreen(): React.ReactElement {
               </View>
             )}
 
+            {selectedSkill.certifications && selectedSkill.certifications.length > 0 && (
+              <View style={styles.detailSectionContent}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="ribbon-outline" size={20} color="#F59E0B" />
+                  <Text style={styles.sectionTitle}>Certifications</Text>
+                  <Text style={styles.courseCount}>{selectedSkill.certifications.length}</Text>
+                </View>
+
+                {selectedSkill.certifications.map((cert) => (
+                  <Pressable
+                    key={cert.resource_id || cert.title}
+                    style={({ pressed }) => [styles.courseCard, pressed && { opacity: 0.85 }]}
+                    onPress={() => openResourceUrl(cert.source_url)}
+                  >
+                    <View style={styles.courseCardContent}>
+                      <View style={styles.courseHeader}>
+                        <View style={[styles.providerBadge, { backgroundColor: '#FEF3C7' }]}>
+                          <Text style={[styles.providerBadgeText, { color: '#D97706' }]}>
+                            {(cert.provider || 'CERT').substring(0, 2).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.courseProvider}>{cert.provider || 'Certification'}</Text>
+                          <Text style={styles.courseTitle} numberOfLines={2}>
+                            {cert.title || 'Certification'}
+                          </Text>
+                        </View>
+                        <Ionicons name="open-outline" size={22} color="#F59E0B" />
+                      </View>
+
+                      <View style={styles.courseMetadata}>
+                        <View style={[styles.courseMetaItem, { backgroundColor: '#FEF3C7' }]}>
+                          <Ionicons name="ribbon-outline" size={14} color="#D97706" />
+                          <Text style={[styles.courseMetaLabel, { color: '#D97706' }]}>Certification</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
             <View style={{ height: 60 }} />
           </ScrollView>
         </View>
@@ -1252,30 +915,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8F9FA',
   },
-  centerContent: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  /* Header Bar */
-  headerBar: {
-    display: 'none',
-  },
-  headerBarTitle: {
-    display: 'none',
-  },
-
-  /* Content Area */
   content: {
     flex: 1,
   },
-
-  /* Progress Header Section */
   progressHeaderSection: {
     paddingHorizontal: 16,
     paddingVertical: 28,
     backgroundColor: '#ffffff',
-    borderBottomWidth: 0,
   },
   progressHeader: {
     flexDirection: 'row',
@@ -1286,7 +932,7 @@ const styles = StyleSheet.create({
   currentPathLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: "#9c9a9a",
+    color: '#9c9a9a',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 6,
@@ -1294,7 +940,7 @@ const styles = StyleSheet.create({
   careerTitle: {
     fontSize: 28,
     fontWeight: '800',
-    color: "#37274d",
+    color: '#37274d',
     letterSpacing: -0.02,
   },
   progressPercentage: {
@@ -1303,7 +949,7 @@ const styles = StyleSheet.create({
   progressPercent: {
     fontSize: 28,
     fontWeight: '800',
-    color: "#8158F8",
+    color: '#8158F8',
   },
   progressPercentLabel: {
     fontSize: 12,
@@ -1313,16 +959,15 @@ const styles = StyleSheet.create({
   },
   progressBarContainer: {
     height: 8,
-    backgroundColor: "#f2e2ff",
+    backgroundColor: '#f2e2ff',
     borderRadius: 4,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: "#8158F8",
+    backgroundColor: '#8158F8',
     borderRadius: 4,
   },
-  /* Timeline Section */
   timelineSection: {
     paddingHorizontal: 16,
     paddingVertical: 24,
@@ -1334,7 +979,7 @@ const styles = StyleSheet.create({
     top: 24,
     bottom: 24,
     width: 1,
-    backgroundColor: "#f2e2ff",
+    backgroundColor: '#f2e2ff',
   },
   skillsTimeline: {
     paddingLeft: 0,
@@ -1392,17 +1037,15 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderWidth: 4,
   },
-
-  /* Skill Card */
   skillCard: {
     flex: 1,
     marginLeft: 12,
     marginRight: 16,
     padding: 16,
     borderRadius: 20,
-    backgroundColor: "#ffffff",
+    backgroundColor: '#ffffff',
     borderLeftWidth: 0,
-    shadowColor: "#37274d",
+    shadowColor: '#37274d',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
@@ -1420,14 +1063,14 @@ const styles = StyleSheet.create({
   skillTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: "#37274d",
+    color: '#37274d',
     marginBottom: 4,
     letterSpacing: -0.2,
   },
   statusBadge: {
     fontSize: 11,
     fontWeight: '700',
-    color: "#22c55e",
+    color: '#22c55e',
     backgroundColor: '#DCFCE7',
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -1436,13 +1079,11 @@ const styles = StyleSheet.create({
   },
   skillDescription: {
     fontSize: 13,
-    color: "#6B5B95",
+    color: '#6B5B95',
     lineHeight: 19,
     marginBottom: 12,
     fontWeight: '500',
   },
-
-  /* Metadata Row */
   metadataRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1456,12 +1097,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 16,
-    backgroundColor: "#f2e2ff",
+    backgroundColor: '#f2e2ff',
   },
   badgeText: {
     fontSize: 12,
     fontWeight: '600',
-    color: "#8158F8",
+    color: '#8158F8',
   },
   badgeTextSmall: {
     fontSize: 12,
@@ -1510,101 +1151,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#166534',
   },
-  resourceReason: {
-    marginTop: 5,
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#6B5B95',
-    lineHeight: 16,
-  },
-  resourceBadgeRow: {
-    marginTop: 8,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  resourceBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: '#f2e2ff',
-  },
-  resourceBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#6B5B95',
-  },
-
-  /* Progress Section in Card */
-  progressSection: {
-    marginTop: 12,
-    paddingTop: 14,
-    borderTopWidth: 0,
-  },
-  progressMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  progressLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: "#8158F8",
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  progressTime: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: "#8158F8",
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: "#f2e2ff",
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-
-  /* Meta Section */
   metaSection: {
     borderTopWidth: 0,
     paddingTop: 14,
     marginTop: 14,
   },
-  metaTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#9c9a9a',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  metaItems: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  metaTag: {
-    fontSize: 11,
-    color: "#8158F8",
-    backgroundColor: '#f2e2ff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 0,
-  },
-  metaTagLocked: {
-    color: '#9c9a9a',
-    backgroundColor: '#f8f9fa',
-    fontStyle: 'italic',
-  },
-
-  /* AI Recommendation Card */
   aiRecommendationCard: {
     margin: 16,
     marginTop: 32,
@@ -1616,7 +1167,7 @@ const styles = StyleSheet.create({
     gap: 16,
     borderWidth: 0,
     marginBottom: 24,
-    shadowColor: "#37274d",
+    shadowColor: '#37274d',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
@@ -1626,7 +1177,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: "#8158F8" + '25',
+    backgroundColor: '#8158F8' + '25',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1636,26 +1187,16 @@ const styles = StyleSheet.create({
   aiTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: "#37274d",
+    color: '#37274d',
     marginBottom: 6,
   },
   aiText: {
     fontSize: 12,
-    color: "#6B5B95",
+    color: '#6B5B95',
     lineHeight: 18,
     marginBottom: 12,
     fontWeight: '500',
   },
-  aiButton: {
-    paddingHorizontal: 0,
-  },
-  aiButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: "#8158F8",
-  },
-
-  /* Detail Panel */
   detailPanel: {
     position: 'absolute',
     bottom: 0,
@@ -1682,8 +1223,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
   },
-
-  /* Detail Header Card */
   detailHeaderCard: {
     backgroundColor: '#ffffff',
     borderRadius: 24,
@@ -1693,7 +1232,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
     borderWidth: 0,
-    shadowColor: "#37274d",
+    shadowColor: '#37274d',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
@@ -1703,7 +1242,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 16,
-    backgroundColor: "#f2e2ff",
+    backgroundColor: '#f2e2ff',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -1711,14 +1250,14 @@ const styles = StyleSheet.create({
   detailHeaderTitle: {
     fontSize: 22,
     fontWeight: '800',
-    color: "#37274d",
+    color: '#37274d',
     textAlign: 'center',
     marginBottom: 12,
     letterSpacing: -0.02,
   },
   detailHeaderSubtitle: {
     fontSize: 13,
-    color: "#6B5B95",
+    color: '#6B5B95',
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 16,
@@ -1736,17 +1275,15 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: "#f2e2ff",
+    backgroundColor: '#f2e2ff',
     borderRadius: 16,
     borderWidth: 0,
   },
   metadataPillText: {
     fontSize: 12,
     fontWeight: '600',
-    color: "#8158F8",
+    color: '#8158F8',
   },
-
-  /* Section Content */
   detailSectionContent: {
     marginBottom: 28,
   },
@@ -1760,7 +1297,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: "#37274d",
+    color: '#37274d',
     flex: 1,
     letterSpacing: -0.3,
   },
@@ -1773,15 +1310,13 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
   },
-
-  /* Course Card */
   courseCard: {
     backgroundColor: '#ffffff',
     borderRadius: 20,
     padding: 16,
     marginBottom: 12,
     borderWidth: 0,
-    shadowColor: "#37274d",
+    shadowColor: '#37274d',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
@@ -1799,25 +1334,25 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "#f2e2ff",
+    backgroundColor: '#f2e2ff',
     justifyContent: 'center',
     alignItems: 'center',
   },
   providerBadgeText: {
     fontSize: 12,
     fontWeight: '700',
-    color: "#8158F8",
+    color: '#8158F8',
   },
   courseProvider: {
     fontSize: 11,
     fontWeight: '600',
-    color: "#8158F8",
+    color: '#8158F8',
     marginBottom: 4,
   },
   courseTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: "#37274d",
+    color: '#37274d',
     lineHeight: 18,
   },
   courseMetadata: {
@@ -1840,61 +1375,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#6B5B95',
   },
-  refreshSourceButton: {
-    marginTop: 4,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: '#f2e2ff',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  refreshSourceText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#8158F8',
-  },
-  ingestionStatusCard: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: '#f8f9fa',
-    gap: 8,
-  },
-  ingestionStatusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  ingestionStatusTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#37274d',
-    textTransform: 'capitalize',
-  },
-  ingestionStatsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  ingestionStatText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#6B5B95',
-    backgroundColor: '#ffffff',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  queueStateText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#9CA3AF',
-  },
-
-  /* Prerequisite Card */
   prerequisiteCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1909,10 +1389,8 @@ const styles = StyleSheet.create({
   prerequisiteTitle: {
     fontSize: 13,
     fontWeight: '600',
-    color: "#37274d",
+    color: '#37274d',
   },
-
-  /* Action Buttons */
   actionButtons: {
     flexDirection: 'row',
     gap: 12,
@@ -1936,7 +1414,7 @@ const styles = StyleSheet.create({
   buttonSecondaryText: {
     fontSize: 14,
     fontWeight: '700',
-    color: "#8158F8",
+    color: '#8158F8',
   },
   buttonPrimary: {
     flex: 1,
@@ -1945,7 +1423,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 14,
     borderRadius: 16,
-    backgroundColor: "#8158F8",
+    backgroundColor: '#8158F8',
     gap: 6,
   },
   buttonPrimaryText: {
@@ -1959,8 +1437,6 @@ const styles = StyleSheet.create({
   buttonDisabled: {
     opacity: 0.6,
   },
-
-  /* Empty State */
   emptyStateContent: {
     flex: 1,
     justifyContent: 'center',
@@ -1973,7 +1449,7 @@ const styles = StyleSheet.create({
   emptyStateTitle: {
     fontSize: 24,
     fontWeight: '800',
-    color: "#37274d",
+    color: '#37274d',
     marginBottom: 12,
     textAlign: 'center',
     letterSpacing: -0.02,
@@ -1986,44 +1462,16 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     fontWeight: '500',
   },
-  planForm: {
-    width: '100%',
-    marginBottom: 18,
-    gap: 8,
-  },
-  inputLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#6B5B95',
-    marginTop: 4,
-  },
-  textInput: {
-    width: '100%',
-    minHeight: 48,
-    borderRadius: 12,
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: '#37274d',
-    fontSize: 14,
-    fontWeight: '600',
-    borderWidth: 1,
-    borderColor: '#f2e2ff',
-  },
-  skillsInput: {
-    minHeight: 78,
-    textAlignVertical: 'top',
-  },
   generateButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: "#8158F8",
+    backgroundColor: '#8158F8',
     paddingVertical: 14,
     paddingHorizontal: 28,
     borderRadius: 16,
     gap: 10,
-    shadowColor: "#8158F8",
+    shadowColor: '#8158F8',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
     shadowRadius: 12,
@@ -2038,24 +1486,46 @@ const styles = StyleSheet.create({
     color: 'white',
     letterSpacing: -0.3,
   },
-  loadingText: {
-    fontSize: 14,
-    color: "#37274d",
-    marginTop: 16,
-    fontWeight: '600',
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
   },
-
-  /* Skill Action Buttons */
+  loadingIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    backgroundColor: '#f2e2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  loadingTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#37274d',
+    marginBottom: 8,
+    textAlign: 'center',
+    letterSpacing: -0.3,
+  },
+  loadingSubtitle: {
+    fontSize: 14,
+    color: '#6B5B95',
+    textAlign: 'center',
+    lineHeight: 21,
+    fontWeight: '500',
+  },
   startButton: {
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: "#8158F8",
+    backgroundColor: '#8158F8',
     alignItems: 'center',
     justifyContent: 'center',
     borderTopWidth: 0,
     marginTop: 12,
-    shadowColor: "#8158F8",
+    shadowColor: '#8158F8',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -2065,12 +1535,12 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: "#22c55e",
+    backgroundColor: '#22c55e',
     alignItems: 'center',
     justifyContent: 'center',
     borderTopWidth: 0,
     marginTop: 12,
-    shadowColor: "#22c55e",
+    shadowColor: '#22c55e',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.2,
     shadowRadius: 8,

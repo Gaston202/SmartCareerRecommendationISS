@@ -15,6 +15,7 @@ class Intent(str, Enum):
     CAREER_INFO = "career_info"
     USER_SESSIONS = "user_sessions"
     EXPLAIN_FEATURE = "explain_feature"
+    PROFILE = "profile"
 
 
 class BookingStatus(str, Enum):
@@ -80,6 +81,7 @@ class BookingContext(BaseModel):
     mentor_name: Optional[str] = None
     preferred_date: Optional[str] = None
     preferred_time: Optional[str] = None
+    specialty: Optional[str] = None
     duration_minutes: int = 30
     slots: list[AvailabilitySlot] = []
     confirmed: bool = False

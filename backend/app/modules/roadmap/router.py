@@ -1,7 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from typing import Dict, Any
-from app.ingestion.pipeline import run_ingestion
-from app.modules.roadmap.service import RoadmapService
+from app.modules.roadmap.hybrid_service import HybridRoadmapService
 from app.modules.roadmap.schemas import (
     GenerateRoadmapRequest,
     PlanRoadmapRequest,
@@ -9,6 +8,7 @@ from app.modules.roadmap.schemas import (
     RefreshProviderRequest,
     SearchResourcesRequest,
 )
+from app.modules.roadmap.service import RoadmapService
 from app.core.database import DatabaseService
 from app.core.ai_orchestrator import AIOrchestratorService
 from app.core.queue import QueueService
@@ -32,6 +32,15 @@ async def get_roadmap_service(
 ) -> RoadmapService:
     """Dependency to get RoadmapService instance."""
     return RoadmapService(db, ai, queue, cache)
+
+
+async def get_hybrid_roadmap_service(
+    db: DatabaseService = Depends(get_database_service),
+    ai: AIOrchestratorService = Depends(get_ai_orchestrator_service),
+    cache: CacheService = Depends(get_cache_service),
+) -> HybridRoadmapService:
+    """Dependency to get HybridRoadmapService instance."""
+    return HybridRoadmapService(db, ai, cache)
 
 
 @router.post("/generate")
@@ -78,11 +87,18 @@ async def generate_roadmap(
 @router.post("/plan")
 async def plan_roadmap(
     request: PlanRoadmapRequest,
-    roadmap_service: RoadmapService = Depends(get_roadmap_service),
+    hybrid_service: HybridRoadmapService = Depends(get_hybrid_roadmap_service),
 ) -> PlannedRoadmapResponse:
     """
-    Generate a modular hybrid-RAG learning roadmap plan.
-    Equivalent to NestJS RoadmapController.planRoadmap.
+    Generate a hybrid-RAG learning roadmap plan.
+
+    Pipeline:
+      1. AI generates an ordered skill sequence from career context.
+      2. Hybrid RAG (keyword + vector, OpenRouter text-embedding-3-small)
+         retrieves stored courses and certifications from resources/resource_chunks.
+      3. Evidence scoring picks the best primary + backup resources.
+      4. If confidence is low, DuckDuckGo web search fills gaps with real courses.
+      5. Returns an enriched roadmap with mode=hybrid_rag_v1.
     """
     try:
         user_profile = request.user_profile or {}
@@ -96,10 +112,14 @@ async def plan_roadmap(
         )
         target_role = request.target_role or user_profile.get("selected_role") or request.career_id or "Career"
 
-        return await roadmap_service.build_roadmap(
+        return await hybrid_service.generate_hybrid_roadmap(
             user_skills=user_skills,
             target_role=target_role,
             max_steps=request.max_steps or 8,
+            career_title=user_profile.get("career_title") or target_role,
+            career_description=user_profile.get("career_description"),
+            user_profile=user_profile,
+            career_id=request.career_id,
         )
     except Exception as e:
         raise HTTPException(
@@ -208,6 +228,14 @@ async def get_job_status(
 
 
 @router.get("/health")
-async def roadmap_health() -> Dict[str, str]:
-    """Health check for roadmap module."""
-    return {"module": "roadmap", "status": "ok"}
+async def roadmap_health(
+    hybrid_service: HybridRoadmapService = Depends(get_hybrid_roadmap_service),
+) -> Dict[str, Any]:
+    """Health check for roadmap module + embedding status."""
+    return {
+        "module": "roadmap",
+        "status": "ok",
+        "primary_embedding_model": hybrid_service.retrieval.embedding_model,
+        "fallback_models": hybrid_service.retrieval.embedding_fallbacks,
+        "auth_failed_models": sorted(hybrid_service.retrieval._auth_failed_models),
+    }

@@ -7,10 +7,8 @@ from app.core.database import DatabaseService
 from app.core.ai_orchestrator import AIOrchestratorService
 from app.core.cache import CacheService
 from app.core.course_search_service import CourseSearchService, get_course_search_service
+from app.modules.roadmap.hybrid_service import HybridRoadmapService
 from app.modules.learning_roadmap.repository import LearningRoadmapRepository
-from app.modules.roadmap.retrieval import RoadmapRetrievalService
-from app.modules.roadmap.evidence import RoadmapEvidenceService
-from app.modules.roadmap.web_search import RoadmapWebSearchService
 
 
 logger = logging.getLogger(__name__)
@@ -18,8 +16,15 @@ logger = logging.getLogger(__name__)
 
 class LearningRoadmapService:
     """
-    Learning roadmap service for skill-based learning paths.
-    Equivalent to NestJS LearningRoadmapService.
+    Learning roadmap service — now a thin wrapper around HybridRoadmapService.
+
+    The hybrid pipeline:
+      1. AI generates an ordered skill sequence from career context.
+      2. Hybrid RAG (keyword + vector, OpenRouter text-embedding-3-small)
+         retrieves stored courses and certifications.
+      3. Evidence scoring picks the best primary + backup resources.
+      4. If confidence is low, DuckDuckGo web search fills gaps.
+      5. Returns a unified roadmap with mode=hybrid_rag_v1.
     """
 
     def __init__(
@@ -32,21 +37,10 @@ class LearningRoadmapService:
         self.db = db
         self.ai_orchestrator = ai_orchestrator
         self.cache_service = cache_service
+        self.hybrid = HybridRoadmapService(db, ai_orchestrator, cache_service)
         self.repository = LearningRoadmapRepository(db)
-
-        # RAG-first resource discovery (can be disabled via env)
-        self._enable_rag = os.getenv(
-            "ENABLE_LEARNING_ROADMAP_RAG", "false"
-        ).lower() == "true"
-        self.retrieval = RoadmapRetrievalService(db)
-        self.evidence = RoadmapEvidenceService(db)
-        self.web_search = RoadmapWebSearchService()
-
-        # Legacy DuckDuckGo fallback (lowest priority)
         self.course_search = course_search_service or get_course_search_service()
-        self._enable_legacy_web_search = os.getenv(
-            "ENABLE_LEGACY_DDG_FALLBACK", "true"
-        ).lower() == "true"
+        self._enable_web_search = os.getenv("ENABLE_WEB_COURSE_SEARCH", "true").lower() == "true"
 
     async def generate_learning_roadmap(
         self,
@@ -57,8 +51,8 @@ class LearningRoadmapService:
         user_profile: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Generate a skill-based learning roadmap.
-        Equivalent to NestJS LearningRoadmapService.generateLearningRoadmap.
+        Generate a learning roadmap via the hybrid RAG pipeline.
+        Delegates to ``HybridRoadmapService.generate_hybrid_roadmap()``.
         """
         cache_key = f'learning-roadmap:{user_id}:{career_id}'
         cached = await self.cache_service.get(cache_key)
@@ -66,151 +60,162 @@ class LearningRoadmapService:
             return cached
 
         try:
-            skills = await self.get_skills_for_career(career_id)
-            if not skills:
-                roadmap_data = self._generate_fallback_roadmap(
-                    career_id,
-                    career_title,
-                    career_description,
-                    user_profile,
-                )
-                steps = roadmap_data.get("steps", [])
-            else:
-                roadmap_data = self._build_roadmap_from_skills(
-                    user_id,
-                    career_id,
-                    career_title,
-                    career_description,
-                    skills,
-                )
-                steps = self._build_steps_from_skills(skills)
-
+            user_skills = []
             if user_profile:
-                personalized = await self.ai_orchestrator.personalize_roadmap(
-                    roadmap_data,
-                    user_profile,
-                )
-                if isinstance(personalized, dict):
-                    personalized_steps = personalized.get("steps")
-                    if isinstance(personalized_steps, list) and personalized_steps:
-                        steps = personalized_steps
+                user_skills = list(dict.fromkeys(
+                    (user_profile.get("skills") or [])
+                    + (user_profile.get("declared_skills") or [])
+                    + (user_profile.get("cv_extracted_skills") or [])
+                ))
 
-            # RAG-first enhancement: curated resources → Tavily → DuckDuckGo
-            steps = await self._enhance_steps_with_rag(steps)
-
-            # Aggregate confidence
-            total_confidence = sum(
-                step.get("confidence_score", 0.0) for step in steps
-            )
-            avg_confidence = round(total_confidence / max(len(steps), 1), 2)
-            weak_steps = sum(
-                1 for step in steps if step.get("confidence_score", 0.0) < 0.5
+            response = await self.hybrid.generate_hybrid_roadmap(
+                user_skills=user_skills,
+                target_role=career_title,
+                max_steps=12,
+                career_title=career_title,
+                career_description=career_description,
+                user_profile=user_profile,
+                career_id=career_id,
             )
 
-            payload = {
-                "mode": "learning_roadmap_v1",
-                "target_role": career_title,
-                "career_id": career_id,
-                "confidence": avg_confidence,
-                "weak_evidence": weak_steps > len(steps) / 2 if steps else True,
-                "steps": steps,
-                "roadmap": roadmap_data,
-            }
+            # Convert PlannedRoadmapResponse to the legacy dict shape expected by callers
+            payload = self._to_legacy_payload(response, user_id, career_id, career_title, career_description)
 
             # Cache for 24 hours
             await self.cache_service.set(cache_key, payload, 86400)
-
             return payload
         except Exception as e:
-            logger.error('Failed to generate learning roadmap', e)
-            raise
+            logger.error(f'[LearningRoadmapService] Hybrid generation failed: {e}')
+            # Fallback to the old AI-only path if hybrid fails entirely
+            return await self._fallback_ai_only(
+                user_id, career_id, career_title, career_description, user_profile
+            )
 
-    def _generate_fallback_roadmap(
+    def _to_legacy_payload(
         self,
-        career_id: str,
-        career_title: str,
-        career_description: str,
-        user_profile: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Generate a fallback learning roadmap structure.
-        """
-        return {
-            'id': f'learning-roadmap-{career_id}-{uuid.uuid4().hex[:8]}',
-            'user_id': '',
-            'career_id': career_id,
-            'career_title': career_title,
-            'title': f'Learning Path: {career_title}',
-            'description': f'A comprehensive skill-based learning roadmap to become a {career_title}',
-            'skills': [],
-            'total_duration_hours': 0,
-            'estimated_weeks': 0,
-            'skill_count': 0,
-            'created_at': datetime.utcnow().isoformat(),
-            'steps': [
-                {
-                    "skill_name": f"Introduction to {career_title}",
-                    "why_it_matters": "Build baseline understanding before tackling advanced capabilities.",
-                    "difficulty": "beginner",
-                    "estimated_duration_hours": 12,
-                    "prerequisites": [],
-                    "resource_title": None,
-                    "provider": None,
-                    "source_url": None,
-                    "confidence_score": 0.45,
-                    "order_index": 0,
-                }
-            ],
-        }
-
-    def _build_roadmap_from_skills(
-        self,
+        response: Any,  # PlannedRoadmapResponse
         user_id: str,
         career_id: str,
         career_title: str,
         career_description: str,
-        skills: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        total_duration = sum(int(skill.get("duration_hours") or 0) for skill in skills)
-        return {
+        """Convert a ``PlannedRoadmapResponse`` to the legacy dict shape."""
+        steps = response.steps or []
+        total_duration = sum(s.estimated_duration_hours for s in steps)
+        roadmap_data = {
             "id": f"learning-roadmap-{career_id}-{uuid.uuid4().hex[:8]}",
             "user_id": user_id,
             "career_id": career_id,
             "career_title": career_title,
             "title": f"Learning Path: {career_title}",
-            "description": career_description or f"A comprehensive skill-based learning roadmap to become a {career_title}",
-            "skills": skills,
+            "description": career_description or f"A comprehensive learning roadmap to become a {career_title}",
+            "skills": [s.skill_name for s in steps],
             "total_duration_hours": total_duration,
             "estimated_weeks": max(1, total_duration // 8) if total_duration else 1,
-            "skill_count": len(skills),
-            "created_at": "now()",
+            "skill_count": len(steps),
+            "created_at": datetime.utcnow().isoformat(),
+            "steps": [
+                {
+                    "skill_name": s.skill_name,
+                    "why_it_matters": s.why_it_matters,
+                    "difficulty": s.difficulty,
+                    "estimated_duration_hours": s.estimated_duration_hours,
+                    "prerequisites": s.prerequisites,
+                    "resource_title": s.resource_title,
+                    "provider": s.provider,
+                    "source_url": s.source_url,
+                    "confidence_score": s.confidence_score,
+                    "order_index": s.order_index,
+                    "primary_resource": s.primary_resource,
+                    "backup_resources": s.backup_resources,
+                    "evidence_reasons": s.evidence_reasons,
+                    "certifications": s.certifications,
+                }
+                for s in steps
+            ],
         }
 
-    def _build_steps_from_skills(self, skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Build steps from skills — resource_title/provider/url filled by _enhance_steps_with_rag."""
-        steps: List[Dict[str, Any]] = []
-        for idx, skill in enumerate(skills):
-            steps.append(
-                {
-                    "skill_name": skill.get("name") or skill.get("title") or f"Skill {idx + 1}",
-                    "why_it_matters": skill.get("description") or "This skill is essential for career growth.",
-                    "difficulty": (skill.get("level") or "intermediate").lower(),
-                    "estimated_duration_hours": max(1, int(skill.get("duration_hours") or 8)),
-                    "prerequisites": skill.get("prerequisites") or [],
-                    "resource_title": None,
-                    "provider": None,
-                    "source_url": None,
-                    "confidence_score": 0.8,
-                    "order_index": idx,
-                }
+        return {
+            "mode": "hybrid_rag_v1",
+            "target_role": response.target_role,
+            "career_id": career_id,
+            "confidence": response.confidence,
+            "weak_evidence": response.weak_evidence,
+            "message": response.message,
+            "steps": roadmap_data["steps"],
+            "roadmap": roadmap_data,
+            "diagnostics": response.diagnostics,
+            "metadata": response.metadata,
+        }
+
+    async def _fallback_ai_only(
+        self,
+        user_id: str,
+        career_id: str,
+        career_title: str,
+        career_description: str,
+        user_profile: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Last-resort fallback: pure AI generation + DuckDuckGo web search."""
+        logger.warning("[LearningRoadmapService] Falling back to AI-only generation")
+        try:
+            ai_steps = await self.ai_orchestrator.generate_roadmap_steps(
+                career_title=career_title,
+                career_description=career_description,
+                user_profile=user_profile,
             )
-        return steps
+            if not ai_steps:
+                ai_steps = [
+                    {
+                        "skill_name": f"Introduction to {career_title}",
+                        "why_it_matters": "Build baseline understanding before tackling advanced capabilities.",
+                        "difficulty": "beginner",
+                        "estimated_duration_hours": 12,
+                        "prerequisites": [],
+                        "resource_title": None,
+                        "provider": None,
+                        "source_url": None,
+                        "confidence_score": 0.85,
+                        "order_index": 0,
+                    }
+                ]
+
+            total_duration = sum(step.get("estimated_duration_hours", 0) for step in ai_steps)
+            roadmap_data = {
+                "id": f"learning-roadmap-{career_id}-{uuid.uuid4().hex[:8]}",
+                "user_id": user_id,
+                "career_id": career_id,
+                "career_title": career_title,
+                "title": f"Learning Path: {career_title}",
+                "description": career_description or f"A comprehensive learning roadmap to become a {career_title}",
+                "skills": [step["skill_name"] for step in ai_steps],
+                "total_duration_hours": total_duration,
+                "estimated_weeks": max(1, total_duration // 8) if total_duration else 1,
+                "skill_count": len(ai_steps),
+                "created_at": "now()",
+                "steps": ai_steps,
+            }
+
+            steps = ai_steps.copy()
+            if self._enable_web_search:
+                steps = await self._enhance_steps_with_web_search(steps)
+
+            return {
+                "mode": "learning_roadmap_v1_ai_fallback",
+                "target_role": career_title,
+                "career_id": career_id,
+                "confidence": 0.7,
+                "weak_evidence": True,
+                "message": "AI-generated (RAG unavailable)",
+                "steps": steps,
+                "roadmap": roadmap_data,
+            }
+        except Exception as e:
+            logger.error(f'[LearningRoadmapService] AI-only fallback also failed: {e}')
+            raise
 
     async def get_skills_for_career(self, career_id: str) -> List[Dict[str, Any]]:
-        """
-        Get skills for a specific career.
-        Equivalent to NestJS LearningRoadmapService.getSkillsForCareer.
-        """
+        """Get skills for a specific career."""
         cache_key = f'career-skills:{career_id}'
         cached = await self.cache_service.get(cache_key)
         if cached:
@@ -219,7 +224,6 @@ class LearningRoadmapService:
         try:
             skills = await self.repository.get_career_skills(career_id)
 
-            # Add prerequisites
             enriched_skills = []
             for skill in skills:
                 prereqs = await self._get_skill_prerequisites(skill['id'])
@@ -237,7 +241,6 @@ class LearningRoadmapService:
             return []
 
     async def _get_skill_prerequisites(self, skill_id: str) -> List[Dict[str, str]]:
-        """Get prerequisites for a skill."""
         try:
             return await self.repository.get_skill_prerequisites(skill_id)
         except Exception as e:
@@ -245,10 +248,6 @@ class LearningRoadmapService:
             return []
 
     async def get_courses_for_skill(self, skill_id: str) -> List[Dict[str, Any]]:
-        """
-        Get courses for a skill.
-        Equivalent to NestJS LearningRoadmapService.getCoursesForSkill.
-        """
         cache_key = f'skill-courses:{skill_id}'
         cached = await self.cache_service.get(cache_key)
         if cached:
@@ -256,106 +255,25 @@ class LearningRoadmapService:
 
         try:
             courses = await self.repository.get_skill_courses(skill_id)
-
             await self.cache_service.set(cache_key, courses, 86400)
             return courses
         except Exception as e:
             logger.error(f'Failed to fetch courses for skill {skill_id}', e)
             return []
 
-    async def _enhance_steps_with_rag(self, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Populate resource_title, provider, source_url for each step.
-        Priority (when RAG enabled): 1) RAG curated resources  2) Tavily web search  3) DuckDuckGo legacy fallback
-        Priority (when RAG disabled): 1) Tavily web search  2) DuckDuckGo legacy fallback
-        """
-        import asyncio
-
+    async def _enhance_steps_with_web_search(self, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Populate resource_title, provider, source_url via web search for all steps."""
         enhanced = []
         for step in steps:
-            skill = step.get("skill_name", "")
-            if not skill:
-                enhanced.append(step)
-                continue
-
-            # ---- Tier 1: RAG (curated resources) — skipped when disabled ----
-            rag_confidence = 0.0
-            if self._enable_rag:
-                try:
-                    resources = await self.retrieval.search_resources(skill, top_k=8)
-                    if resources:
-                        evidence = await self.evidence.score_evidence(skill, resources)
-                        if evidence.confidence in ("high", "medium") and evidence.primary_resource:
-                            primary = evidence.primary_resource
-                            step["resource_title"] = primary.title
-                            step["source_url"] = primary.source_url
-                            step["provider"] = primary.provider
-                            step["confidence_score"] = round(
-                                max(step.get("confidence_score", 0.0), primary.score), 2
-                            )
-                            rag_confidence = primary.score
-                            logger.info(
-                                "RAG hit for skill '%s': title='%s' provider='%s' score=%.2f",
-                                skill, primary.title, primary.provider, primary.score,
-                            )
-                        else:
-                            # Medium/low confidence RAG — still keep best candidate if available
-                            if evidence.primary_resource:
-                                primary = evidence.primary_resource
-                                step["resource_title"] = primary.title
-                                step["source_url"] = primary.source_url
-                                step["provider"] = primary.provider
-                                step["confidence_score"] = round(
-                                    max(step.get("confidence_score", 0.0), primary.score), 2
-                                )
-                                rag_confidence = primary.score
-                except Exception as exc:
-                    logger.warning("RAG retrieval failed for skill '%s': %s", skill, exc)
-
-            # ---- Tier 2: Tavily web fallback (if RAG weak/missing or disabled) ----
-            if not step.get("source_url") or rag_confidence < 0.5:
-                try:
-                    tavily_results = await self.web_search.fallback_search(skill)
-                    if tavily_results:
-                        top = tavily_results[0]
-                        step["resource_title"] = top.get("title")
-                        step["source_url"] = top.get("source_url")
-                        step["provider"] = top.get("provider")
-                        step["confidence_score"] = round(
-                            max(step.get("confidence_score", 0.0), top.get("score", 0.4)), 2
-                        )
-                        logger.info(
-                            "Tavily fallback for skill '%s': title='%s' provider='%s'",
-                            skill, top.get("title"), top.get("provider"),
-                        )
-                except Exception as exc:
-                    logger.warning("Tavily fallback failed for skill '%s': %s", skill, exc)
-
-            # ---- Tier 3: Legacy DuckDuckGo (last resort) ----
-            if self._enable_legacy_web_search and not step.get("source_url"):
-                try:
-                    loop = asyncio.get_running_loop()
-                    ddg_results = await loop.run_in_executor(
-                        None,
-                        self.course_search.search_courses,
-                        skill,
-                        step.get("difficulty"),
-                    )
-                    if ddg_results:
-                        top = ddg_results[0]
-                        step["resource_title"] = top.get("title")
-                        step["source_url"] = top.get("url")
-                        step["provider"] = top.get("provider")
-                        step["confidence_score"] = round(
-                            max(step.get("confidence_score", 0.0), 0.35), 2
-                        )
-                        logger.info(
-                            "DDG fallback for skill '%s': title='%s' provider='%s'",
-                            skill, top.get("title"), top.get("provider"),
-                        )
-                except Exception as exc:
-                    logger.warning("DDG fallback failed for skill '%s': %s", skill, exc)
-
+            courses = self.course_search.search_courses(
+                step.get("skill_name", ""),
+                step.get("difficulty"),
+            )
+            if courses:
+                top = courses[0]
+                step["resource_title"] = top.get("title")
+                step["source_url"] = top.get("url")
+                step["provider"] = top.get("provider")
             enhanced.append(step)
         return enhanced
 
@@ -366,10 +284,6 @@ class LearningRoadmapService:
         career_title: str,
         roadmap_data: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """
-        Save a learning roadmap.
-        Equivalent to NestJS LearningRoadmapService.saveLearningRoadmap.
-        """
         try:
             return await self.repository.save_user_learning_roadmap(
                 user_id,
@@ -382,10 +296,6 @@ class LearningRoadmapService:
             raise
 
     async def get_user_learning_roadmaps(self, user_id: str) -> List[Dict[str, Any]]:
-        """
-        Get all learning roadmaps for a user.
-        Equivalent to NestJS LearningRoadmapService.getUserLearningRoadmaps.
-        """
         try:
             return await self.repository.list_user_learning_roadmaps(user_id)
         except Exception as e:

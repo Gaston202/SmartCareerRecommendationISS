@@ -53,6 +53,15 @@ class Settings(BaseSettings):
 
     # Embedding model used for roadmap vector search (OpenRouter compatible)
     roadmap_embedding_model: str = "openai/text-embedding-3-small"
+    # Fallback embedding models to try if the primary fails (e.g., free-tier users)
+    roadmap_embedding_fallbacks: List[str] = [
+        "openai/text-embedding-3-large",
+        "openai/text-embedding-ada-002",
+    ]
+
+    # Ollama embedding model (optional local fallback)
+    ollama_embedding_model: str = "nomic-embed-text"
+    ollama_embeddings_url: str = "http://localhost:11434/api/embed"
 
 
 settings = Settings()

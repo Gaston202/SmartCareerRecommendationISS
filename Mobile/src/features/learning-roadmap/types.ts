@@ -58,6 +58,7 @@ export interface LearningRoadmapNode {
   primaryResource?: LearningRoadmapResource | null;
   backupResources?: LearningRoadmapResource[] | null;
   evidenceReasons?: string[] | null;
+  certifications?: LearningRoadmapResource[] | null; // 🆕 from hybrid RAG
   estimatedCompletionDate?: string;
   userProgress?: {
     started: boolean;

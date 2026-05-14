@@ -42,12 +42,13 @@ Analyze the user's latest message and classify it into EXACTLY one of these inte
 - **user_sessions**: User asks about their own upcoming or past mentor sessions. Examples: "show my sessions", "when is my next meeting?".
 - **explain_feature**: User asks about app features (quiz, mentors, roadmap, careers, CV analysis). Examples: "how does the quiz work?", "explain the roadmap feature".
 - **career_info**: User asks about a specific career path (e.g., "Tell me about data science").
+- **profile**: User asks about their own profile, skills, career matches, or personalized recommendations. Examples: "what careers match my profile?", "show my skills", "what should I learn next?", "my career matches", "tell me about my profile".
 - **help**: Help requests. Examples: "What can you do?", "Show me features".
 - **fallback**: Unclear or off-topic request
 
 Respond ONLY with a valid JSON object in this exact schema:
 {{
-  "intent": "greeting|general|booking|search|user_sessions|explain_feature|career_info|help|fallback",
+  "intent": "greeting|general|booking|search|user_sessions|explain_feature|career_info|profile|help|fallback",
   "confidence": 0.0-1.0,
   "reasoning": "brief explanation of your classification",
   "entities": {{
@@ -63,8 +64,11 @@ Respond ONLY with a valid JSON object in this exact schema:
 
 Guidelines:
 - When the user asks to list, show, browse, or find mentors → intent MUST be "booking". The booking flow will handle using the get_available_mentors tool.
+- When the user asks for mentors with a specific specialty (e.g., "mentor with specialty cybersecurity") → intent MUST be "booking" and extract the specialty.
+- When the user asks to check a mentor's availability or time slots (e.g., "what are the available time slots for mentor X on Friday?") → intent MUST be "booking", extract the mentor_name and date.
+- When the user asks about THEIR OWN profile, skills, career matches, or recommendations → intent MUST be "profile". Examples: "what careers match my profile?", "show my skills", "what should I learn next?", "my career matches", "tell me about my profile".
 - When the user mentions "mentor", "session", "book", or "schedule" → intent is likely "booking".
-- Dates: "tomorrow", "today", "next week" should be resolved to actual dates.
+- Dates: "tomorrow", "today", "next week", weekday names like "Friday" should be resolved to actual YYYY-MM-DD dates.
 - If the user mentions a mentor by name, extract it.
 - If the user asks about a career path, set intent to "career_info" and extract the career name.
 - If the user says something like "What can you do?" or "Help me", use "help".
@@ -244,10 +248,12 @@ async def llm_router_node(state: Dict[str, Any], orchestrator: Optional[AIOrches
                 "search_career_info": Intent.SEARCH,
                 "get_job_trends": Intent.SEARCH,
                 "explain_career": Intent.CAREER_INFO,
-                "get_career_recommendations": Intent.GENERAL,
-                "get_career_recommendations_info": Intent.GENERAL,
+                "get_career_recommendations": Intent.PROFILE,
+                "get_career_recommendations_info": Intent.PROFILE,
+                "get_user_full_profile": Intent.PROFILE,
+                "get_my_career_matches": Intent.PROFILE,
                 "explain_app_feature": Intent.EXPLAIN_FEATURE,
-                "get_user_profile": Intent.GENERAL,
+                "get_user_profile": Intent.PROFILE,
                 "get_app_features": Intent.HELP,
             }
             inferred_intent = tool_to_intent.get(tool_name, Intent.GENERAL)
@@ -277,6 +283,7 @@ async def llm_router_node(state: Dict[str, Any], orchestrator: Optional[AIOrches
             "user_sessions": Intent.USER_SESSIONS,
             "explain_feature": Intent.EXPLAIN_FEATURE,
             "career_info": Intent.CAREER_INFO,
+            "profile": Intent.PROFILE,
             "fallback": Intent.UNKNOWN,
         }
         intent = intent_map.get(intent_str, Intent.UNKNOWN)
@@ -290,6 +297,7 @@ async def llm_router_node(state: Dict[str, Any], orchestrator: Optional[AIOrches
                 preferred_date=_resolve_date(entities.get("date")),
                 preferred_time=entities.get("time"),
                 mentor_name=entities.get("mentor_name"),
+                specialty=entities.get("specialty"),
             )
 
         is_compound = False
@@ -370,7 +378,18 @@ def _keyword_route(content: str, state: Dict[str, Any]) -> Dict[str, Any]:
         if re.search(r'\b' + re.escape(keyword) + r'\b', content_lower):
             return {"current_intent": Intent.CONFIRMATION, "booking_data": None, "compound_greeting": False}
 
-    # Tier 9: Search / career info patterns
+    # Tier 9: Profile / personal data patterns
+    profile_keywords = [
+        "my profile", "my skills", "my career matches", "careers match my profile",
+        "what careers match", "what should i learn", "my recommendations",
+        "my career", "my quiz", "my cv", "my resume", "tell me about me",
+        "who am i", "my interests", "my strengths", "my analysis",
+    ]
+    for keyword in profile_keywords:
+        if keyword in content_lower:
+            return {"current_intent": Intent.PROFILE, "booking_data": None, "compound_greeting": False}
+
+    # Tier 10: Search / career info patterns
     search_keywords = [
         "what", "how", "why", "who", "where", "when", "tell me about",
         "explain", "search", "find", "look up", "salary", "jobs",

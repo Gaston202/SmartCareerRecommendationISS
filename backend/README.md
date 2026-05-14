@@ -57,7 +57,7 @@ cp .env.example .env
 
 3. Run the application:
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
 ```
 
 ## Configuration

@@ -423,6 +423,7 @@ class AIOrchestrator:
         Accepts either:
         - Non-empty text content (traditional LLM response)
         - Tool calls present (function-calling response with empty content)
+        - Finish reason = stop (some free models omit content field)
         """
         if not response or "choices" not in response or not response["choices"]:
             return False
@@ -437,15 +438,23 @@ class AIOrchestrator:
 
         content = message.get("content")
         tool_calls = message.get("tool_calls", [])
+        finish_reason = choice.get("finish_reason")
 
         # Accept tool-calling responses even if content is empty
         if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
             return True
 
+        # Some free-tier models return empty content but valid finish_reason
         if content is None:
+            # If finish_reason is present, response structure is valid; caller will handle parsing
+            if finish_reason in ("stop", "length", "tool_calls"):
+                return True
             return False
 
         if isinstance(content, str) and not content.strip():
+            # Empty content with valid finish_reason is acceptable for free models
+            if finish_reason in ("stop", "length"):
+                return True
             return False
 
         if isinstance(content, list):
@@ -1095,7 +1104,6 @@ Map icons to the option that best matches its meaning: analytics→analysis, peo
                 [{"role": "user", "content": prompt}],
                 temperature=0.8,
                 max_tokens=700,
-                response_format={"type": "json_schema", "json_schema": QUIZ_QUESTION_SCHEMA},
             )
 
 
@@ -1254,7 +1262,6 @@ Write the complete profile using the computed DISC percentages.
                 max_tokens=8800,
                 retries=2,
                 request_timeout_seconds=90,
-                response_format={"type": "json_schema", "json_schema": NOVA_PROFILE_SCHEMA},
             )
 
             logger.info(
@@ -1752,6 +1759,128 @@ Example output:
             logger.warning(f"generate_careers_from_profile failed: {type(e).__name__}: {e}")
 
         return []
+
+    async def generate_roadmap_steps(
+        self,
+        career_title: str,
+        career_description: str,
+        user_profile: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Generate learning roadmap steps entirely from AI without relying on database templates.
+        
+        The AI designs a comprehensive learning path for the given career based on:
+        - Career title and description
+        - Optional user profile context (skills, interests, NOVA profile)
+        
+        Returns structured steps with skill_name, why_it_matters, difficulty, duration, etc.
+        """
+        try:
+            profile_context = ""
+            if user_profile:
+                profile_context = f"""
+### User Profile (Optional Context)
+Skills: {user_profile.get("skills", [])}
+Interests: {user_profile.get("interests", [])}
+DISC Profile: {user_profile.get("nova_profile", {})}
+"""
+            
+            prompt = f"""### Instruction
+Design a comprehensive learning roadmap for someone wanting to become a {career_title}.
+
+{profile_context}
+
+### Career Context
+Title: {career_title}
+Description: {career_description}
+
+### Task
+Create a detailed, step-by-step learning roadmap that takes someone from beginner to professional competency in this role.
+Each step should be a practical, actionable skill or knowledge area.
+
+### Output Rules
+- Return ONLY valid JSON
+- Return a top-level array of step objects
+- Order steps from foundational to advanced
+- Each step must include:
+  - skill_name: name of the skill/concept (string)
+  - why_it_matters: 1-2 sentence explanation of importance (string)
+  - difficulty: "beginner", "intermediate", or "advanced" (string)
+  - estimated_duration_hours: realistic learning time (integer, 4-60 hours)
+  - prerequisites: array of prerequisite skill names from earlier steps (array of strings)
+  - confidence_score: confidence in this step's importance (0.0-1.0 float)
+  - order_index: position in sequence (0-based integer)
+
+### Example Step Structure
+{{
+  "skill_name": "Fundamentals of [Career]",
+  "why_it_matters": "Establishes core concepts needed for all advanced learning.",
+  "difficulty": "beginner",
+  "estimated_duration_hours": 12,
+  "prerequisites": [],
+  "confidence_score": 0.95,
+  "order_index": 0
+}}
+
+### Guidelines
+- Design 8-12 realistic steps (not 20+)
+- Start with fundamentals, progress to specialization
+- Include both technical and soft skills where relevant
+- Steps should be completable in weeks to months, not years
+- Make prerequisites realistic (most early steps have none or few)
+- Confidence should reflect how universally this applies (0.95+ for core, 0.7-0.85 for specialized)
+
+### Example Output
+[
+  {{"skill_name":"Fundamentals","why_it_matters":"Core foundation","difficulty":"beginner","estimated_duration_hours":12,"prerequisites":[],"confidence_score":0.95,"order_index":0}},
+  {{"skill_name":"Advanced Topic","why_it_matters":"Deep expertise","difficulty":"advanced","estimated_duration_hours":24,"prerequisites":["Fundamentals"],"confidence_score":0.8,"order_index":1}}
+]
+
+Generate a comprehensive roadmap for {career_title}. Output ONLY the JSON array, no other text.
+"""
+
+            response = await self.chat_with_retry(
+                "roadmap_generation",
+                [{"role": "user", "content": prompt}],
+                temperature=0.5,
+                max_tokens=3500,
+                retries=2,
+                request_timeout_seconds=60,
+            )
+
+            raw = response["choices"][0]["message"].get("content", "")
+            content = self._coerce_content_to_text(raw)
+            json_str = self.extract_json(content)
+            parsed = self.try_parse_json(json_str)
+
+            if not isinstance(parsed, list):
+                logger.warning(f"generate_roadmap_steps: Expected list, got {type(parsed).__name__}")
+                return []
+
+            # Normalize and validate steps
+            normalized_steps: List[Dict[str, Any]] = []
+            for idx, step in enumerate(parsed):
+                if not isinstance(step, dict):
+                    continue
+
+                normalized_steps.append({
+                    "skill_name": str(step.get("skill_name") or f"Step {idx + 1}"),
+                    "why_it_matters": str(step.get("why_it_matters") or "Important for role mastery."),
+                    "difficulty": str(step.get("difficulty") or "intermediate").lower(),
+                    "estimated_duration_hours": max(4, min(120, int(step.get("estimated_duration_hours") or 16))),
+                    "prerequisites": step.get("prerequisites") if isinstance(step.get("prerequisites"), list) else [],
+                    "resource_title": None,  # Will be filled by web search
+                    "provider": None,  # Will be filled by web search
+                    "source_url": None,  # Will be filled by web search
+                    "confidence_score": float(step.get("confidence_score") or 0.8),
+                    "order_index": idx,
+                })
+
+            logger.info(f"generate_roadmap_steps: Generated {len(normalized_steps)} steps for {career_title}")
+            return normalized_steps
+
+        except Exception as e:
+            logger.warning(f"generate_roadmap_steps failed for {career_title}: {type(e).__name__}: {e}")
+            return []
 
     async def personalize_roadmap(
         self,

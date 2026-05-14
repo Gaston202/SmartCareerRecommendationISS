@@ -117,11 +117,12 @@ class RoadmapStep(BaseModel):
     primary_resource: Optional[dict] = None
     backup_resources: Optional[List[dict]] = None
     evidence_reasons: Optional[List[str]] = None
+    certifications: Optional[List[dict]] = None  # 🆕 certificate-bearing resources
 
 
 class PlannedRoadmapResponse(BaseModel):
     success: bool = True
-    mode: str = "stored_kb_v1"
+    mode: str = "hybrid_rag_v1"  # was "stored_kb_v1"; now supports hybrid_rag_v1
     target_role: str
     career_id: Optional[str] = None
     confidence: float

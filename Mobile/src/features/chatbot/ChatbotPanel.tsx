@@ -150,15 +150,78 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           isUser ? styles.bubbleUser : styles.bubbleBot,
         ]}
       >
-        <Text style={[styles.bubbleText, isUser ? styles.bubbleTextUser : styles.bubbleTextBot]}>
-          {message.content}
-        </Text>
+        {renderMarkdown(message.content, isUser)}
         <Text style={[styles.bubbleTime, isUser ? styles.bubbleTimeUser : styles.bubbleTimeBot]}>
           {formatTime(message.timestamp)}
         </Text>
       </View>
     </View>
   );
+}
+
+/**
+ * Lightweight markdown renderer for chatbot messages.
+ * Supports **bold**, bullet lists (- item), and line breaks.
+ */
+function renderMarkdown(text: string, isUser: boolean): React.ReactNode {
+  const baseStyle = isUser ? styles.bubbleTextUser : styles.bubbleTextBot;
+  const boldStyle = [baseStyle, { fontWeight: '700' as const }];
+
+  // Split by double newlines to preserve paragraph spacing
+  const paragraphs = text.split(/\n\n/);
+
+  return paragraphs.map((paragraph, pIndex) => {
+    // Split paragraph by line breaks for bullet handling
+    const lines = paragraph.split('\n');
+    const lineNodes = lines.map((line, lIndex) => {
+      let content: React.ReactNode[] = [];
+      let isBullet = false;
+
+      // Detect bullet list items
+      const bulletMatch = line.match(/^(\s*)([-•])\s+(.*)$/);
+      if (bulletMatch) {
+        isBullet = true;
+        line = bulletMatch[3];
+      }
+
+      // Parse **bold** segments
+      const segments = line.split(/(\*\*.*?\*\*)/g);
+      segments.forEach((segment, sIndex) => {
+        if (segment.startsWith('**') && segment.endsWith('**')) {
+          const boldText = segment.slice(2, -2);
+          content.push(
+            <Text key={`s${sIndex}`} style={boldStyle}>
+              {boldText}
+            </Text>
+          );
+        } else if (segment) {
+          content.push(
+            <Text key={`s${sIndex}`} style={baseStyle}>
+              {segment}
+            </Text>
+          );
+        }
+      });
+
+      const lineKey = `l${lIndex}`;
+      if (isBullet) {
+        return (
+          <View key={lineKey} style={styles.bulletRow}>
+            <Text style={[baseStyle, styles.bulletDot]}>•</Text>
+            <Text style={baseStyle}>{content}</Text>
+          </View>
+        );
+      }
+
+      return <Text key={lineKey}>{content}</Text>;
+    });
+
+    return (
+      <View key={`p${pIndex}`} style={pIndex > 0 ? styles.paragraphGap : undefined}>
+        {lineNodes}
+      </View>
+    );
+  });
 }
 
 function LoadingBubble() {
@@ -353,5 +416,17 @@ const styles = StyleSheet.create({
   sendButtonPressed: {
     opacity: 0.85,
     transform: [{ scale: 0.95 }],
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginVertical: 1,
+  },
+  bulletDot: {
+    marginTop: 1,
+  },
+  paragraphGap: {
+    marginTop: 8,
   },
 });

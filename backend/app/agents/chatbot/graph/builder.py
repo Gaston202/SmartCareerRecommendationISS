@@ -25,13 +25,14 @@ from app.agents.chatbot.graph.nodes.general import (
     user_sessions_node,
     explain_feature_node,
 )
+from app.agents.chatbot.graph.nodes.profile import profile_node
 from app.agents.chatbot.schemas.pydantic import Intent
 from app.core.ai_orchestrator import AIOrchestrator
 
 
 VALID_ROUTES = {
     "greeting", "help", "search", "booking", "career_info",
-    "user_sessions", "explain_feature", "fallback", "general",
+    "user_sessions", "explain_feature", "profile", "fallback", "general",
     "confirmation", "unknown",
 }
 
@@ -114,6 +115,9 @@ def build_chat_graph(orchestrator: AIOrchestrator | None = None) -> StateGraph:
     # Career info: tool search then LLM synthesis
     builder.add_node("career_info", career_info_node)
 
+    # Profile: user's own data
+    builder.add_node("profile", profile_node)
+
     # General response: LLM-powered
     builder.add_node("llm_response", partial(llm_response_node, orchestrator=orchestrator))
 
@@ -141,6 +145,7 @@ def build_chat_graph(orchestrator: AIOrchestrator | None = None) -> StateGraph:
             "career_info": "career_info",
             "user_sessions": "user_sessions",
             "explain_feature": "explain_feature",
+            "profile": "profile",
             "fallback": "llm_response",
             "unknown": "llm_response",
         }
@@ -179,6 +184,9 @@ def build_chat_graph(orchestrator: AIOrchestrator | None = None) -> StateGraph:
 
     # Explain feature -> llm_response -> END
     builder.add_edge("explain_feature", "llm_response")
+
+    # Profile -> llm_response -> END (reuse LLM synthesis for rich responses)
+    builder.add_edge("profile", "llm_response")
 
     # General response nodes
     builder.add_edge("llm_response", END)

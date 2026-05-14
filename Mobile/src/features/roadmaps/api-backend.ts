@@ -51,11 +51,12 @@ export interface BackendPlannedRoadmapStep {
   primary_resource: BackendRoadmapResource | null;
   backup_resources: BackendRoadmapResource[] | null;
   evidence_reasons: string[] | null;
+  certifications?: BackendRoadmapResource[] | null; // 🆕 hybrid RAG certifications
 }
 
 export interface BackendPlannedRoadmapResponse {
   success: boolean;
-  mode: "stored_kb_v1";
+  mode: "stored_kb_v1" | "hybrid_rag_v1";
   target_role: string;
   career_id: string | null;
   confidence: number;

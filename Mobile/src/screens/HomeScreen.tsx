@@ -162,8 +162,11 @@ export default function HomeScreen(): React.ReactElement {
 
   // Auth hook - get user name
   const { state: authState } = useAuth();
-  const rawName = authState.user?.fullName || authState.user?.email?.split("@")[0] || "Student";
-  const userName = (rawName.split(/[\s.]/)[0] ?? 'Student').replace(/^\w/, c => c.toUpperCase());
+  const fullName = authState.user?.fullName;
+  const emailPrefix = authState.user?.email?.split("@")[0] || "Student";
+  const userName = fullName
+    ? fullName.replace(/^\w/, c => c.toUpperCase())
+    : emailPrefix.split(/[\s.]/)[0].replace(/^\w/, c => c.toUpperCase());
 
   // Careers hook - get top matched career
   const { data: matchedCareers = [] } = useMatchedCareers();

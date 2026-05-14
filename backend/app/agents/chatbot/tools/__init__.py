@@ -35,6 +35,12 @@ from app.agents.chatbot.tools.general import (
     explain_app_feature,
 )
 
+# Profile tools
+from app.agents.chatbot.tools.profile import (
+    get_user_full_profile,
+    get_my_career_matches,
+)
+
 
 ALL_TOOLS: List[Callable] = [
     # Booking
@@ -55,6 +61,9 @@ ALL_TOOLS: List[Callable] = [
     get_app_features,
     get_career_recommendations,
     explain_app_feature,
+    # Profile
+    get_user_full_profile,
+    get_my_career_matches,
 ]
 
 
@@ -202,4 +211,6 @@ __all__ = [
     "get_app_features",
     "get_career_recommendations",
     "explain_app_feature",
+    "get_user_full_profile",
+    "get_my_career_matches",
 ]
