@@ -78,7 +78,7 @@ class ChatbotOrchestrator:
             token_warn_threshold=self.config.token_warn_threshold,
             loop_similarity_threshold=self.config.loop_similarity_threshold,
             max_loop_repeats=self.config.max_loop_repeats,
-            timeout_s=self.config.per_node_timeout_s,
+            timeout_s=self.config.graph_timeout_s,
         )
         self._graph = None
 

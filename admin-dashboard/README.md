@@ -1,407 +1,371 @@
-# Admin Dashboard - Smart Career Recommendation System
+# Smart Career Recommendation — Admin Dashboard
 
-A modern, full-featured admin dashboard built with Next.js 15, TypeScript, and a carefully selected tech stack for optimal performance and developer experience.
-
-## 🚀 Tech Stack
-
-### Core Framework
-
-- **Next.js 15** (App Router) - React framework with server-side rendering
-- **React 19** - UI library
-- **TypeScript** - Type-safe development
-
-### Styling & UI
-
-- **Tailwind CSS v4** - Utility-first CSS framework
-- **shadcn/ui** - Accessible component library built on Radix UI
-- **lucide-react** - Icon library
-- **Custom Theme** - Brand color `#7D10B9` (purple) integrated throughout
-
-### State Management & Data Fetching
-
-- **TanStack React Query** - Server state management with caching
-- **Axios** - HTTP client with interceptors for authentication
-
-### Forms & Validation
-
-- **React Hook Form** - Performant form handling
-- **Zod** - Schema validation (shared with mobile app)
-
-### Authentication
-
-- **NextAuth.js v5** - JWT-based authentication
-- Role-based access control (RBAC)
-- Secure session management
-
-### Charts & Analytics
-
-- **Recharts** - Composable charting library for data visualization
-
-## 📁 Project Structure
-
-```
-admin-dashboard/
-├── app/
-│   ├── (auth)/                    # Auth route group (no layout)
-│   │   └── login/
-│   │       └── page.tsx           # Login page
-│   │
-│   ├── admin/                     # Protected admin routes
-│   │   ├── layout.tsx             # Admin layout (Sidebar + Header)
-│   │   ├── page.tsx               # Dashboard overview
-│   │   ├── users/
-│   │   │   └── page.tsx           # User management
-│   │   ├── skills/
-│   │   │   └── page.tsx           # Skills management
-│   │   ├── careers/
-│   │   │   └── page.tsx           # Careers management
-│   │   ├── courses/
-│   │   │   └── page.tsx           # Courses management
-│   │   ├── recommendations/
-│   │   │   └── page.tsx           # Recommendations view
-│   │   └── analytics/
-│   │       └── page.tsx           # Analytics & charts
-│   │
-│   ├── api/
-│   │   └── auth/[...nextauth]/
-│   │       └── route.ts           # NextAuth API route
-│   │
-│   ├── layout.tsx                 # Root layout
-│   └── page.tsx                   # Home page (redirects to /admin)
-│
-├── components/
-│   ├── ui/                        # shadcn/ui components
-│   ├── layout/
-│   │   ├── Sidebar.tsx            # Navigation sidebar
-│   │   └── Header.tsx             # Top header with search & user menu
-│   ├── tables/                    # Reusable table components
-│   ├── charts/                    # Chart components
-│   └── forms/                     # Form components
-│
-├── services/
-│   ├── api.ts                     # Axios instance with interceptors
-│   └── auth.ts                    # Authentication service
-│
-├── hooks/
-│   ├── use-api.ts                 # Generic API hooks
-│   ├── useAuth.ts                 # Authentication hook
-│   └── useUsers.ts                # User management hooks
-│
-├── types/
-│   ├── user.ts                    # User type definitions
-│   └── career.ts                  # Career, Skill, Course types
-│
-├── styles/
-│   └── globals.css                # Global styles & Tailwind
-│
-├── lib/
-│   ├── utils.ts                   # Utility functions
-│   └── constants.ts               # App constants
-│
-├── providers/
-│   └── query-provider.tsx         # React Query provider
-│
-├── auth.ts                        # NextAuth configuration
-├── middleware.ts                  # Route protection
-└── .env.local                     # Environment variables
-```
-
-## 🔧 Setup Instructions
-
-### Prerequisites
-
-- Node.js 20+
-- npm or yarn
-
-### Installation
-
-1. **Navigate to the admin-dashboard directory**
-
-   ```bash
-   cd admin-dashboard
-   ```
-
-2. **Install Dependencies**
-
-   ```bash
-   npm install
-   ```
-
-3. **Configure Environment Variables**
-
-   The `.env.local` file is already created. Update the values:
-
-   ```env
-   NEXT_PUBLIC_APP_URL=http://localhost:3000
-   NEXT_PUBLIC_API_URL=http://localhost:8000/api
-   NEXTAUTH_URL=http://localhost:3000
-   NEXTAUTH_SECRET=your-secure-secret-here
-   ```
-
-   Generate a secure `NEXTAUTH_SECRET`:
-
-   ```bash
-   openssl rand -base64 32
-   ```
-
-4. **Run Development Server**
-
-   ```bash
-   npm run dev
-   ```
-
-   Open [http://localhost:3000](http://localhost:3000)
-
-## 🗺️ Navigation Structure
-
-The admin dashboard is organized with a sidebar navigation:
-
-- **Dashboard** (`/admin`) - Overview with KPIs and charts
-- **Users** (`/admin/users`) - User management table
-- **Skills** (`/admin/skills`) - Skills library management
-- **Careers** (`/admin/careers`) - Career paths management
-- **Courses** (`/admin/courses`) - Learning resources
-- **Recommendations** (`/admin/recommendations`) - View sent recommendations
-- **Analytics** (`/admin/analytics`) - Comprehensive analytics
-
-## 🔑 Authentication
-
-### Demo Login
-
-Currently accepts any email and password (6+ characters) for demo purposes.
-
-### Route Protection
-
-- Login page: `/login` (route group `(auth)`)
-- Protected routes: All routes under `/admin`
-- Middleware automatically redirects unauthenticated users to login
-
-### Connecting to Real Backend
-
-Update `auth.ts`:
-
-```typescript
-async authorize(credentials) {
-  const validatedFields = loginSchema.safeParse(credentials);
-
-  if (!validatedFields.success) return null;
-
-  const { email, password } = validatedFields.data;
-
-  const response = await axios.post('YOUR_API_URL/auth/login', {
-    email,
-    password
-  });
-
-  return response.data; // Should return user object
-}
-```
-
-## 📊 Data Fetching
-
-### Using React Query Hooks
-
-```typescript
-// In your component
-import { useUsers, useCreateUser } from "@/hooks/useUsers";
-
-function UsersPage() {
-  const { data: users, isLoading } = useUsers();
-  const createUser = useCreateUser();
-
-  const handleCreate = async (userData) => {
-    await createUser.mutateAsync(userData);
-  };
-
-  return (/* Your JSX */);
-}
-```
-
-### API Client
-
-The Axios instance (`services/api.ts`) includes:
-
-- Automatic request/response interceptors
-- Auth token injection
-- Error handling
-- Base URL configuration
-
-## 🎨 Styling & Theming
-
-### Brand Colors
-
-Configured in `styles/globals.css`:
-
-```css
-:root {
-  --primary: #7d10b9;
-  --accent: #9333ea;
-}
-```
-
-### Using Tailwind Classes
-
-```tsx
-<button className="bg-primary text-primary-foreground hover:bg-primary/90">
-  Button
-</button>
-```
-
-### Adding shadcn/ui Components
-
-```bash
-npx shadcn@latest add button
-npx shadcn@latest add card
-npx shadcn@latest add dialog
-```
-
-Components will be added to `components/ui/`
-
-## 📈 Charts with Recharts
-
-Example from Analytics page:
-
-```tsx
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
-
-<ResponsiveContainer width="100%" height={300}>
-  <LineChart data={data}>
-    <CartesianGrid strokeDasharray="3 3" />
-    <XAxis dataKey="month" />
-    <YAxis />
-    <Tooltip />
-    <Line type="monotone" dataKey="users" stroke="#7D10B9" />
-  </LineChart>
-</ResponsiveContainer>;
-```
-
-## 🔐 Role-Based Access Control
-
-Extend authentication for role-based access:
-
-```typescript
-// In your component
-import { auth } from "@/auth";
-
-export default async function AdminOnlyPage() {
-  const session = await auth();
-
-  if (session?.user?.role !== "admin") {
-    redirect("/unauthorized");
-  }
-
-  return <div>Admin content</div>;
-}
-```
-
-## 📝 Forms
-
-Example with React Hook Form + Zod:
-
-```typescript
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-
-const schema = z.object({
-  email: z.string().email(),
-  name: z.string().min(2),
-});
-
-type FormData = z.infer<typeof schema>;
-
-function MyForm() {
-  const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
-    resolver: zodResolver(schema),
-  });
-
-  const onSubmit = (data: FormData) => {
-    console.log(data);
-  };
-
-  return (
-    <form onSubmit={handleSubmit(onSubmit)}>
-      <input {...register("email")} />
-      {errors.email && <span>{errors.email.message}</span>}
-
-      <input {...register("name")} />
-      {errors.name && <span>{errors.name.message}</span>}
-
-      <button type="submit">Submit</button>
-    </form>
-  );
-}
-```
-
-## 🛠️ Development Scripts
-
-```bash
-npm run dev      # Start development server (port 3000)
-npm run build    # Build for production
-npm run start    # Start production server
-npm run lint     # Run ESLint
-```
-
-## 🚀 Deployment
-
-### Build for Production
-
-```bash
-npm run build
-npm start
-```
-
-### Environment Variables
-
-Ensure these are set in your production environment:
-
-- `NEXT_PUBLIC_APP_URL`
-- `NEXT_PUBLIC_API_URL`
-- `NEXTAUTH_URL`
-- `NEXTAUTH_SECRET`
-
-### Recommended Platforms
-
-- **Vercel** - Optimal for Next.js
-- **Netlify** - Alternative with similar features
-- **Docker** - For containerized deployments
-
-## 📚 Key Features
-
-✅ Server-side rendering with Next.js App Router  
-✅ Route groups for auth layout separation  
-✅ Protected routes with middleware  
-✅ JWT-based authentication with NextAuth.js  
-✅ Sidebar navigation with active state  
-✅ Responsive layout (desktop-first)  
-✅ Type-safe API calls with TypeScript  
-✅ React Query for efficient data fetching  
-✅ Recharts for data visualization  
-✅ Form validation with Zod  
-✅ Custom Tailwind theme with brand colors  
-✅ shadcn/ui component library
-
-## 📖 Additional Resources
-
-- [Next.js Documentation](https://nextjs.org/docs)
-- [TanStack Query](https://tanstack.com/query/latest)
-- [NextAuth.js](https://next-auth.js.org/)
-- [shadcn/ui](https://ui.shadcn.com/)
-- [Tailwind CSS](https://tailwindcss.com/docs)
-- [Recharts](https://recharts.org/)
-- [Lucide Icons](https://lucide.dev/)
-
-## 📄 License
-
-MIT License
+The web-based admin panel for the Smart Career Recommendation System. Built with **Next.js 16** and **TypeScript**, it provides administrators with tools to manage users, careers, skills, mentors, curated resources, and platform analytics.
 
 ---
 
-**Built with ❤️ using Next.js, TypeScript, and modern web technologies**
+## Table of Contents
+
+- [Overview](#overview)
+- [Tech Stack](#tech-stack)
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Environment Variables](#environment-variables)
+- [Authentication Flow](#authentication-flow)
+- [Navigation & Pages](#navigation--pages)
+- [Key Dependencies](#key-dependencies)
+- [Scripts](#scripts)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Overview
+
+The Admin Dashboard is the operational control center for the platform. Administrators can monitor user activity, manage the career and skill catalog, curate learning resources for the RAG knowledge base, oversee mentor applications and sessions, and review AI-generated recommendations.
+
+The dashboard is a **Next.js 16** application using the App Router, server components by default, and client components only where interactivity is required. It authenticates via **NextAuth.js v5** with a credentials provider validated against the Supabase `auth.users` table.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16.1.6 (App Router) |
+| Language | TypeScript 5.x (strict mode) |
+| React | React 19.2.3 with React Compiler |
+| Styling | Tailwind CSS v4 + `tw-animate-css` |
+| UI Components | Radix UI primitives + shadcn/ui pattern |
+| Icons | `lucide-react` |
+| Data Fetching | TanStack Query v5 + Axios |
+| Forms | React Hook Form + Zod v4 |
+| Auth | NextAuth.js v5 (beta) — JWT in HTTP-only cookies |
+| Charts | Recharts |
+| Notifications | Sonner (toast notifications) |
+
+---
+
+## Features
+
+### Dashboard Overview
+- KPI cards and summary statistics
+- Interactive charts powered by Recharts
+- Platform activity monitoring
+
+### User Management
+- View and search all registered users
+- Monitor user roles and activity status
+- Access user profiles and generated recommendations
+
+### Career Management
+- Create, edit, and delete career entries
+- Map skills to careers with relevance scores
+- Set salary ranges, demand levels, and growth projections
+
+### Skill Management
+- Maintain the platform's skill taxonomy
+- Link skills to careers and learning resources
+- Track skill popularity and coverage
+
+### Course / Resource Management
+- Add and manage curated learning resources for the RAG knowledge base
+- Import resources via the ingestion pipeline
+- Monitor embedding status and resource quality
+
+### Mentor Management
+- Review and approve mentor applications
+- Manage mentor profiles, specialties, and availability
+- Oversee session bookings and group chat rooms
+- View mentor ratings and reviews
+
+### Recommendations Oversight
+- Review AI-generated career recommendations
+- Inspect roadmap generation diagnostics
+- Monitor confidence scores and source breakdowns
+
+### Analytics
+- User growth trends
+- Quiz completion and career match statistics
+- CV upload and analysis metrics
+- Mentor session booking rates
+
+---
+
+## Project Structure
+
+```
+admin-dashboard/
+├── app/                        # App Router pages
+│   ├── (auth)/                 # Auth group (unauthenticated layout)
+│   │   └── login/
+│   │       └── page.tsx        # Admin login page
+│   │
+│   ├── admin/                  # Protected admin routes
+│   │   ├── (dashboard)/
+│   │   │   └── page.tsx        # Main dashboard overview
+│   │   ├── users/
+│   │   │   └── page.tsx        # User management
+│   │   ├── careers/
+│   │   │   └── page.tsx        # Career management
+│   │   ├── skills/
+│   │   │   └── page.tsx        # Skill management
+│   │   ├── courses/
+│   │   │   └── page.tsx        # Resource / course management
+│   │   ├── recommendations/
+│   │   │   └── page.tsx        # AI recommendations oversight
+│   │   ├── analytics/
+│   │   │   └── page.tsx        # Analytics and charts
+│   │   ├── mentors/
+│   │   │   ├── page.tsx        # Mentor directory
+│   │   │   ├── [id]/
+│   │   │   │   └── page.tsx    # Mentor detail page
+│   │   │   └── new/
+│   │   │       └── page.tsx    # Add new mentor
+│   │   └── group-chats/
+│   │       ├── page.tsx        # Group chat management
+│   │       ├── [id]/
+│   │       │   └── page.tsx    # Group chat detail
+│   │       └── new/
+│   │           └── page.tsx    # Create group chat
+│   │
+│   ├── layout.tsx              # Root layout
+│   └── globals.css             # Global styles + Tailwind
+│
+├── components/                 # Reusable UI components
+│   ├── ui/                     # shadcn/ui base components
+│   ├── layout/                 # Sidebar, Header, Page wrappers
+│   ├── tables/                 # Data tables with sorting/filtering
+│   └── forms/                  # Form components
+│
+├── hooks/                      # TanStack Query data hooks
+│   ├── use-api.ts              # Base CRUD hooks (users, dashboard stats)
+│   ├── useUsers.ts             # User data hooks
+│   ├── useCareers.ts           # Career data hooks
+│   ├── useSkills.ts            # Skill data hooks
+│   ├── useCourses.ts           # Course/resource hooks
+│   ├── useRecommendations.ts   # Recommendation hooks
+│   └── useChatbot.ts           # Chatbot admin hooks
+│
+├── services/                   # API and Supabase clients
+│   ├── api.ts                  # Axios client with interceptors
+│   └── supabase/               # Supabase client configurations
+│       ├── client.ts           # Browser client
+│       └── server.ts           # Server-side client
+│
+├── lib/                        # Utilities
+│   ├── utils.ts                # cn() helper (clsx + tailwind-merge)
+│   └── transformers.ts         # Data transformers
+│
+├── types/                      # TypeScript definitions
+│   └── index.ts
+│
+├── providers/                  # Context providers
+│   ├── query-provider.tsx      # TanStack Query client setup
+│   └── theme-provider.tsx      # NextThemes (dark/light mode)
+│
+├── auth.ts                     # NextAuth configuration (credentials provider)
+├── middleware.ts               # Route protection (redirects unauthenticated)
+├── next.config.ts              # Next.js configuration (React Compiler enabled)
+├── tsconfig.json               # TypeScript config (path alias: `@/*`)
+├── tailwind.config.ts          # Tailwind CSS v4 configuration
+├── package.json
+└── .env.local                  # Environment variables (not in git)
+```
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- **Node.js** 20 or later
+- **npm**, **yarn**, or **pnpm**
+- A running **FastAPI Backend** (see [../backend/](../backend/))
+- A **Supabase** project
+
+### Installation
+
+```bash
+cd admin-dashboard
+
+# Install dependencies
+npm install
+
+# Configure environment variables
+cp .env.example .env.local
+# Edit .env.local with your API URL and NextAuth secret
+
+# Run development server
+npm run dev
+```
+
+The dashboard will be available at `http://localhost:3000`.
+
+---
+
+## Environment Variables
+
+Create a `.env.local` file in the `admin-dashboard/` directory:
+
+```env
+# Application
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Backend API
+NEXT_PUBLIC_API_URL=http://localhost:3000/api/v1
+
+# NextAuth.js v5
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=your-secure-secret-key
+# Generate with: openssl rand -base64 32
+```
+
+> **Never commit `.env.local` to version control.** It is already listed in `.gitignore`.
+
+### Variable Reference
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `NEXT_PUBLIC_APP_URL` | Yes | `http://localhost:3000` | Public-facing app URL |
+| `NEXT_PUBLIC_API_URL` | Yes | `http://localhost:3000/api/v1` | FastAPI backend base URL |
+| `NEXTAUTH_URL` | Yes | `http://localhost:3000` | Canonical URL for NextAuth |
+| `NEXTAUTH_SECRET` | Yes | — | Strong random secret for JWT encryption |
+
+---
+
+## Authentication Flow
+
+The admin dashboard uses a custom credentials-based authentication flow via NextAuth.js v5:
+
+1. **Login**: The admin enters email and password on `/login`
+2. **Validation**: NextAuth calls the backend `/auth/validate` endpoint with the Supabase JWT
+3. **Session**: On success, NextAuth creates a JWT stored in an **HTTP-only cookie**
+4. **Middleware**: `middleware.ts` intercepts all `/admin/**` requests and redirects unauthenticated users to `/login`
+5. **Server Components**: Use `createClient()` from `lib/supabase/server.ts` for server-side data fetching
+6. **Client Components**: Use the browser Supabase client for real-time features
+
+### Session Structure
+
+The JWT contains:
+- `user.id` — Supabase user UUID
+- `user.role` — Admin role identifier
+- `exp` — Expiration timestamp
+
+### Route Protection
+
+```typescript
+// middleware.ts
+export { default } from "next-auth/middleware"
+export const config = { matcher: ["/admin/:path*"] }
+```
+
+---
+
+## Navigation & Pages
+
+### Sidebar Navigation Structure
+
+| Path | Page | Description |
+|---|---|---|
+| `/admin` | Dashboard | Overview with KPIs and charts |
+| `/admin/users` | Users | User directory and management |
+| `/admin/careers` | Careers | Career catalog CRUD |
+| `/admin/skills` | Skills | Skill taxonomy management |
+| `/admin/courses` | Courses | Curated resource management |
+| `/admin/recommendations` | Recommendations | AI recommendation oversight |
+| `/admin/analytics` | Analytics | Platform analytics |
+| `/admin/mentors` | Mentors | Mentor directory and approvals |
+| `/admin/mentors/[id]` | Mentor Detail | Individual mentor profile |
+| `/admin/group-chats` | Group Chats | Group chat room management |
+
+### Page Types
+
+- **Server Components** (default): Fetch data at request time, render HTML on the server
+- **Client Components** (explicit `"use client"`): Interactive UI, forms, charts, real-time updates
+
+---
+
+## Key Dependencies
+
+```json
+{
+  "next": "16.1.6",
+  "react": "19.2.3",
+  "react-dom": "19.2.3",
+  "tailwindcss": "^4",
+  "@tailwindcss/postcss": "^4",
+  "@tanstack/react-query": "^5.90.20",
+  "@tanstack/react-query-devtools": "^5.91.3",
+  "next-auth": "^5.0.0-beta.30",
+  "react-hook-form": "^7.71.1",
+  "zod": "^4.3.6",
+  "@hookform/resolvers": "^5.2.2",
+  "recharts": "^3.7.0",
+  "sonner": "^2.0.7",
+  "lucide-react": "^0.563.0",
+  "axios": "^1.13.4"
+}
+```
+
+See `package.json` for the complete dependency list.
+
+---
+
+## Scripts
+
+```bash
+npm run dev        # Start Next.js dev server (http://localhost:3000)
+npm run build      # Production build
+npm run start      # Production server
+npm run lint       # Run ESLint
+npx tsc --noEmit   # Type check without emitting
+```
+
+---
+
+## Troubleshooting
+
+### Build errors with React Compiler
+The project uses the experimental React Compiler via `babel-plugin-react-compiler`. If you encounter issues:
+
+```bash
+# Disable React Compiler in next.config.ts
+const nextConfig = {
+  reactCompiler: false,
+};
+```
+
+### NextAuth session not persisting
+- Ensure `NEXTAUTH_SECRET` is set and is at least 32 characters
+- Verify `NEXTAUTH_URL` matches your actual deployment URL
+- Check that the backend `/auth/validate` endpoint is reachable
+
+### CORS errors when calling the backend
+Ensure the backend `CORS_ALLOWED_ORIGINS` includes your dashboard URL:
+```env
+# backend/.env
+cors_allowed_origins=["http://localhost:3000", "http://localhost:8081"]
+```
+
+### Tailwind CSS v4 classes not working
+Tailwind v4 uses CSS-first configuration. Check that `globals.css` imports the theme and that `@tailwindcss/postcss` is configured in `postcss.config.js`.
+
+### Path alias `@/*` not resolving
+The path alias is configured in `tsconfig.json`:
+```json
+"paths": { "@/*": ["./*"] }
+```
+Ensure imports use `@/components/...` relative to the `admin-dashboard/` root.
+
+---
+
+## Related Projects
+
+- [Mobile App](../Mobile/) — React Native (Expo) client for end-users
+- [Backend](../backend/) — FastAPI API server
+- [Job Spy Server](../Mobile/server/) — Standalone Python job scraping service
+
+---
+
+<p align="center">Built with Next.js, Tailwind CSS, and shadcn/ui.</p>

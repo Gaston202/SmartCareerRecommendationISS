@@ -15,20 +15,17 @@ from .base import JobDetails, JobSalary
 class LLMExtractor:
     """Extract job details using LLM via OpenRouter."""
 
-    PROMPT_TEMPLATE_PREFIX = '''Extract structured job info from this text.
-Return only valid JSON with exactly these keys:
+    PROMPT_TEMPLATE_PREFIX = '''Extract structured job info from this text and return ONLY a JSON object with exactly these keys:
 {"description":"","salary":"","skills":[]}
 
 Rules:
 - description: max 320 chars.
 - salary: short salary text if present, else "".
 - skills: up to 20 technical skills (strings).
-- No markdown and no extra keys.
+- No markdown, no reasoning, no explanation, no extra keys — ONLY the JSON object.
 
 Job text:
 '''
-
-    PROMPT_TEMPLATE_SUFFIX = "\n\nJSON only:"
 
     def __init__(self, api_key: Optional[str] = None, model: str = "nvidia/nemotron-3-super-120b-a12b:free"):
         """
@@ -83,11 +80,12 @@ Job text:
                 payload = {
                     "model": self.model,
                     "messages": [
-                        {"role": "system", "content": "You are a helpful assistant that extracts job data."},
+                        {"role": "system", "content": "You are a structured data extractor. Return ONLY valid JSON. No reasoning, no explanation, no markdown, no code blocks."},
                         {"role": "user", "content": prompt}
                     ],
                     "temperature": 0,
                     "max_tokens": output_limit,
+                    "response_format": {"type": "json_object"},
                 }
 
                 response = await self.client.post(
@@ -135,6 +133,9 @@ Job text:
                         continue
                     return {"description": "", "salary": "", "skills": []}
 
+                # Strip reasoning blocks produced by chain-of-thought models
+                llm_output = _strip_reasoning_blocks(llm_output)
+
                 # Clean the output (remove markdown code blocks if present)
                 # Remove ```json or ``` and ```
                 cleaned = re.sub(r'^```json\s*|```$', '', llm_output, flags=re.MULTILINE).strip()
@@ -160,8 +161,11 @@ Job text:
 
                     if not recovered:
                         # Try to extract JSON from the output more aggressively
-                        # Sometimes the LLM adds extra text before/after
-                        json_match = re.search(r'\{.*\}', llm_output, re.DOTALL)
+                        # Reasoning models often put JSON at the end after verbose thinking.
+                        # Try the last JSON-like block first, then fall back to the first.
+                        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}(?!.*\{)', llm_output, re.DOTALL)
+                        if not json_match:
+                            json_match = re.search(r'\{.*\}', llm_output, re.DOTALL)
                         if json_match:
                             try:
                                 data = json.loads(json_match.group(0))
@@ -280,6 +284,23 @@ Job text:
             recovered["skills"] = [s.strip() for s in items if s and s.strip()][:20]
 
         return recovered
+
+
+def _strip_reasoning_blocks(text: str) -> str:
+    """Remove reasoning/thinking blocks from model output before JSON parsing.
+
+    Handles chain-of-thought tags from various model families:
+    - <thinking> ... </thinking>
+    - <reasoning> ... </reasoning>
+    - <thought> ... </thought>
+    - <think> ... </think>
+    """
+    # Remove XML-style reasoning tags
+    text = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<reasoning>.*?</reasoning>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<thought>.*?</thought>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    return text.strip()
 
 
 async def extract_with_llm(html_or_text: str, api_key: Optional[str] = None) -> Dict[str, Any]:

@@ -111,7 +111,7 @@ async def get_my_career_matches(user_id: str, limit: int = 5) -> dict:
             average_salary, salary_range_min, salary_range_max, growth_rate, demand_level
         )
         """
-    ).eq("user_id", user_id).order("ranking", asc=True).limit(limit).execute()
+    ).eq("user_id", user_id).order("ranking", desc=False).limit(limit).execute()
 
     rows = resp.data or []
 

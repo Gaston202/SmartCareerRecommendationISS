@@ -12,7 +12,7 @@ class AIConfig:
     MODELS: Dict[str, str] = {
         "quiz": "openrouter/free",
         "quiz_results": "openrouter/free",
-        "cv": "openrouter/free",
+        "cv": "openrouter/owl-alpha",
         "roadmap": "openrouter/free",
         "explanation": "openrouter/free",
         "chatbot": settings.ollama_chatbot_model,

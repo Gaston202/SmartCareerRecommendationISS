@@ -24,6 +24,7 @@ INTENT_TIER_MAP = {
     "search": AutonomyTier.INFO_LOOKUP,
     "career_info": AutonomyTier.INFO_LOOKUP,
     "explain_feature": AutonomyTier.INFO_LOOKUP,
+    "profile": AutonomyTier.INFO_LOOKUP,
     "general": AutonomyTier.RECOMMENDATION,
     "user_sessions": AutonomyTier.INFO_LOOKUP,
     "booking": AutonomyTier.BOUNDED_EXECUTION,

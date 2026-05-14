@@ -349,6 +349,9 @@ class CareerService:
             if cv_data_row:
                 cv_skills = cv_data_row.get('extracted_skills', []) or []
                 cv_interests = cv_data_row.get('extracted_interests', []) or []
+            else:
+                logger.warning(f"[{trace_id}] CV analysis {resolved_cv_analysis_id} not found; skipping match result persistence.")
+                resolved_cv_analysis_id = None
 
         user_skills = list(dict.fromkeys(quiz_profile['skills'] + cv_skills))
         user_interests = list(dict.fromkeys(quiz_profile['interests'] + cv_interests))

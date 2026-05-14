@@ -31,12 +31,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const { data: userData } = await supabase
           .from('users')
-          .select('full_name, name, role, avatar')
+          .select('name, role, avatar')
           .eq('id', baseUser.id)
           .maybeSingle();
 
         if (userData) {
-          fullName = baseUser.user_metadata?.full_name || userData.full_name || userData.name || null;
+          fullName = baseUser.user_metadata?.full_name || userData.name || null;
           avatar = userData.avatar || null;
           if (userData.role === 'mentor') {
             role = 'mentor';
@@ -128,9 +128,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const metadataName = data.user.user_metadata?.full_name;
           if (metadataName) {
             await supabase.from('users')
-              .update({ name: metadataName, full_name: metadataName })
+              .update({ name: metadataName })
               .eq('id', data.user.id)
-              .is('full_name', null);
+              .is('name', null);
           }
         }
       },
@@ -151,7 +151,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             id: data.user.id,
             email: data.user.email ?? email,
             name: metadata?.fullName ?? null,
-            full_name: metadata?.fullName ?? null,
             role,
             status: 'active',
             phone: metadata?.phone ?? null,

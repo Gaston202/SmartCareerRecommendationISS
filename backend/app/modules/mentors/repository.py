@@ -95,25 +95,17 @@ class MentorRepository:
         return result.data or []
 
     def create_session(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        result = (
-            sb.from_("mentor_sessions")
-            .insert(payload)
-            .select()
-            .single()
-            .execute()
-        )
-        return result.data
+        result = sb.from_("mentor_sessions").insert(payload).execute()
+        return result.data[0] if result.data else {}
 
     def update_session(self, session_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
         result = (
             sb.from_("mentor_sessions")
             .update(updates)
             .eq("id", session_id)
-            .select()
-            .single()
             .execute()
         )
-        return result.data
+        return result.data[0] if result.data else {}
 
     # ------------------------------------------------------------------
     # Availability
@@ -180,14 +172,8 @@ class MentorRepository:
         return result.data or []
 
     def create_review(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        result = (
-            sb.from_("mentor_reviews")
-            .insert(payload)
-            .select()
-            .single()
-            .execute()
-        )
-        return result.data
+        result = sb.from_("mentor_reviews").insert(payload).execute()
+        return result.data[0] if result.data else {}
 
     # ------------------------------------------------------------------
     # Group chats
@@ -224,14 +210,8 @@ class MentorRepository:
         return result.data or []
 
     def send_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        result = (
-            sb.from_("chat_messages")
-            .insert(payload)
-            .select()
-            .single()
-            .execute()
-        )
-        return result.data
+        result = sb.from_("chat_messages").insert(payload).execute()
+        return result.data[0] if result.data else {}
 
     def delete_message(self, message_id: str) -> None:
         sb.from_("chat_messages").delete().eq("id", message_id).execute()

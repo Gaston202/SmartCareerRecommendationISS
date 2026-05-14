@@ -126,6 +126,9 @@ async def llm_response_node(state: Dict[str, Any], orchestrator: Optional[AIOrch
     """Generate a contextual response using the LLM.
 
     Falls back to a static message if the LLM is unavailable.
+    If the previous node already produced a complete assistant response, reuse it
+    instead of calling the LLM again (prevents empty-content fallbacks when the
+    conversation already ends with an assistant message).
     """
     if orchestrator is None:
         logger.warning("llm_response_node: no orchestrator available, returning fallback")
@@ -133,6 +136,20 @@ async def llm_response_node(state: Dict[str, Any], orchestrator: Optional[AIOrch
             "messages": [AIMessage(content="I'm here to help! What would you like to know about your career journey?")],
             "current_intent": state.get("current_intent", Intent.GENERAL),
         }
+
+    # If the last message is already a non-empty assistant response from a prior
+    # node (profile, career_info, user_sessions, explain_feature, fallback, etc.),
+    # skip the redundant LLM call to avoid empty-content fallbacks.
+    state_messages = state.get("messages", [])
+    if state_messages:
+        last = state_messages[-1]
+        if hasattr(last, "type") and last.type in ("ai", "assistant"):
+            content = last.content if hasattr(last, "content") else str(last)
+            if content:
+                return {
+                    "messages": [AIMessage(content=content)],
+                    "current_intent": state.get("current_intent", Intent.GENERAL),
+                }
 
     try:
         messages = _format_messages_for_llm(state)
